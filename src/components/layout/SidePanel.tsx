@@ -5,6 +5,7 @@ import PalettePanel from "../panels/PalettePanel";
 import LineToolOptions from "../sidebar/LineToolOptions";
 import SelectToolOptions from "../sidebar/SelectToolOptions";
 import FillToolOptions from "../sidebar/FillToolOptions";
+import EraserToolOptions from "../sidebar/EraserToolOptions";
 
 type SidebarTab = "layers" | "palette";
 
@@ -27,7 +28,7 @@ const SidePanel: Component = () => {
             <FillToolOptions />
           </Match>
           <Match when={activeTool() === "eraser"}>
-            <div class="placeholder">Eraser: click vertices to remove</div>
+            <EraserToolOptions />
           </Match>
         </Switch>
       </div>

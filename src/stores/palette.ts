@@ -75,3 +75,17 @@ export function updateColor(index: number, color: PaletteColor) {
     }),
   );
 }
+
+/**
+ * Replace the entire palette with a new set of colors and optionally update the palette name.
+ */
+export function replaceAllColors(colors: PaletteColor[], name?: string) {
+  setProjectStore(
+    produce((state) => {
+      if (!state.project) return;
+      state.project.palette.colors = colors;
+      if (name) state.project.palette.name = name;
+      state.dirty = true;
+    }),
+  );
+}

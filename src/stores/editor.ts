@@ -12,6 +12,7 @@ import { clamp } from "../lib/math";
 export interface EditorState {
   activeTool: ToolType;
   activeColorIndex: number;
+  activeLayerId: string | null;
   strokeWidth: number;
   curveMode: boolean;
   viewport: ViewportState;
@@ -29,6 +30,7 @@ export interface EditorState {
 const initialState: EditorState = {
   activeTool: "line",
   activeColorIndex: 1, // index 0 is typically "none" / transparent
+  activeLayerId: null,
   strokeWidth: DEFAULT_STROKE_WIDTH,
   curveMode: true,
   viewport: { panX: 0, panY: 0, zoom: 1 },
@@ -49,6 +51,12 @@ export const [editorStore, setEditorStore] = createStore<EditorState>(initialSta
 
 export function setActiveTool(tool: ToolType) {
   setEditorStore("activeTool", tool);
+}
+
+// --- Active layer ---
+
+export function setActiveLayerId(layerId: string | null) {
+  setEditorStore("activeLayerId", layerId);
 }
 
 // --- Color & stroke ---

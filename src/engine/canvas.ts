@@ -26,6 +26,8 @@ export interface CanvasRenderer {
   getActiveTool(): CanvasTool | null;
   /** Get a tool by name */
   getTool(name: ToolType): CanvasTool;
+  /** Get the CSS cursor for the active tool */
+  getCursor(): string;
 }
 
 /**
@@ -239,6 +241,11 @@ export function createCanvasRenderer(canvas: HTMLCanvasElement): CanvasRenderer 
     return tools[name];
   }
 
+  function getCursor(): string {
+    const tool = getActiveTool();
+    return tool?.cursor ?? "default";
+  }
+
   /**
    * Main render function, called each frame.
    */
@@ -341,5 +348,6 @@ export function createCanvasRenderer(canvas: HTMLCanvasElement): CanvasRenderer 
 
     getActiveTool,
     getTool,
+    getCursor,
   };
 }

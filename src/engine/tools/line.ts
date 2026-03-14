@@ -16,6 +16,7 @@ import {
   addCurrentStrokeVertex,
   clearCurrentStroke,
   setCurrentStrokeVertices,
+  toggleCurveMode,
 } from "../../stores/editor";
 import { updateSprite, getActiveSprite } from "../../stores/project";
 import { paletteColorCSS } from "../../stores/palette";
@@ -166,6 +167,7 @@ function finishStroke() {
 export function createLineTool(): CanvasTool {
   return {
     name: "line",
+    cursor: "crosshair",
 
     onPointerDown(_e: PointerEvent, canvasPos: Vec2) {
       const snapped = snapToGrid(canvasPos, editorStore.gridSize, editorStore.gridMode);
@@ -247,6 +249,9 @@ export function createLineTool(): CanvasTool {
       } else if (e.key === "Enter" && editorStore.isDrawing) {
         // Finish current stroke
         finishStroke();
+      } else if ((e.key === "c" || e.key === "C") && !e.ctrlKey && !e.metaKey) {
+        // Toggle curve mode (fallback in case CanvasView doesn't handle it)
+        toggleCurveMode();
       }
     },
 

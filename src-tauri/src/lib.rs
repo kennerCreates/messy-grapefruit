@@ -12,6 +12,7 @@ pub fn run() {
             commands::file::new_sprite,
             commands::file::open_sprite,
             commands::file::save_sprite,
+            commands::palette::fetch_lospec_palette,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

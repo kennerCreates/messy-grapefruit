@@ -67,6 +67,11 @@ const CanvasView: Component = () => {
     const canvasPos = clientToCanvas(e.clientX, e.clientY);
     setCursorPos({ x: canvasPos.x, y: canvasPos.y });
 
+    // Update cursor style based on active tool
+    if (renderer && canvasRef) {
+      canvasRef.style.cursor = isPanning ? "grabbing" : renderer.getCursor();
+    }
+
     if (isPanning) {
       const dx = e.clientX - panStartScreen.x;
       const dy = e.clientY - panStartScreen.y;
@@ -154,6 +159,9 @@ const CanvasView: Component = () => {
     renderer = createCanvasRenderer(canvasRef);
     renderer.start();
 
+    // Set initial cursor based on active tool
+    canvasRef.style.cursor = renderer.getCursor();
+
     // Resize observer
     resizeObserver = new ResizeObserver(() => {
       updateCanvasSize();
@@ -196,7 +204,7 @@ const CanvasView: Component = () => {
           position: "absolute",
           top: "0",
           left: "0",
-          cursor: "crosshair",
+          cursor: "default",
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
