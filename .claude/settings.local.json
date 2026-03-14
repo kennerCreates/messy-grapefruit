@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/code/2026Q1/messy-grapefruit -type f -name .*)",
+      "WebFetch(domain:lospec.com)",
+      "Bash(git -C /c/code/2026Q1/messy-grapefruit log --oneline --all)",
+      "WebFetch(domain:v2.tauri.app)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:www.solidjs.com)"
+    ]
+  }
+}
