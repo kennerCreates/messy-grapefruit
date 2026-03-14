@@ -2,13 +2,13 @@
 
 ## Context
 
-Building a Tauri desktop app (Rust backend + SolidJS frontend) for creating animated SVG sprites for a 2D isometric Bevy game. The tool draws vector art using lines/curves with an indexed color palette, animates via keyframes with editable easing curves, and auto-exports PNG spritesheets + RON metadata that Bevy hot-reloads.
+Building a Tauri desktop app (Rust backend + SolidJS frontend) for creating animated SVG sprites for a 2D isometric Bevy game. The art style targets **high-resolution isometric line art** (similar to *They Are Billions*), not pixel art. The tool draws vector art using lines/curves with an indexed color palette, animates via keyframes with editable easing curves, and exports runtime bone animation data (RON) + texture atlases that Bevy hot-reloads.
 
 ---
 
 ## Architecture
 
-- **Tauri v2** — Rust backend for file I/O, SVG generation, PNG rasterization (`resvg`), spritesheet packing, file watching (`notify`), RON export
+- **Tauri v2** — Rust backend for file I/O, SVG generation, PNG rasterization (`resvg`), texture atlas packing, file watching (`notify`), RON export
 - **SolidJS + TypeScript** — Frontend with HTML Canvas 2D for drawing, SolidJS stores for reactive state
 - **HTML Canvas 2D** — Drawing surface. Native `lineCap="round"`, `lineJoin="round"`, `Path2D`, `bezierCurveTo`, `isPointInStroke` for hit-testing
 - **JSON file format** — `.sprite` (per sprite) and `.spriteproj` (project overview). Human-readable, diffable, trivial serde
@@ -34,17 +34,39 @@ Project (.spriteproj file)
 Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:1, no scale factor)
 ├── id, name, canvasWidth, canvasHeight, backgroundColorIndex (default 0/transparent)
 ├── layers: Layer[]
-│   └── Layer { id, name, visible, locked, elements: Element[] }
-│       └── StrokeElement { id, vertices: PathVertex[], closed, strokeWidth,
-│           strokeColorIndex, fillColorIndex, position, rotation, scale, origin: Vec2 }
+│   └── Layer { id, name, visible, locked, elements: Element[],
+│         socket?: { parentElementId, parentVertexId } }  // if set, layer follows this vertex
+│       └── Element = StrokeElement | IKTargetElement
+│           StrokeElement { id, type: "stroke", vertices: PathVertex[], closed, strokeWidth,
+│               strokeColorIndex, fillColorIndex, position, rotation, scale, origin: Vec2,
+│               constraints?: ElementConstraints }
+│           IKTargetElement { id, type: "ik-target", position: Vec2, ikChainId: string }
+│               (lightweight — no vertices/strokes, renders as crosshair icon on canvas)
 │           └── PathVertex { id, pos: Vec2, cp1?: Vec2, cp2?: Vec2 }
 │               (cp1/cp2 = cubic bezier handles; absent = straight line)
 │               (origin = user-defined pivot point for rotation/scale, snaps to grid)
+│
+│   ElementConstraints {
+│     volumePreserve?: boolean,                          // scale_x = 1/scale_y
+│     lookAt?: { targetElementId, targetVertexId?,       // aim at element origin or specific vertex
+│       restAngle, minAngle, maxAngle, mix, smooth?: { frequency, damping } }
+│     physics?: { frequency, damping, mix,               // spring follow
+│       gravity?: { angle, strength },                   // constant force (angle in degrees, 270 = down)
+│       wind?: { strength, frequency } }                 // sinusoidal force
+│     procedural?: ProceduralModifier[]                  // additive oscillation
+│   }
+│   ProceduralModifier { property, waveform: "sine"|"noise", amplitude, frequency, phase, blend: "additive"|"multiplicative" }
 └── animations: AnimationSequence[]
-    └── AnimationSequence { id, name, duration, looping, tracks: PropertyTrack[] }
+    └── AnimationSequence { id, name, duration, looping, tracks: PropertyTrack[], ikChains: IKChain[] }
         └── PropertyTrack { property, elementId, layerId, keyframes: Keyframe[] }
             └── Keyframe { id, time, value, easing: EasingCurve }
                 └── EasingCurve { preset, controlPoints: [x1,y1,x2,y2] }
+        └── IKChain { id, name, layerIds: string[],       // ordered root→tip socket chain
+              targetElementId: string,                       // references an IKTargetElement (keyframe its position via PropertyTrack)
+              mix: number,                                   // 0=FK, 1=IK, keyframeable via PropertyTrack on the IKTargetElement
+              bendDirection: 1|-1,                           // sign flip for 2-bone
+              solver: "two-bone"|"fabrik",                   // analytical or iterative
+              angleConstraints?: { layerId, min, max }[] }   // per-joint angle limits (2-bone only initially)
 ```
 
 **Animatable properties**: `position.x`, `position.y`, `rotation`, `scale.x`, `scale.y`, `strokeColorIndex`, `fillColorIndex`, `vertex.{id}.x`, `vertex.{id}.y`, `visible`
@@ -63,6 +85,8 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 
 ### Auto-merge vertices
 When a vertex is placed at the same grid position as an existing vertex on the same layer, the elements **fuse into a single StrokeElement** with a combined vertex list. This enables connected paths and joined shapes. The merge is based on exact grid-snapped coordinates. Cross-element merges fuse the two elements; same-element merges close the path. Undo captures the pre-merge state of both elements so the merge can be fully reversed.
+
+**Visual merge preview**: When placing a vertex near an existing vertex that would trigger a merge, the target vertex/element highlights and a snap indicator appears. This makes the merge behavior predictable and avoids surprise fusions.
 
 ### Curve handles & straight/curve toggle
 - **Auto-curve is the default**: When placing vertices, control points are auto-generated using Catmull-Rom → cubic bezier conversion. Endpoints use duplicated-endpoint phantom points (zero curvature / straight tangent at path ends)
@@ -95,7 +119,7 @@ Grid density changes automatically with zoom level:
 - Layers are groups containing multiple elements. Elements render in creation order within a layer; layers render bottom-to-top
 - **Add** new layer
 - **Remove** layer
-- **Combine** (merge two layers into one)
+- **Combine** (merge two layers into one). If either layer is socketed, the combined layer keeps the socket of the *top* layer (or drops it if only the bottom was socketed — user should detach first). If either layer is a socket parent for other layers, those child references update to point to the combined layer
 - **Move** (drag to reorder)
 - Visibility toggle, lock toggle
 
@@ -107,6 +131,7 @@ Grid density changes automatically with zoom level:
 - Click to select, shift-click for multi-select, drag for marquee selection
 - Ctrl+C/V for copy/paste, Delete key to remove
 - Drag to move, handles for scale/rotate (pivot = element's user-defined origin, snaps to grid)
+- **Copy/paste**: Paste creates a new layer containing copies of the selected elements. All pasted elements get new IDs. Animation tracks and socket references are not copied. Pasted layer is positioned with a small offset (+10, +10) from the original
 
 ### Palette constraints
 - Max 256 colors. Index 0 = transparent/none
@@ -114,8 +139,63 @@ Grid density changes automatically with zoom level:
 - Sprites require project context to open (no standalone palette)
 
 ### Isometric grid
-- 2:1 pixel ratio (26.57°), standard pixel-art isometric
+- 2:1 pixel ratio (26.57°), standard isometric
 - Snapping follows iso-grid intersections
+
+### Layer sockets (transform parenting)
+- A layer can be **socketed** to a vertex on any element in another layer. The socketed layer inherits the **position and rotation** of the parent vertex (scale stays independent)
+- Any existing vertex can serve as a socket point — no special vertex type needed. Attach via the layer panel or a context menu
+- Socket chains can be unlimited depth (arm → hand → weapon → gem). The renderer walks the chain root-to-leaf, accumulating position + rotation at each level
+- Circular socket references are rejected at assignment time
+- When the parent vertex is animated, the socketed layer follows automatically — no need to duplicate keyframes
+- Socketed layers still have their own local position/rotation/scale (applied as offset relative to the parent vertex)
+- Deleting a socket parent vertex shows a warning and detaches any socketed child layers (they snap to their current world-space position)
+
+### Procedural Animation
+
+**Evaluation order** (per frame, must be stepped sequentially from frame 0 due to stateful physics):
+1. Evaluate FK from keyframes (interpolate all property tracks)
+2. Initial socket chain walk: compute world-space positions for all joints (needed by IK solver)
+3. Solve IK chains (blended with FK via per-chain `mix`). IK bone length = distance from socket vertex to child layer's origin
+4. Apply constraints: look-at (atan2 + angle limits + optional spring smoothing), volume preservation (scale_x = 1/scale_y)
+5. Apply procedural modifiers: additive/multiplicative sine/noise
+6. Apply physics simulation: spring dynamics chase the post-modifier values as targets (semi-implicit Euler, world space). Convert result back to local space. Gravity/wind operate in world space
+7. Final socket chain walk: root-to-leaf, accumulating position + rotation with all modifications applied
+
+**Inverse Kinematics (IK)**
+- **2-bone analytical solver**: Law of cosines. Covers arms/legs. Exact, no iteration. Bend direction is a +1/−1 sign flip on the offset angle
+- **FABRIK solver**: For chains longer than 2 (tails, tentacles, spines). Forward-backward reaching, 3–10 iterations. Add tiny perturbation to avoid collinear deadlock
+- **IK target**: A lightweight canvas element (position + crosshair icon, no vertices/strokes). Draggable on canvas, keyframeable via normal PropertyTrack. One target element per IK chain, lives on the chain's tip layer
+- **FK/IK mix**: A keyframeable 0–1 parameter per chain. At 0 = pure FK keyframes, at 1 = pure IK. Animate the mix to smoothly transition mid-timeline (Spine-style)
+- **Angle constraints**: Per-joint min/max angle relative to parent bone. Start with 2-bone only; skip for FABRIK initially
+- **Bone length**: Distance from the socket vertex (on parent element) to the child layer's origin point. Computed from the rest pose
+- IK chains are defined over sequences of socketed layers — the socket chain is the bone hierarchy
+
+**Spring / Jiggle Physics**
+- Per-element opt-in constraint. The spring chases the element's keyframed+IK+constraint-solved position as its target
+- Parameters: **frequency** (Hz, 0.1–10, default 2), **damping** ratio (0–2, default 0.5), **mix** (0–1)
+- **Gravity**: constant force with configurable angle (270° = down) and strength. Default 0 (opt-in)
+- **Wind**: sinusoidal force with configurable strength and frequency. Default 0 (opt-in)
+- Integration: semi-implicit Euler (`velocity += force * dt; position += velocity * dt`). Simulates in **world space** (so gravity/wind directions are absolute), result converted back to local space for the socket chain
+- Spring state resets when animation restarts (snap to FK pose)
+
+**Squash & Stretch**
+- Per-element `volumePreserve` toggle. When enabled, `scale_x = 1 / scale_y` is enforced automatically
+- Works with keyframed scale, IK, and physics — applied as a post-constraint fixup
+- Pivot is the element's `origin` point
+
+**Procedural Modifiers**
+- Per-element list of additive oscillations on any animatable property
+- Parameters: **waveform** (sine or Perlin noise), **amplitude**, **frequency** (Hz), **phase** (degrees), **blend** mode (additive or multiplicative)
+- Good for: idle breathing (sine on scale.y ~0.25Hz), floating (sine on position.y ~0.5Hz), flickering flames (noise on rotation)
+- Applied **before** physics, so spring dynamics can smooth procedural oscillation into organic secondary motion
+
+**Look-At Constraint**
+- Per-element constraint. Element rotates to face a target element (or a specific vertex on a target element)
+- Parameters: **restAngle** (default facing direction), **minAngle/maxAngle** (rotation limits relative to rest), **mix** (0–1, keyframeable)
+- Optional **spring smoothing**: instead of snapping to the target angle, smooth via damped spring (reuses frequency + damping params). Prevents mechanical snapping
+- Handles angle wrapping at ±π (shortest angular difference)
+- Good for: eyes tracking a point, turrets, head turns
 
 ### Undo/Redo
 - Single shared stack for all mutations (drawing + animation)
@@ -147,7 +227,7 @@ messy-grapefruit/
 │       ├── main.rs, lib.rs
 │       ├── commands/        (file.rs, export.rs, palette.rs, watcher.rs)
 │       ├── models/          (project.rs, animation.rs, palette.rs, export.rs)
-│       └── export/          (svg_gen.rs, rasterize.rs, spritesheet.rs, ron_meta.rs)
+│       └── export/          (svg_gen.rs, rasterize.rs, bone_export.rs, ron_meta.rs, spritesheet.rs)
 ├── src/
 │   ├── index.html, app.tsx
 │   ├── lib/                 (types.ts, tauri.ts, math.ts, history.ts, constants.ts)
@@ -158,6 +238,9 @@ messy-grapefruit/
 │   │   ├── snap.ts          (grid snapping)
 │   │   ├── hit-test.ts      (isPointInStroke/isPointInPath)
 │   │   ├── merge.ts         (auto-merge coincident vertices)
+│   │   ├── ik.ts            (2-bone analytical + FABRIK solvers)
+│   │   ├── physics.ts       (spring simulation, gravity, wind)
+│   │   ├── constraints.ts   (look-at, volume preserve, procedural modifiers)
 │   │   └── tools/           (base.ts, line.ts, select.ts, fill.ts, eraser.ts)
 │   ├── components/
 │   │   ├── layout/          (AppShell, Toolbar, SidePanel, StatusBar)
@@ -183,8 +266,8 @@ messy-grapefruit/
 |---------|---------|
 | `new_project` / `open_project` / `save_project` | Project file CRUD |
 | `new_sprite` / `open_sprite` / `save_sprite` | Sprite file CRUD |
-| `export_sprite(sprite, animation, output_dir, fps)` | Export one animation → PNG + RON |
-| `export_all(project, sprites)` | Export all sprites' animations |
+| `export_sprite(sprite, animation, output_dir, mode)` | Export one animation → spritesheet or runtime bone data |
+| `export_all(project, sprites, mode)` | Export all sprites' animations |
 | `fetch_lospec_palette(slug)` | Fetch palette from lospec.com JSON API |
 | `start_watcher(watch_dir, output_dir)` / `stop_watcher` | File watcher for auto re-export |
 
@@ -192,26 +275,48 @@ messy-grapefruit/
 
 ## Export Pipeline
 
+### Primary: Runtime bone animation (skeletal animations)
+
 ```
-Sprite + AnimationSequence + time t
-  → Evaluate all PropertyTracks at t (interpolate values, apply easing)
-  → Build SVG string from transformed elements + resolved palette colors
-  → Rasterize SVG → PNG via resvg/usvg/tiny_skia
-  → Repeat for each frame (duration / fps)
-  → Fill frame background with sprite's backgroundColorIndex (if non-transparent)
-  → Pack frames into spritesheet atlas (uniform NxM grid layout)
+Sprite
+  → Rasterize each element as a separate PNG (body parts)
+  → Pack part PNGs into a single texture atlas
+  → Export animation data as RON:
+    → Per-element: texture region, origin point, socket parent reference
+    → Per-animation: keyframes with interpolation info, IK chain definitions,
+      physics/constraint parameters, procedural modifier params
+  → Bevy runtime component reads RON, assembles parts, evaluates animation at 60 FPS
+```
+
+Runtime bone export produces smaller textures and smooth full-framerate animation. Requires a Bevy-side runtime component that evaluates the animation pipeline (FK → IK → constraints → physics → procedural → socket transforms). This is the primary export path — high-res line art sprites would produce prohibitively large spritesheets at decent frame rates.
+
+### Secondary: Spritesheet (simple assets, lower priority)
+
+```
+Sprite + AnimationSequence
+  → Step sequentially from frame 0 at configurable FPS:
+    → Full evaluation pipeline (FK → IK → constraints → procedural → physics → socket walk)
+    → Build SVG string from transformed elements + resolved palette colors
+    → Rasterize SVG → PNG via resvg/usvg/tiny_skia
+    → Fill frame background with sprite's backgroundColorIndex (if non-transparent)
+  → Pack all frames into spritesheet atlas (uniform NxM grid layout)
   → Write atlas.png + metadata.ron (Bevy TextureAtlasLayout-compatible)
 ```
 
-RON metadata maps directly to Bevy's `TextureAtlasLayout::from_grid()` — includes sprite name, texture path, tile size, columns, rows, frame count, fps, looping flag.
+Useful for VFX, particles, UI elements, and simple environmental props that don't warrant a bone rig. Spritesheet FPS is configurable (default 12). RON metadata maps to Bevy's `TextureAtlasLayout::from_grid()`.
 
-Auto-export triggers on save. Watcher mode re-exports **only the changed sprite** on `.sprite` file changes. Bevy hot-reloads from the output directory.
+### Shared behavior
+
+- **Preview** runs at 60 FPS in the editor (matches game target)
+- Auto-export triggers on save. Watcher mode re-exports **only the changed sprite** on `.sprite` file changes. Bevy hot-reloads from the output directory
 
 ---
 
 ## Undo/Redo
 
 Command pattern — every mutation wraps in `{ execute(), undo() }` pushed to a single shared history stack (drawing + animation edits combined). SolidJS store mutations go through this. Ctrl+Z/Ctrl+Y navigate the stack. The redo stack clears on new actions.
+
+**Physics & undo**: Undoing a physics/constraint parameter change rewinds the playhead to frame 0. This avoids stale simulation state — physics must be stepped sequentially from frame 0, so replaying from the start is the only correct option.
 
 ---
 
@@ -237,7 +342,7 @@ Command pattern — every mutation wraps in `{ execute(), undo() }` pushed to a 
 The right sidebar has two zones:
 - **Top zone (context-sensitive):** Content changes based on the active tool/mode
   - *Line tool* → stroke width slider, curve/straight toggle, active color
-  - *Select tool* → position, rotation, scale, origin point
+  - *Select tool* → position, rotation, scale, origin point, constraints (IK, physics, look-at, volume preserve, procedural modifiers — shown when element has them)
   - *Fill tool* → active color selector
   - *Eraser tool* → (minimal or empty)
   - *Settings mode* → palette management, theme toggle, grid config
@@ -261,7 +366,7 @@ The right sidebar has two zones:
 - Grid snapping
 - **Line tool**: click to place vertices, auto-curve default (Catmull-Rom, duplicated endpoints), double-click to finish
 - **Curve handles**: show/drag cp1/cp2 on selected vertices
-- **Auto-merge**: detect and fuse elements when vertices coincide on same layer
+- **Auto-merge**: detect and fuse elements when vertices coincide on same layer, with visual preview indicator (highlight target vertex/element before merge)
 
 ### Phase 2: Drawing Completeness
 - Straight/curve hotkey toggle (`C` key)
@@ -279,8 +384,10 @@ The right sidebar has two zones:
 
 ### Phase 3: Animation System
 - Timeline component with time axis, tracks, playhead
+- **Animation sequence tabs** at top of timeline panel: click to switch, right-click to rename/delete, + button to create new sequence
 - Keyframe track per property (tracks reference vertex IDs, not indices)
 - Animation player controls: **play/pause**, **start over** (jump to frame 0), **skip backward** (jump to previous keyframe), **skip forward** (jump to next keyframe), loop toggle
+- Preview playback at 60 FPS
 - Keyframe interpolation (linear + cubic bezier easing)
 - Canvas renderer wired to animation currentTime
 - Curve editor (visual bezier with draggable control points)
@@ -288,38 +395,77 @@ The right sidebar has two zones:
 - Vertex position animation (stable vertex IDs)
 - Color index step animation (hold-previous interpolation)
 - Rotation/scale animation uses element's user-defined origin as pivot
+- **Layer sockets**: attach a layer to a parent vertex, inherit position + rotation, unlimited chain depth. Socket UI in layer panel. Circular reference detection. Warning on parent vertex deletion
 
-### Phase 4: Export Pipeline
+### Phase 4a: Inverse Kinematics
+- **2-bone analytical IK solver**: law of cosines, bend direction sign flip, keyframeable target position + mix
+- **FABRIK solver**: forward-backward reaching for chains > 2, perturbation for collinear cases
+- IK chain definition UI: select socketed layers to form a chain, set solver type
+- IK target as draggable canvas point, keyframeable on the timeline
+- Per-joint angle constraints (min/max) for 2-bone chains
+- FK/IK mix wired to evaluation pipeline (FK → socket walk → IK → final socket walk)
+- Unit tests for IK solver math (law of cosines, FABRIK convergence, angle constraints, bend direction)
+
+### Phase 4b: Constraints & Dynamics
+- **Spring/jiggle physics**: per-element constraint with frequency, damping, mix sliders. Semi-implicit Euler integration
+- **Gravity + wind**: per-physics-constraint forces, gravity angle/strength, wind strength/frequency. Default 0
+- Spring state reset on animation restart
+- **Squash & stretch**: per-element volume-preserve toggle, scale_x = 1/scale_y
+- **Procedural modifiers**: per-element sine/noise oscillation on any property. Amplitude, frequency, phase, blend mode
+- **Look-at constraint**: per-element aim at target element/vertex, rest angle, angle limits, mix, optional spring smoothing
+- Full evaluation pipeline wired in correct order: FK → IK → constraints → procedural → physics → socket transforms
+- Constraint parameters exposed in the select tool's context-sensitive sidebar panel
+- **Visual debug overlays**: render bone chains, IK targets, constraint gizmos, spring targets as toggleable canvas overlays (for authoring and debugging)
+- Unit tests for spring integrator, angle wrapping, Catmull-Rom conversion, procedural waveforms
+
+### Phase 5: Export Pipeline
 - `svg_gen.rs`: Sprite + time → SVG string (with backgroundColorIndex fill)
 - `rasterize.rs`: SVG → PNG via resvg
-- `spritesheet.rs`: frames → uniform grid atlas PNG
-- `ron_meta.rs`: generate Bevy TextureAtlasLayout-compatible RON metadata
+- `bone_export.rs`: element → individual part PNGs + animation data RON for runtime bone mode (primary export path)
+- `ron_meta.rs`: generate Bevy-compatible RON metadata
 - Wire export commands
 - Auto-export on save
 - File watcher with `notify` crate (re-exports only the changed sprite)
 
-### Phase 5: Project Overview & Polish
+### Phase 6: Project Overview & Polish
 - Project overview page (freeform dashboard — 2D canvas with draggable sprite thumbnails for organization, no game-spatial meaning)
 - Sprite arrangement (position, rotation, z-order for dashboard layout)
 - Project file save/load (sprites require project context)
 - New sprite dialog
 - Keyboard shortcuts
 - File dialogs (Tauri dialog plugin)
+- **Spritesheet export** (secondary, lower priority): `spritesheet.rs` for simple assets (VFX, particles, props). Configurable FPS, uniform grid atlas + TextureAtlasLayout RON
 - UI polish
+
+---
+
+## Testing Strategy
+
+- **Unit tests on engine math**: IK solvers (law of cosines, FABRIK convergence, angle constraints, bend direction), spring integrator (convergence, energy conservation), angle wrapping (±π), Catmull-Rom → cubic bezier conversion, procedural waveform generators. These are pure functions — easy to test, high regression value.
+- **Visual debug overlays**: Toggleable canvas overlays that render bone chains, IK targets, constraint gizmos, and spring targets. Not automated, but essential for authoring and debugging procedural animation. Built during Phase 4b.
+- **Round-trip save/load tests**: If serialization bugs appear, add targeted tests for `.sprite` / `.spriteproj` round-trips via serde.
 
 ---
 
 ## Verification
 
-1. **Drawing**: Open app → see dot grid → draw lines with auto-curve → verify snap to grid → drag curve handles → confirm auto-merge fuses elements when vertices coincide → verify vertex IDs are stable after merge
+1. **Drawing**: Open app → see dot grid → draw lines with auto-curve → verify snap to grid → drag curve handles → approach an existing vertex → verify merge preview highlights target → confirm auto-merge fuses elements when vertices coincide → verify vertex IDs are stable after merge
 2. **Palette**: Import lospec palette by slug → draw with indexed colors → change a palette color → verify all art using that index updates → verify 256 color max is enforced
 3. **Layers**: Add layers → draw on different layers → toggle visibility → reorder → combine → verify rendering order
 4. **Selection**: Click to select → shift-click multi-select → drag marquee → Ctrl+C/V copy/paste → Delete to remove → verify origin point is draggable and grid-snapped
 5. **Fill**: Fill closed path → verify fillColorIndex set → fill empty canvas → verify backgroundColorIndex set → verify background renders in export
 6. **Eraser**: Delete mid-path vertex → verify path splits into two elements → try erasing vertex on animated element → verify confirmation dialog appears → confirm split → verify tracks stay with correct elements
 7. **Animation**: Add keyframes on a property → set different easing presets → play animation → use skip forward/backward → verify interpolation and curve editor → verify color index uses hold-previous → verify rotation/scale pivots around origin → move playhead to non-zero time → draw new element → verify it has a visibility track (hidden before, visible after)
-8. **Lospec import**: Import a palette → verify it replaces the current one → verify existing elements remap by index → import a shorter palette → verify out-of-range indices fall back to transparent
-9. **Export**: Save sprite → check output directory for PNG spritesheet + RON file → verify uniform grid layout → verify RON is Bevy TextureAtlasLayout-compatible → test in a Bevy project with hot-reload
-10. **Autosave**: Make changes → wait 500ms → verify file saved automatically → switch tabs → verify save triggers → verify no "unsaved changes" dialogs
-11. **Navigation**: Double-click sprite card → verify editor tab opens → open multiple sprites → verify tabs work → verify project overview stays as first tab
-12. **Watcher**: Start watcher → modify and save a .sprite file externally → verify only that sprite re-exports (not all sprites)
+8. **Layer sockets**: Draw an arm element → draw a weapon on a separate layer → socket the weapon layer to a vertex on the arm → animate the arm → verify weapon follows → chain a third layer to the weapon → verify full chain works → try creating a circular reference → verify it's rejected → delete the socket vertex → verify warning and child detaches to world-space position
+9. **IK**: Create a 2-bone socket chain (upper arm → forearm → hand) → set up IK constraint → drag IK target → verify joints solve correctly → flip bend direction → verify elbow flips → animate IK target position → play → verify smooth tracking → animate mix from 0→1 → verify FK-to-IK transition → set angle constraints → verify elbow respects limits → create a 4-bone chain → switch to FABRIK → verify it solves
+10. **Spring physics**: Add physics constraint to a socketed layer → set frequency=2, damping=0.3 → animate parent → play → verify child overshoots and settles → add gravity (270°, moderate strength) → verify element sags downward → add wind → verify sinusoidal sway → restart animation → verify spring state resets
+11. **Squash & stretch**: Enable volume-preserve on an element → keyframe scale.y squash → verify scale.x automatically compensates → verify it works during animation playback
+12. **Procedural modifiers**: Add sine modifier on position.y (0.5Hz, small amplitude) → play → verify smooth floating motion → add noise modifier on rotation → verify organic wobble → verify modifiers layer additively on top of keyframed values
+13. **Look-at**: Add look-at constraint on an element → set target element → verify rotation follows target → set angle limits → verify clamping → enable spring smoothing → verify smooth tracking instead of snap → move target past angle limits → verify element stops at limit
+14. **Lospec import**: Import a palette → verify it replaces the current one → verify existing elements remap by index → import a shorter palette → verify out-of-range indices fall back to transparent
+15. **Export (runtime bone)**: Save sprite → check output directory for texture atlas + RON animation data → verify per-element part PNGs are packed correctly → verify RON contains keyframes, IK chains, physics params → test in a Bevy project with runtime evaluator + hot-reload → verify socketed layers and procedural animation work at 60 FPS
+16. **Export (spritesheet, if implemented)**: Export a simple VFX sprite → verify atlas PNG + TextureAtlasLayout RON → verify configurable FPS → verify physics bakes correctly via sequential evaluation
+17. **Autosave**: Make changes → wait 500ms → verify file saved automatically → switch tabs → verify save triggers → verify no "unsaved changes" dialogs
+18. **Navigation**: Double-click sprite card → verify editor tab opens → open multiple sprites → verify tabs work → verify project overview stays as first tab
+19. **Watcher**: Start watcher → modify and save a .sprite file externally → verify only that sprite re-exports (not all sprites)
+20. **Undo + physics**: Change a spring parameter mid-animation → undo → verify playhead rewinds to frame 0 → replay → verify simulation is correct
