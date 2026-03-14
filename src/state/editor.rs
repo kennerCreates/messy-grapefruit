@@ -138,6 +138,48 @@ pub struct MarqueeState {
 }
 
 
+/// State for dragging a control point handle (cp1/cp2)
+#[derive(Debug, Clone, Default)]
+pub struct HandleDragState {
+    /// Whether a handle is currently being dragged
+    pub is_dragging: bool,
+    /// Which element owns the vertex with the handle
+    pub element_id: Option<String>,
+    /// Which vertex owns the handle
+    pub vertex_id: Option<String>,
+    /// Which handle: true = cp1 (incoming), false = cp2 (outgoing)
+    pub is_cp1: bool,
+    /// The original handle position before drag (for undo)
+    pub original_pos: Option<Vec2>,
+}
+
+/// State for scale/rotate transform handles
+#[derive(Debug, Clone, Default)]
+pub struct TransformHandleState {
+    /// Whether a transform handle is being dragged
+    pub is_dragging: bool,
+    /// Which type of transform: "scale" or "rotate"
+    pub kind: TransformHandleKind,
+    /// Which corner (0=TL, 1=TR, 2=BR, 3=BL) for scale, or rotation start angle
+    pub handle_index: usize,
+    /// Starting mouse position in world space
+    pub start_world: Option<Vec2>,
+    /// Starting rotation angle (for rotate mode)
+    pub start_angle: f32,
+    /// Bounding box center (pivot point)
+    pub pivot: Option<Vec2>,
+    /// Snapshot of sprite before transform started (for undo)
+    pub before_snapshot: Option<crate::model::sprite::Sprite>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TransformHandleKind {
+    #[default]
+    None,
+    Scale,
+    Rotate,
+}
+
 /// Clipboard data for copy/paste
 #[derive(Debug, Clone)]
 pub struct ClipboardData {
@@ -266,6 +308,10 @@ pub struct EditorState {
     pub ik_target_drag_start: Option<crate::model::Vec2>,
     /// Debug overlay toggles
     pub debug_overlays: DebugOverlays,
+    /// State for dragging curve control point handles
+    pub handle_drag: HandleDragState,
+    /// State for scale/rotate transform handles
+    pub transform_handle: TransformHandleState,
 }
 
 impl Default for EditorState {
@@ -295,6 +341,8 @@ impl Default for EditorState {
             dragging_ik_target: None,
             ik_target_drag_start: None,
             debug_overlays: DebugOverlays::default(),
+            handle_drag: HandleDragState::default(),
+            transform_handle: TransformHandleState::default(),
         }
     }
 }

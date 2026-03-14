@@ -139,12 +139,46 @@ pub enum GridMode {
     Isometric,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportMode {
+    Bone,
+    Spritesheet,
+}
+
+impl std::fmt::Display for ExportMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExportMode::Bone => write!(f, "Bone (Runtime Animation)"),
+            ExportMode::Spritesheet => write!(f, "Spritesheet"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutMode {
+    Row,
+    Column,
+    Grid,
+}
+
+impl std::fmt::Display for LayoutMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LayoutMode::Row => write!(f, "Row"),
+            LayoutMode::Column => write!(f, "Column"),
+            LayoutMode::Grid => write!(f, "Grid"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportSettings {
-    pub mode: String,
+    pub mode: ExportMode,
     pub fps: u32,
-    pub layout: String,
+    pub layout: LayoutMode,
     pub trim: bool,
     pub padding: u32,
 }
@@ -152,9 +186,9 @@ pub struct ExportSettings {
 impl Default for ExportSettings {
     fn default() -> Self {
         Self {
-            mode: "bone".to_string(),
+            mode: ExportMode::Bone,
             fps: 12,
-            layout: "grid".to_string(),
+            layout: LayoutMode::Grid,
             trim: true,
             padding: 1,
         }

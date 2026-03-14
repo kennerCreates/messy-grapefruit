@@ -1,10 +1,9 @@
 //! Export preview dialog: shows atlas preview + RON metadata summary,
 //! allows adjusting settings before confirming export.
 
-use crate::model::project::ExportSettings;
+use crate::model::project::{ExportMode, ExportSettings, LayoutMode};
 
 /// State for the export dialog.
-#[derive(Debug, Clone)]
 #[derive(Default)]
 pub struct ExportDialogState {
     /// Whether the dialog is open.
@@ -21,8 +20,9 @@ pub struct ExportDialogState {
     pub last_export_status: Option<String>,
     /// Last time auto-export was triggered (to avoid re-exporting every frame).
     pub last_auto_export_time: Option<std::time::Instant>,
+    /// Atlas preview texture (rendered from preview data).
+    pub preview_texture: Option<egui::TextureHandle>,
 }
-
 
 /// Actions returned from the export dialog.
 pub enum ExportDialogAction {
@@ -62,16 +62,16 @@ pub fn draw_export_dialog(
             ui.horizontal(|ui| {
                 ui.label("Mode:");
                 egui::ComboBox::from_id_salt("export_mode")
-                    .selected_text(&state.settings.mode)
+                    .selected_text(state.settings.mode.to_string())
                     .show_ui(ui, |ui| {
                         ui.selectable_value(
                             &mut state.settings.mode,
-                            "bone".to_string(),
+                            ExportMode::Bone,
                             "Bone (Runtime Animation)",
                         );
                         ui.selectable_value(
                             &mut state.settings.mode,
-                            "spritesheet".to_string(),
+                            ExportMode::Spritesheet,
                             "Spritesheet",
                         );
                     });
@@ -101,25 +101,25 @@ pub fn draw_export_dialog(
                 ui.checkbox(&mut state.settings.trim, "Trim transparent borders");
             });
 
-            if state.settings.mode == "spritesheet" {
+            if state.settings.mode == ExportMode::Spritesheet {
                 ui.horizontal(|ui| {
                     ui.label("Layout:");
                     egui::ComboBox::from_id_salt("export_layout")
-                        .selected_text(&state.settings.layout)
+                        .selected_text(state.settings.layout.to_string())
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 &mut state.settings.layout,
-                                "row".to_string(),
+                                LayoutMode::Row,
                                 "Row",
                             );
                             ui.selectable_value(
                                 &mut state.settings.layout,
-                                "column".to_string(),
+                                LayoutMode::Column,
                                 "Column",
                             );
                             ui.selectable_value(
                                 &mut state.settings.layout,
-                                "grid".to_string(),
+                                LayoutMode::Grid,
                                 "Grid",
                             );
                         });
@@ -153,6 +153,17 @@ pub fn draw_export_dialog(
 
             if ui.button("Refresh Preview").clicked() {
                 actions.push(ExportDialogAction::RefreshPreview);
+            }
+
+            // Atlas image preview
+            if let Some(ref texture) = state.preview_texture {
+                ui.add_space(4.0);
+                let tex_size = texture.size_vec2();
+                let max_width = ui.available_width().min(480.0);
+                let scale = (max_width / tex_size.x).min(1.0);
+                let display_size = egui::vec2(tex_size.x * scale, tex_size.y * scale);
+                ui.image(egui::load::SizedTexture::new(texture.id(), display_size));
+                ui.add_space(4.0);
             }
 
             if !state.summary.is_empty() {

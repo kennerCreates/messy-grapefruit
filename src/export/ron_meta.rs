@@ -202,7 +202,7 @@ pub fn build_bone_animation_data(
                 .tracks
                 .iter()
                 .map(|track| TrackExport {
-                    property: format!("{:?}", track.property),
+                    property: track.property.export_name(),
                     element_id: track.element_id.clone(),
                     layer_id: track.layer_id.clone(),
                     keyframes: track
@@ -212,7 +212,7 @@ pub fn build_bone_animation_data(
                             time: kf.time,
                             value: kf.value,
                             easing: EasingExport {
-                                preset: format!("{:?}", kf.easing.preset),
+                                preset: kf.easing.preset.export_name().to_string(),
                                 control_points: kf.easing.control_points,
                             },
                         })
@@ -234,7 +234,7 @@ pub fn build_bone_animation_data(
                     target_element_id: chain.target_element_id.clone(),
                     mix: chain.mix,
                     bend_direction: chain.bend_direction,
-                    solver: format!("{:?}", chain.solver),
+                    solver: chain.solver.export_name().to_string(),
                     angle_constraints: chain
                         .angle_constraints
                         .iter()
@@ -295,11 +295,11 @@ pub fn build_bone_animation_data(
                 .iter()
                 .map(|pm| ProceduralExport {
                     property: pm.property.clone(),
-                    waveform: format!("{:?}", pm.waveform),
+                    waveform: pm.waveform.export_name().to_string(),
                     amplitude: pm.amplitude,
                     frequency: pm.frequency,
                     phase: pm.phase,
-                    blend: format!("{:?}", pm.blend),
+                    blend: pm.blend.export_name().to_string(),
                 })
                 .collect(),
         })

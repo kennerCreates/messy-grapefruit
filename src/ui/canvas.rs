@@ -5,7 +5,7 @@ use crate::math;
 use crate::model::project::{GridMode, Palette, Theme};
 use crate::model::sprite::{PathVertex, Skin, Sprite, StrokeElement};
 use crate::model::Vec2;
-use crate::state::editor::{EditorState, ToolKind};
+use crate::state::editor::{EditorState, HandleDragState, ToolKind};
 use crate::state::history::{History, SnapshotCommand};
 use crate::theme;
 use crate::ui::grid;
@@ -255,6 +255,18 @@ pub fn draw_canvas(
                 canvas_center,
                 current_theme,
             );
+
+            // --- Draw transform handles on selection bounding box ---
+            if editor_state.active_tool == ToolKind::Select
+                && !editor_state.selection.selected_element_ids.is_empty()
+            {
+                draw_transform_handles(
+                    &painter,
+                    sprite,
+                    editor_state,
+                    canvas_center,
+                );
+            }
 
             // --- Draw toast message ---
             if let Some(ref toast) = editor_state.toast {
@@ -1519,14 +1531,37 @@ fn handle_select_tool(
 ) {
     let shift_held = ctx.input(|i| i.modifiers.shift);
 
-    // Handle drag for moving selected elements, IK targets, or marquee selection
+    // Handle drag for moving selected elements, IK targets, handles, or marquee selection
     if response.drag_started_by(egui::PointerButton::Primary)
         && let Some(pos) = response.hover_pos() {
             let world_pos = editor_state.viewport.screen_to_world(Vec2::from(pos), canvas_center);
 
-            // First check if clicking on an IK target
-            let ik_hit = hit_test_ik_target(sprite, world_pos, &editor_state.viewport, canvas_center);
-            if let Some((target_id, target_pos)) = ik_hit {
+            // First check if clicking on a transform handle (scale/rotate)
+            let transform_hit = hit_test_transform_handle(
+                sprite, world_pos, editor_state, canvas_center,
+            );
+            if let Some((kind, handle_idx, pivot)) = transform_hit {
+                editor_state.transform_handle.is_dragging = true;
+                editor_state.transform_handle.kind = kind;
+                editor_state.transform_handle.handle_index = handle_idx;
+                editor_state.transform_handle.start_world = Some(world_pos);
+                editor_state.transform_handle.pivot = Some(pivot);
+                editor_state.transform_handle.before_snapshot = Some(sprite.clone());
+                if kind == crate::state::editor::TransformHandleKind::Rotate {
+                    let diff = world_pos - pivot;
+                    editor_state.transform_handle.start_angle = diff.y.atan2(diff.x);
+                }
+            }
+            // Then check if clicking on a curve handle (cp1/cp2)
+            else if let Some((elem_id, vtx_id, is_cp1, handle_pos)) = hit_test_handle(sprite, world_pos, editor_state) {
+                editor_state.handle_drag.is_dragging = true;
+                editor_state.handle_drag.element_id = Some(elem_id);
+                editor_state.handle_drag.vertex_id = Some(vtx_id);
+                editor_state.handle_drag.is_cp1 = is_cp1;
+                editor_state.handle_drag.original_pos = Some(handle_pos);
+            }
+            // Then check if clicking on an IK target
+            else if let Some((target_id, target_pos)) = hit_test_ik_target(sprite, world_pos, &editor_state.viewport, canvas_center) {
                 editor_state.dragging_ik_target = Some(target_id);
                 editor_state.ik_target_drag_start = Some(target_pos);
             } else {
@@ -1558,7 +1593,105 @@ fn handle_select_tool(
         && let Some(pos) = response.hover_pos() {
             let world_pos = editor_state.viewport.screen_to_world(Vec2::from(pos), canvas_center);
 
-            if let Some(ref target_id) = editor_state.dragging_ik_target.clone() {
+            if editor_state.transform_handle.is_dragging {
+                // Scale/rotate transform handle drag
+                if let Some(pivot) = editor_state.transform_handle.pivot {
+                    match editor_state.transform_handle.kind {
+                        crate::state::editor::TransformHandleKind::Scale => {
+                            if let Some(start) = editor_state.transform_handle.start_world {
+                                let start_dist = (start - pivot).length().max(1.0);
+                                let curr_dist = (world_pos - pivot).length().max(1.0);
+                                let scale_factor = curr_dist / start_dist;
+                                // Apply scale to all selected elements
+                                for layer in &mut sprite.layers {
+                                    for element in &mut layer.elements {
+                                        if editor_state.selection.selected_element_ids.iter().any(|id| id == &element.id) {
+                                            for vertex in &mut element.vertices {
+                                                vertex.pos = Vec2::new(
+                                                    pivot.x + (vertex.pos.x - pivot.x) * scale_factor,
+                                                    pivot.y + (vertex.pos.y - pivot.y) * scale_factor,
+                                                );
+                                                if let Some(ref mut cp1) = vertex.cp1 {
+                                                    *cp1 = Vec2::new(
+                                                        pivot.x + (cp1.x - pivot.x) * scale_factor,
+                                                        pivot.y + (cp1.y - pivot.y) * scale_factor,
+                                                    );
+                                                }
+                                                if let Some(ref mut cp2) = vertex.cp2 {
+                                                    *cp2 = Vec2::new(
+                                                        pivot.x + (cp2.x - pivot.x) * scale_factor,
+                                                        pivot.y + (cp2.y - pivot.y) * scale_factor,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                editor_state.transform_handle.start_world = Some(world_pos);
+                            }
+                        }
+                        crate::state::editor::TransformHandleKind::Rotate => {
+                            let diff = world_pos - pivot;
+                            let current_angle = diff.y.atan2(diff.x);
+                            let delta_angle = current_angle - editor_state.transform_handle.start_angle;
+                            let cos_a = delta_angle.cos();
+                            let sin_a = delta_angle.sin();
+                            for layer in &mut sprite.layers {
+                                for element in &mut layer.elements {
+                                    if editor_state.selection.selected_element_ids.iter().any(|id| id == &element.id) {
+                                        for vertex in &mut element.vertices {
+                                            let dx = vertex.pos.x - pivot.x;
+                                            let dy = vertex.pos.y - pivot.y;
+                                            vertex.pos = Vec2::new(
+                                                pivot.x + dx * cos_a - dy * sin_a,
+                                                pivot.y + dx * sin_a + dy * cos_a,
+                                            );
+                                            if let Some(ref mut cp1) = vertex.cp1 {
+                                                let dx = cp1.x - pivot.x;
+                                                let dy = cp1.y - pivot.y;
+                                                *cp1 = Vec2::new(
+                                                    pivot.x + dx * cos_a - dy * sin_a,
+                                                    pivot.y + dx * sin_a + dy * cos_a,
+                                                );
+                                            }
+                                            if let Some(ref mut cp2) = vertex.cp2 {
+                                                let dx = cp2.x - pivot.x;
+                                                let dy = cp2.y - pivot.y;
+                                                *cp2 = Vec2::new(
+                                                    pivot.x + dx * cos_a - dy * sin_a,
+                                                    pivot.y + dx * sin_a + dy * cos_a,
+                                                );
+                                            }
+                                        }
+                                        element.rotation += delta_angle;
+                                    }
+                                }
+                            }
+                            editor_state.transform_handle.start_angle = current_angle;
+                        }
+                        _ => {}
+                    }
+                }
+            } else if editor_state.handle_drag.is_dragging {
+                // Drag curve handle
+                if let (Some(ref elem_id), Some(ref vtx_id)) =
+                    (editor_state.handle_drag.element_id.clone(), editor_state.handle_drag.vertex_id.clone())
+                {
+                    let is_cp1 = editor_state.handle_drag.is_cp1;
+                    for layer in &mut sprite.layers {
+                        for element in &mut layer.elements {
+                            if element.id == *elem_id
+                                && let Some(vertex) = element.vertices.iter_mut().find(|v| v.id == *vtx_id) {
+                                    if is_cp1 {
+                                        vertex.cp1 = Some(world_pos);
+                                    } else {
+                                        vertex.cp2 = Some(world_pos);
+                                    }
+                                }
+                        }
+                    }
+                }
+            } else if let Some(ref target_id) = editor_state.dragging_ik_target.clone() {
                 // Drag IK target
                 for layer in &mut sprite.layers {
                     if let Some(ik_target) = layer.ik_targets.iter_mut().find(|t| t.id == *target_id) {
@@ -1579,7 +1712,56 @@ fn handle_select_tool(
 
     // End drag/marquee
     if response.drag_stopped_by(egui::PointerButton::Primary) {
-        if editor_state.dragging_ik_target.is_some() {
+        if editor_state.transform_handle.is_dragging {
+            // Commit transform with undo
+            if let Some(before) = editor_state.transform_handle.before_snapshot.take() {
+                let after = sprite.clone();
+                history.push(SnapshotCommand {
+                    description: match editor_state.transform_handle.kind {
+                        crate::state::editor::TransformHandleKind::Scale => "Scale elements".to_string(),
+                        crate::state::editor::TransformHandleKind::Rotate => "Rotate elements".to_string(),
+                        _ => "Transform elements".to_string(),
+                    },
+                    sprite_index,
+                    before,
+                    after,
+                });
+                actions.push(CanvasAction::SpriteChanged);
+            }
+            editor_state.transform_handle = crate::state::editor::TransformHandleState::default();
+        } else if editor_state.handle_drag.is_dragging {
+            // Commit handle move with undo
+            if let Some(original_pos) = editor_state.handle_drag.original_pos {
+                let after = sprite.clone();
+                let mut before_sprite = sprite.clone();
+                // Restore original handle position in before_sprite
+                if let (Some(ref elem_id), Some(ref vtx_id)) =
+                    (editor_state.handle_drag.element_id.clone(), editor_state.handle_drag.vertex_id.clone())
+                {
+                    let is_cp1 = editor_state.handle_drag.is_cp1;
+                    for layer in &mut before_sprite.layers {
+                        for element in &mut layer.elements {
+                            if element.id == *elem_id
+                                && let Some(vertex) = element.vertices.iter_mut().find(|v| v.id == *vtx_id) {
+                                    if is_cp1 {
+                                        vertex.cp1 = Some(original_pos);
+                                    } else {
+                                        vertex.cp2 = Some(original_pos);
+                                    }
+                                }
+                        }
+                    }
+                }
+                history.push(SnapshotCommand {
+                    description: "Move curve handle".to_string(),
+                    sprite_index,
+                    before: before_sprite,
+                    after,
+                });
+                actions.push(CanvasAction::SpriteChanged);
+            }
+            editor_state.handle_drag = HandleDragState::default();
+        } else if editor_state.dragging_ik_target.is_some() {
             // Commit IK target move with undo
             if let Some(start_pos) = editor_state.ik_target_drag_start {
                 // Build before/after for undo
@@ -1734,6 +1916,110 @@ fn hit_test_ik_target(
     }
 
     None
+}
+
+/// Hit-test transform handles (scale corners + rotation circle).
+/// Returns (TransformHandleKind, handle_index, pivot) if a handle is hit.
+fn hit_test_transform_handle(
+    sprite: &Sprite,
+    world_pos: Vec2,
+    editor_state: &EditorState,
+    canvas_center: Vec2,
+) -> Option<(crate::state::editor::TransformHandleKind, usize, Vec2)> {
+    if editor_state.selection.selected_element_ids.is_empty() {
+        return None;
+    }
+    let (bb_min, bb_max) = compute_selection_bounds(sprite, &editor_state.selection.selected_element_ids)?;
+
+    let pivot = Vec2::new((bb_min.x + bb_max.x) / 2.0, (bb_min.y + bb_max.y) / 2.0);
+    let hit_radius = 8.0 / editor_state.viewport.zoom;
+
+    // Check corner handles (scale)
+    let corners = [
+        bb_min,
+        Vec2::new(bb_max.x, bb_min.y),
+        bb_max,
+        Vec2::new(bb_min.x, bb_max.y),
+    ];
+    for (i, corner) in corners.iter().enumerate() {
+        if world_pos.distance(*corner) < hit_radius {
+            return Some((crate::state::editor::TransformHandleKind::Scale, i, pivot));
+        }
+    }
+
+    // Check rotation handle (above top-center, in screen space offset)
+    let top_center = Vec2::new((bb_min.x + bb_max.x) / 2.0, bb_min.y);
+    let top_center_screen = editor_state.viewport.world_to_screen(top_center, canvas_center);
+    let rot_handle_screen = Vec2::new(top_center_screen.x, top_center_screen.y - 20.0);
+    let rot_handle_world = editor_state.viewport.screen_to_world(rot_handle_screen, canvas_center);
+    if world_pos.distance(rot_handle_world) < hit_radius {
+        return Some((crate::state::editor::TransformHandleKind::Rotate, 0, pivot));
+    }
+
+    None
+}
+
+/// Hit-test curve control point handles.
+/// Returns (element_id, vertex_id, is_cp1, handle_world_pos) if a handle is hit.
+fn hit_test_handle(
+    sprite: &Sprite,
+    world_pos: Vec2,
+    editor_state: &EditorState,
+) -> Option<(String, String, bool, Vec2)> {
+    let hit_radius = 8.0 / editor_state.viewport.zoom;
+
+    for layer in &sprite.layers {
+        if !layer.visible {
+            continue;
+        }
+        for element in &layer.elements {
+            if !editor_state.selection.is_element_selected(&element.id) {
+                continue;
+            }
+            for vertex in &element.vertices {
+                if let Some(cp1) = vertex.cp1
+                    && world_pos.distance(cp1) < hit_radius {
+                        return Some((element.id.clone(), vertex.id.clone(), true, cp1));
+                    }
+                if let Some(cp2) = vertex.cp2
+                    && world_pos.distance(cp2) < hit_radius {
+                        return Some((element.id.clone(), vertex.id.clone(), false, cp2));
+                    }
+            }
+        }
+    }
+    None
+}
+
+/// Compute the bounding box of all selected elements (in world space).
+/// Returns (min, max) corners, or None if no selected elements have vertices.
+fn compute_selection_bounds(sprite: &Sprite, selected_ids: &[String]) -> Option<(Vec2, Vec2)> {
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+    let mut found = false;
+
+    for layer in &sprite.layers {
+        for element in &layer.elements {
+            if !selected_ids.iter().any(|id| id == &element.id) {
+                continue;
+            }
+            for vertex in &element.vertices {
+                min_x = min_x.min(vertex.pos.x);
+                min_y = min_y.min(vertex.pos.y);
+                max_x = max_x.max(vertex.pos.x);
+                max_y = max_y.max(vertex.pos.y);
+                found = true;
+            }
+        }
+    }
+
+    if found {
+        Some((Vec2::new(min_x, min_y), Vec2::new(max_x, max_y)))
+    } else {
+        None
+    }
 }
 
 /// Move the specified elements by delta
@@ -2063,4 +2349,64 @@ fn draw_curve_handles(
             }
         }
     }
+}
+
+/// Draw scale/rotate transform handles around the selection bounding box.
+fn draw_transform_handles(
+    painter: &egui::Painter,
+    sprite: &Sprite,
+    editor_state: &EditorState,
+    canvas_center: Vec2,
+) {
+    let Some((bb_min, bb_max)) = compute_selection_bounds(sprite, &editor_state.selection.selected_element_ids) else {
+        return;
+    };
+
+    let handle_size = 6.0;
+    let handle_color = egui::Color32::WHITE;
+    let handle_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0x4a, 0x7a, 0x96));
+    let box_color = egui::Color32::from_rgba_unmultiplied(0x4a, 0x7a, 0x96, 128);
+
+    // Convert bounding box corners to screen space
+    let tl = editor_state.viewport.world_to_screen(bb_min, canvas_center);
+    let br = editor_state.viewport.world_to_screen(bb_max, canvas_center);
+    let tr = editor_state.viewport.world_to_screen(Vec2::new(bb_max.x, bb_min.y), canvas_center);
+    let bl = editor_state.viewport.world_to_screen(Vec2::new(bb_min.x, bb_max.y), canvas_center);
+
+    // Draw bounding box outline
+    painter.line_segment([egui::pos2(tl.x, tl.y), egui::pos2(tr.x, tr.y)], egui::Stroke::new(1.0, box_color));
+    painter.line_segment([egui::pos2(tr.x, tr.y), egui::pos2(br.x, br.y)], egui::Stroke::new(1.0, box_color));
+    painter.line_segment([egui::pos2(br.x, br.y), egui::pos2(bl.x, bl.y)], egui::Stroke::new(1.0, box_color));
+    painter.line_segment([egui::pos2(bl.x, bl.y), egui::pos2(tl.x, tl.y)], egui::Stroke::new(1.0, box_color));
+
+    // Draw corner handles (scale)
+    let corners = [tl, tr, br, bl];
+    for corner in &corners {
+        let rect = egui::Rect::from_center_size(
+            egui::pos2(corner.x, corner.y),
+            egui::vec2(handle_size, handle_size),
+        );
+        painter.rect_filled(rect, 0.0, handle_color);
+        painter.rect_stroke(rect, 0.0, handle_stroke, egui::epaint::StrokeKind::Outside);
+    }
+
+    // Draw rotation handle (circle above top-center)
+    let top_center = Vec2::new((tl.x + tr.x) / 2.0, tl.y.min(tr.y) - 20.0);
+    painter.line_segment(
+        [
+            egui::pos2((tl.x + tr.x) / 2.0, tl.y.min(tr.y)),
+            egui::pos2(top_center.x, top_center.y),
+        ],
+        egui::Stroke::new(1.0, box_color),
+    );
+    painter.circle_filled(
+        egui::pos2(top_center.x, top_center.y),
+        4.0,
+        handle_color,
+    );
+    painter.circle_stroke(
+        egui::pos2(top_center.x, top_center.y),
+        4.0,
+        handle_stroke,
+    );
 }

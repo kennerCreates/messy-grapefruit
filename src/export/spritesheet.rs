@@ -2,7 +2,7 @@
 //! pack into an atlas, and write atlas PNG + TextureAtlasLayout RON.
 
 use crate::export::{ExportError, ensure_dir};
-use crate::model::project::{ExportSettings, Palette};
+use crate::model::project::{ExportSettings, LayoutMode, Palette};
 use crate::model::sprite::{AnimationSequence, Skin, Sprite};
 
 use std::path::Path;
@@ -34,23 +34,56 @@ pub fn export_spritesheet(
     let frame_count = ((duration * fps as f32).ceil() as usize).max(1);
     let padding = settings.padding;
 
-    // Step 1: Generate all frames
+    // Step 1: Generate all frames with physics baking
+    // Physics runs at 60 FPS internally; we sample at the configured export FPS
     let mut frames: Vec<Vec<u8>> = Vec::with_capacity(frame_count);
     let canvas_w = sprite.canvas_width;
     let canvas_h = sprite.canvas_height;
 
+    let physics_fps: f32 = 60.0;
+    let physics_dt = 1.0 / physics_fps;
+    let mut physics_state = crate::engine::physics::PhysicsState::new();
+    let total_physics_steps = (duration * physics_fps).ceil() as usize;
+
+    // Pre-compute which physics step corresponds to each export frame
+    let mut frame_at_step: Vec<Option<usize>> = vec![None; total_physics_steps + 1];
     for frame_idx in 0..frame_count {
-        let time = frame_idx as f32 / fps as f32;
+        let frame_time = frame_idx as f32 / fps as f32;
+        let step = (frame_time * physics_fps).round() as usize;
+        let step = step.min(total_physics_steps);
+        frame_at_step[step] = Some(frame_idx);
+    }
 
-        // Full evaluation pipeline
-        let animated = crate::engine::animation::create_animated_sprite(sprite, sequence, time);
+    // Step sequentially from frame 0 to bake physics
+    let mut frame_results: Vec<Option<Vec<u8>>> = vec![None; frame_count];
+    for (step, frame_idx_opt) in frame_at_step.iter().enumerate() {
+        let time = step as f32 * physics_dt;
 
-        // Generate SVG and rasterize
-        let svg_string =
-            crate::export::svg_gen::sprite_to_svg(&animated, palette, skin);
-        let png_bytes = crate::export::rasterize::svg_to_png(&svg_string, canvas_w, canvas_h)?;
+        // Check if we need to capture this frame
+        if let Some(&frame_idx) = frame_idx_opt.as_ref() {
+            let animated = crate::engine::animation::create_animated_sprite_with_physics(
+                sprite, sequence, time, Some(&mut physics_state),
+            );
+            let svg_string =
+                crate::export::svg_gen::sprite_to_svg(&animated, palette, skin);
+            let png_bytes = crate::export::rasterize::svg_to_png(&svg_string, canvas_w, canvas_h)?;
+            frame_results[frame_idx] = Some(png_bytes);
+        } else {
+            // Still step physics even if we don't capture
+            let _ = crate::engine::animation::create_animated_sprite_with_physics(
+                sprite, sequence, time, Some(&mut physics_state),
+            );
+        }
+    }
 
-        frames.push(png_bytes);
+    for result in frame_results {
+        frames.push(result.unwrap_or_else(|| {
+            // Fallback: generate without physics (shouldn't happen)
+            let animated = crate::engine::animation::create_animated_sprite(sprite, sequence, 0.0);
+            let svg_string = crate::export::svg_gen::sprite_to_svg(&animated, palette, skin);
+            crate::export::rasterize::svg_to_png(&svg_string, canvas_w, canvas_h)
+                .unwrap_or_default()
+        }));
     }
 
     // Step 2: Decode all frames to RGBA images
@@ -80,7 +113,7 @@ pub fn export_spritesheet(
     let tile_h = trim_h;
 
     // Step 4: Compute layout
-    let (columns, rows) = compute_layout(&settings.layout, frame_count);
+    let (columns, rows) = compute_layout(settings.layout, frame_count);
 
     // Step 5: Pack atlas
     let atlas_w = columns as u32 * (tile_w + padding) + padding;
@@ -211,11 +244,11 @@ fn compute_uniform_trim(
 }
 
 /// Compute the number of columns and rows based on layout mode.
-fn compute_layout(layout: &str, frame_count: usize) -> (usize, usize) {
+fn compute_layout(layout: LayoutMode, frame_count: usize) -> (usize, usize) {
     match layout {
-        "row" => (frame_count, 1),
-        "column" => (1, frame_count),
-        _ => {
+        LayoutMode::Row => (frame_count, 1),
+        LayoutMode::Column => (1, frame_count),
+        LayoutMode::Grid => {
             // Grid: try to be as square as possible
             let cols = (frame_count as f32).sqrt().ceil() as usize;
             let rows = ((frame_count as f32) / cols as f32).ceil() as usize;
@@ -273,7 +306,7 @@ pub fn preview_spritesheet(
 ) -> String {
     let fps = settings.fps.max(1);
     let frame_count = ((sequence.duration * fps as f32).ceil() as usize).max(1);
-    let (columns, rows) = compute_layout(&settings.layout, frame_count);
+    let (columns, rows) = compute_layout(settings.layout, frame_count);
 
     let tile_w = sprite.canvas_width;
     let tile_h = sprite.canvas_height;

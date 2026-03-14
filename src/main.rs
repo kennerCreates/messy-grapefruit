@@ -664,6 +664,24 @@ impl eframe::App for App {
                         &self.export_dialog.settings,
                     );
                     self.export_dialog.summary = summary;
+
+                    // Generate atlas preview texture
+                    let atlas_bytes = generate_atlas_preview_bytes(
+                        &self.project_state,
+                        &self.export_dialog.settings,
+                    );
+                    if let Some(png_bytes) = atlas_bytes
+                        && let Ok(img) = image::load_from_memory_with_format(&png_bytes, image::ImageFormat::Png) {
+                            let rgba = img.to_rgba8();
+                            let size = [rgba.width() as usize, rgba.height() as usize];
+                            let pixels = rgba.as_raw();
+                            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels);
+                            self.export_dialog.preview_texture = Some(ctx.load_texture(
+                                "atlas_preview",
+                                color_image,
+                                egui::TextureOptions::NEAREST,
+                            ));
+                        }
                 }
                 ui::export_dialog::ExportDialogAction::ToggleAutoExport(enabled) => {
                     self.export_dialog.auto_export_enabled = enabled;
@@ -717,6 +735,12 @@ impl eframe::App for App {
                     });
 
                 if let Some(idx) = sprite_idx {
+                    // Reload sprite from disk before re-exporting (file may have changed externally)
+                    if let Some(ref file_path) = self.project_state.open_sprites[idx].file_path.clone()
+                        && let Ok(contents) = std::fs::read_to_string(file_path)
+                        && let Ok(reloaded) = serde_json::from_str::<model::sprite::Sprite>(&contents) {
+                            self.project_state.open_sprites[idx].sprite = reloaded;
+                        }
                     // Re-export this sprite using last-used settings
                     let status = perform_export_for_sprite(
                         &self.project_state,
@@ -724,6 +748,44 @@ impl eframe::App for App {
                         &self.project_state.project.export_settings,
                     );
                     eprintln!("Auto-export (watcher): {}", status);
+                } else {
+                    // Sprite not currently open — try to load it from disk and export
+                    if let Ok(contents) = std::fs::read_to_string(&path)
+                        && let Ok(sprite) = serde_json::from_str::<model::sprite::Sprite>(&contents) {
+                            let output_dir = if let Some(ref proj_path) = self.project_state.project_path {
+                                let base = std::path::Path::new(proj_path)
+                                    .parent()
+                                    .unwrap_or(std::path::Path::new("."));
+                                base.join(&self.project_state.project.export_dir)
+                            } else {
+                                std::path::PathBuf::from(&self.project_state.project.export_dir)
+                            };
+                            let settings = &self.project_state.project.export_settings;
+                            let palette = &self.project_state.project.palette;
+                            let status = match settings.mode {
+                                model::project::ExportMode::Bone => {
+                                    match export::bone_export::export_bone_animation(
+                                        &sprite, palette, &output_dir, settings.padding,
+                                    ) {
+                                        Ok(result) => format!("Watcher export: {}", result.ron_path.display()),
+                                        Err(e) => format!("Watcher export failed: {}", e),
+                                    }
+                                }
+                                model::project::ExportMode::Spritesheet => {
+                                    if let Some(seq) = sprite.animations.first() {
+                                        match export::spritesheet::export_spritesheet(
+                                            &sprite, seq, palette, None, settings, &output_dir,
+                                        ) {
+                                            Ok(result) => result.summary,
+                                            Err(e) => format!("Watcher spritesheet export failed: {}", e),
+                                        }
+                                    } else {
+                                        "No animations to export.".to_string()
+                                    }
+                                }
+                            };
+                            eprintln!("Auto-export (watcher, not open): {}", status);
+                        }
                 }
             }
         }
@@ -1623,6 +1685,36 @@ fn process_sidebar_action(
                     !open.editor_state.debug_overlays.show_spring_targets;
             }
         }
+        ui::sidebar::SidebarAction::SetElementProperty {
+            element_id,
+            position,
+            rotation,
+            scale,
+            origin,
+        } => {
+            let before = project_state.active_sprite().map(|o| o.sprite.clone());
+            if let Some(open) = project_state.active_sprite_mut() {
+                for layer in &mut open.sprite.layers {
+                    for element in &mut layer.elements {
+                        if element.id == element_id {
+                            element.position = position;
+                            element.rotation = rotation;
+                            element.scale = scale;
+                            element.origin = origin;
+                        }
+                    }
+                }
+            }
+            let after = project_state.active_sprite().map(|o| o.sprite.clone());
+            if let (Some(before), Some(after)) = (before, after) {
+                history.push(SnapshotCommand {
+                    description: "Edit element properties".to_string(),
+                    sprite_index,
+                    before,
+                    after,
+                });
+            }
+        }
     }
 }
 
@@ -1655,8 +1747,8 @@ fn perform_export_for_sprite(
 
     let palette = &project_state.project.palette;
 
-    match settings.mode.as_str() {
-        "bone" => {
+    match settings.mode {
+        model::project::ExportMode::Bone => {
             match export::bone_export::export_bone_animation(
                 &open.sprite,
                 palette,
@@ -1673,7 +1765,7 @@ fn perform_export_for_sprite(
                 Err(e) => format!("Export failed: {}", e),
             }
         }
-        "spritesheet" => {
+        model::project::ExportMode::Spritesheet => {
             // Find the first animation sequence for this sprite
             if let Some(seq) = open.sprite.animations.first() {
                 match export::spritesheet::export_spritesheet(
@@ -1691,7 +1783,6 @@ fn perform_export_for_sprite(
                 "No animation sequences to export as spritesheet.".to_string()
             }
         }
-        _ => format!("Unknown export mode: {}", settings.mode),
     }
 }
 
@@ -1706,8 +1797,8 @@ fn generate_export_preview(
 
     let palette = &project_state.project.palette;
 
-    match settings.mode.as_str() {
-        "bone" => {
+    match settings.mode {
+        model::project::ExportMode::Bone => {
             match export::bone_export::preview_bone_export(
                 &open.sprite,
                 palette,
@@ -1748,14 +1839,117 @@ fn generate_export_preview(
                 Err(e) => format!("Preview generation failed: {}", e),
             }
         }
-        "spritesheet" => {
+        model::project::ExportMode::Spritesheet => {
             if let Some(seq) = open.sprite.animations.first() {
                 export::spritesheet::preview_spritesheet(&open.sprite, seq, settings)
             } else {
                 "No animation sequences to preview.".to_string()
             }
         }
-        _ => format!("Unknown export mode: {}", settings.mode),
+    }
+}
+
+/// Generate atlas preview PNG bytes for the export dialog.
+fn generate_atlas_preview_bytes(
+    project_state: &ProjectState,
+    settings: &model::project::ExportSettings,
+) -> Option<Vec<u8>> {
+    let open = project_state.active_sprite()?;
+    let palette = &project_state.project.palette;
+
+    match settings.mode {
+        model::project::ExportMode::Bone => {
+            let (_ron_data, atlas_bytes) =
+                export::bone_export::preview_bone_export(&open.sprite, palette, settings.padding)
+                    .ok()?;
+            Some(atlas_bytes)
+        }
+        model::project::ExportMode::Spritesheet => {
+            // For spritesheet, we'd need to generate the full atlas which is expensive.
+            // Generate a small preview by rasterizing a few frames.
+            let seq = open.sprite.animations.first()?;
+            let fps = settings.fps.max(1);
+            let duration = seq.duration;
+            let frame_count = ((duration * fps as f32).ceil() as usize).max(1);
+            // Limit preview to avoid huge computation
+            let preview_frames = frame_count.min(16);
+
+            let mut frames = Vec::with_capacity(preview_frames);
+            let canvas_w = open.sprite.canvas_width;
+            let canvas_h = open.sprite.canvas_height;
+
+            for frame_idx in 0..preview_frames {
+                let time = if preview_frames > 1 {
+                    frame_idx as f32 * duration / (preview_frames - 1).max(1) as f32
+                } else {
+                    0.0
+                };
+                let animated =
+                    crate::engine::animation::create_animated_sprite(&open.sprite, seq, time);
+                let svg_string =
+                    crate::export::svg_gen::sprite_to_svg(&animated, palette, None);
+                if let Ok(png_bytes) =
+                    crate::export::rasterize::svg_to_png(&svg_string, canvas_w, canvas_h)
+                {
+                    frames.push(png_bytes);
+                }
+            }
+
+            if frames.is_empty() {
+                return None;
+            }
+
+            // Decode and pack into a simple grid preview
+            let mut images = Vec::new();
+            for png_bytes in &frames {
+                if let Ok(img) =
+                    image::load_from_memory_with_format(png_bytes, image::ImageFormat::Png)
+                {
+                    images.push(img.to_rgba8());
+                }
+            }
+
+            if images.is_empty() {
+                return None;
+            }
+
+            let cols = (images.len() as f32).sqrt().ceil() as u32;
+            let rows = ((images.len() as f32) / cols as f32).ceil() as u32;
+            let tile_w = canvas_w;
+            let tile_h = canvas_h;
+            let padding = settings.padding;
+            let atlas_w = cols * (tile_w + padding) + padding;
+            let atlas_h = rows * (tile_h + padding) + padding;
+
+            let mut atlas = image::RgbaImage::new(atlas_w, atlas_h);
+            for (idx, frame_img) in images.iter().enumerate() {
+                let col = (idx as u32) % cols;
+                let row = (idx as u32) / cols;
+                let x = padding + col * (tile_w + padding);
+                let y = padding + row * (tile_h + padding);
+                for py in 0..tile_h.min(frame_img.height()) {
+                    for px in 0..tile_w.min(frame_img.width()) {
+                        let ax = x + px;
+                        let ay = y + py;
+                        if ax < atlas_w && ay < atlas_h {
+                            atlas.put_pixel(ax, ay, *frame_img.get_pixel(px, py));
+                        }
+                    }
+                }
+            }
+
+            let mut atlas_bytes = Vec::new();
+            let encoder = image::codecs::png::PngEncoder::new(&mut atlas_bytes);
+            image::ImageEncoder::write_image(
+                encoder,
+                atlas.as_raw(),
+                atlas_w,
+                atlas_h,
+                image::ExtendedColorType::Rgba8,
+            )
+            .ok()?;
+            Some(atlas_bytes)
+        }
     }
 }
 
@@ -2219,11 +2413,47 @@ fn handle_keyboard_shortcuts(
             }
 
         // Curve mode toggle
-        if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl
-            && let Some(open) = project_state.active_sprite_mut()
-                && open.editor_state.active_tool == ToolKind::Line {
+        if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl {
+            let sprite_index = project_state.current_sprite_index();
+            if let Some(open) = project_state.active_sprite_mut() {
+                if open.editor_state.active_tool == ToolKind::Line {
                     open.editor_state.curve_mode = !open.editor_state.curve_mode;
+                } else if open.editor_state.active_tool == ToolKind::Select
+                    && !open.editor_state.selection.selected_element_ids.is_empty()
+                {
+                    // Toggle curve/straight on vertices of selected elements
+                    let before = open.sprite.clone();
+                    let selected_ids = open.editor_state.selection.selected_element_ids.clone();
+                    let mut changed = false;
+                    for layer in &mut open.sprite.layers {
+                        for element in &mut layer.elements {
+                            if selected_ids.iter().any(|id| id == &element.id) {
+                                for vertex in &mut element.vertices {
+                                    if vertex.cp1.is_some() || vertex.cp2.is_some() {
+                                        vertex.cp1 = None;
+                                        vertex.cp2 = None;
+                                    }
+                                    changed = true;
+                                }
+                                // If all CPs were cleared, recompute auto-curves
+                                let has_any_cps = element.vertices.iter().any(|v| v.cp1.is_some() || v.cp2.is_some());
+                                if !has_any_cps {
+                                    crate::math::recompute_auto_curves(&mut element.vertices, element.closed);
+                                }
+                            }
+                        }
+                    }
+                    if changed {
+                        history.push(state::history::SnapshotCommand {
+                            description: "Toggle curve/straight".to_string(),
+                            sprite_index,
+                            before,
+                            after: open.sprite.clone(),
+                        });
+                    }
                 }
+            }
+        }
 
         // Space bar: toggle animation playback
         if i.key_pressed(egui::Key::Space) && !i.modifiers.ctrl
@@ -2311,7 +2541,7 @@ fn handle_keyboard_shortcuts(
                     }
                 }
 
-        // Ctrl+C: copy selected elements
+        // Ctrl+C: copy selected elements to system clipboard as JSON
         if i.modifiers.ctrl && i.key_pressed(egui::Key::C)
             && let Some(open) = project_state.active_sprite_mut()
                 && !open.editor_state.selection.selected_element_ids.is_empty() {
@@ -2323,21 +2553,44 @@ fn handle_keyboard_shortcuts(
                             }
                         }
                     }
+                    // Also keep in local clipboard
                     open.editor_state.clipboard = Some(ClipboardData {
-                        elements: copied_elements,
+                        elements: copied_elements.clone(),
                     });
+                    // Serialize to JSON and put on system clipboard
+                    if let Ok(json) = serde_json::to_string(&copied_elements) {
+                        let clipboard_text = format!("SPRITE_ELEMENTS:{}", json);
+                        ctx.copy_text(clipboard_text);
+                    }
                 }
 
-        // Ctrl+V: paste copied elements (creates new layer with copies)
+        // Ctrl+V: paste copied elements (from system clipboard or local)
         if i.modifiers.ctrl && i.key_pressed(egui::Key::V) {
             let sprite_index = project_state.current_sprite_index();
-            if let Some(open) = project_state.active_sprite_mut()
-                && let Some(ref clipboard) = open.editor_state.clipboard.clone()
-                    && !clipboard.elements.is_empty() {
+            // Try to read from system clipboard first
+            let clipboard_elements: Option<Vec<model::sprite::StrokeElement>> = ctx.input(|input| {
+                for event in &input.events {
+                    if let egui::Event::Paste(text) = event
+                        && let Some(json) = text.strip_prefix("SPRITE_ELEMENTS:")
+                        && let Ok(elements) = serde_json::from_str::<Vec<model::sprite::StrokeElement>>(json) {
+                            return Some(elements);
+                        }
+                }
+                None
+            });
+            // Fall back to local clipboard
+            let elements_to_paste = clipboard_elements.or_else(|| {
+                project_state.active_sprite().and_then(|o| {
+                    o.editor_state.clipboard.as_ref().map(|c| c.elements.clone())
+                })
+            });
+            if let Some(ref elements) = elements_to_paste
+                && !elements.is_empty()
+                    && let Some(open) = project_state.active_sprite_mut() {
                         let before = open.sprite.clone();
                         let mut paste_layer = Layer::new("Pasted");
 
-                        for elem in &clipboard.elements {
+                        for elem in elements {
                             let mut new_elem = elem.clone();
                             new_elem.id = uuid::Uuid::new_v4().to_string();
                             for v in &mut new_elem.vertices {

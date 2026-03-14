@@ -12,12 +12,30 @@ pub enum Waveform {
     Noise,
 }
 
+impl Waveform {
+    pub fn export_name(&self) -> &'static str {
+        match self {
+            Waveform::Sine => "sine",
+            Waveform::Noise => "noise",
+        }
+    }
+}
+
 /// Blend mode for procedural modifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BlendMode {
     Additive,
     Multiplicative,
+}
+
+impl BlendMode {
+    pub fn export_name(&self) -> &'static str {
+        match self {
+            BlendMode::Additive => "additive",
+            BlendMode::Multiplicative => "multiplicative",
+        }
+    }
 }
 
 /// A procedural modifier that applies oscillation to an animatable property.
@@ -350,6 +368,15 @@ pub enum SolverType {
     Fabrik,
 }
 
+impl SolverType {
+    pub fn export_name(&self) -> &'static str {
+        match self {
+            SolverType::TwoBone => "two-bone",
+            SolverType::Fabrik => "fabrik",
+        }
+    }
+}
+
 /// Per-joint angle constraint for IK chains.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -643,6 +670,21 @@ pub enum EasingPreset {
     Custom,
 }
 
+impl EasingPreset {
+    pub fn export_name(&self) -> &'static str {
+        match self {
+            EasingPreset::Linear => "linear",
+            EasingPreset::EaseIn => "ease-in",
+            EasingPreset::EaseOut => "ease-out",
+            EasingPreset::EaseInOut => "ease-in-out",
+            EasingPreset::Bounce => "bounce",
+            EasingPreset::Elastic => "elastic",
+            EasingPreset::Step => "step",
+            EasingPreset::Custom => "custom",
+        }
+    }
+}
+
 /// Animatable property identifiers
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnimatableProperty {
@@ -694,5 +736,24 @@ impl AnimatableProperty {
                 | AnimatableProperty::FillColorIndex
                 | AnimatableProperty::Visible
         )
+    }
+
+    /// Returns a clean string for RON/export serialization.
+    pub fn export_name(&self) -> String {
+        match self {
+            AnimatableProperty::PositionX => "position.x".to_string(),
+            AnimatableProperty::PositionY => "position.y".to_string(),
+            AnimatableProperty::Rotation => "rotation".to_string(),
+            AnimatableProperty::ScaleX => "scale.x".to_string(),
+            AnimatableProperty::ScaleY => "scale.y".to_string(),
+            AnimatableProperty::StrokeColorIndex => "strokeColorIndex".to_string(),
+            AnimatableProperty::FillColorIndex => "fillColorIndex".to_string(),
+            AnimatableProperty::VertexX(id) => format!("vertex.{}.x", id),
+            AnimatableProperty::VertexY(id) => format!("vertex.{}.y", id),
+            AnimatableProperty::Visible => "visible".to_string(),
+            AnimatableProperty::IKTargetX => "ik.target.x".to_string(),
+            AnimatableProperty::IKTargetY => "ik.target.y".to_string(),
+            AnimatableProperty::IKMix => "ik.mix".to_string(),
+        }
     }
 }

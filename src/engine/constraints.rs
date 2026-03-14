@@ -45,15 +45,13 @@ fn lerp_angle(from: f32, to: f32, t: f32) -> f32 {
     wrap_angle(from + diff * t)
 }
 
-/// Apply volume preservation: maintain original area (scale_x * scale_y = constant).
-/// Uses scale_y as the driving value, adjusts scale_x to preserve the original area.
-pub fn volume_preserve(scale_x: f32, scale_y: f32) -> (f32, f32) {
-    let original_area = scale_x * scale_y;
+/// Apply volume preservation: scale_x = 1/scale_y.
+/// Uses scale_y as the driving value, computes scale_x to maintain constant volume.
+pub fn volume_preserve(_scale_x: f32, scale_y: f32) -> (f32, f32) {
     if scale_y.abs() < 1e-6 {
-        // Avoid division by zero; keep scale as is
-        (scale_x, scale_y)
+        (_scale_x, scale_y)
     } else {
-        (original_area / scale_y, scale_y)
+        (1.0 / scale_y, scale_y)
     }
 }
 
@@ -221,12 +219,12 @@ mod tests {
 
     #[test]
     fn test_volume_preserve() {
-        // Original area = 1.0 * 2.0 = 2.0; preserving area: sx = 2.0/2.0 = 1.0
+        // scale_x = 1/scale_y: when sy=2, sx=0.5
         let (sx, sy) = volume_preserve(1.0, 2.0);
-        assert!((sx - 1.0).abs() < 0.001, "sx={}", sx);
+        assert!((sx - 0.5).abs() < 0.001, "sx={}", sx);
         assert!((sy - 2.0).abs() < 0.001, "sy={}", sy);
-        // Verify area preserved
-        assert!((sx * sy - 2.0).abs() < 0.001);
+        // Verify sx * sy = 1.0 (unit volume)
+        assert!((sx * sy - 1.0).abs() < 0.001);
     }
 
     #[test]

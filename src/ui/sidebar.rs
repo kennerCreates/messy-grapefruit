@@ -112,6 +112,14 @@ pub enum SidebarAction {
     ToggleDebugIKTargets,
     ToggleDebugConstraints,
     ToggleDebugSpringTargets,
+    /// Set element property (position/rotation/scale/origin)
+    SetElementProperty {
+        element_id: String,
+        position: crate::model::Vec2,
+        rotation: f32,
+        scale: crate::model::Vec2,
+        origin: crate::model::Vec2,
+    },
 }
 
 /// Persistent state for the sidebar (color editing, lospec input, etc.)
@@ -161,7 +169,7 @@ pub fn draw_sidebar(
                     draw_line_tool_options(ui, editor_state, palette, &mut actions);
                 }
                 ToolKind::Select => {
-                    draw_select_tool_options(ui, editor_state);
+                    draw_select_tool_options(ui, editor_state, sprite, &mut actions);
                     draw_constraints_ui(ui, sprite, editor_state, &mut actions);
                     draw_ik_chain_ui(ui, sprite, editor_state, &mut actions, sidebar_state);
                     draw_debug_overlays_ui(ui, editor_state, &mut actions);
@@ -256,19 +264,112 @@ fn draw_line_tool_options(
     draw_active_color_display(ui, editor_state, palette);
 }
 
-fn draw_select_tool_options(ui: &mut egui::Ui, editor_state: &EditorState) {
-    ui.label("Click to select elements");
-    ui.label("Shift+click for multi-select");
-    ui.label("Ctrl+A to select all");
-    ui.label("Drag to move selection");
-    ui.label("Delete to remove");
-    ui.label("Ctrl+C/V to copy/paste");
-
+fn draw_select_tool_options(
+    ui: &mut egui::Ui,
+    editor_state: &EditorState,
+    sprite: &Sprite,
+    actions: &mut Vec<SidebarAction>,
+) {
     let count = editor_state.selection.selected_element_ids.len();
-    if count > 0 {
-        ui.add_space(4.0);
-        ui.label(format!("Selected: {} element(s)", count));
+    if count == 0 {
+        ui.label("Click to select elements");
+        ui.label("Shift+click for multi-select");
+        ui.label("Ctrl+A to select all");
+        return;
     }
+
+    ui.label(format!("Selected: {} element(s)", count));
+    ui.add_space(4.0);
+
+    // Show property editors for the first selected element
+    if let Some(ref elem_id) = editor_state.selection.selected_element_ids.first()
+        && let Some(element) = sprite.layers.iter()
+            .flat_map(|l| l.elements.iter())
+            .find(|e| &e.id == *elem_id)
+    {
+            let mut pos_x = element.position.x;
+            let mut pos_y = element.position.y;
+            let mut rotation_deg = element.rotation.to_degrees();
+            let mut scale_x = element.scale.x;
+            let mut scale_y = element.scale.y;
+            let mut origin_x = element.origin.x;
+            let mut origin_y = element.origin.y;
+            let mut changed = false;
+
+            egui::CollapsingHeader::new("Position")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("X:");
+                        if ui.add(egui::DragValue::new(&mut pos_x).speed(0.5)).changed() {
+                            changed = true;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Y:");
+                        if ui.add(egui::DragValue::new(&mut pos_y).speed(0.5)).changed() {
+                            changed = true;
+                        }
+                    });
+                });
+
+            egui::CollapsingHeader::new("Rotation")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.add(egui::DragValue::new(&mut rotation_deg).speed(1.0).suffix("°")).changed() {
+                            changed = true;
+                        }
+                    });
+                });
+
+            egui::CollapsingHeader::new("Scale")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("X:");
+                        if ui.add(egui::DragValue::new(&mut scale_x).speed(0.01).range(0.01..=100.0)).changed() {
+                            changed = true;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Y:");
+                        if ui.add(egui::DragValue::new(&mut scale_y).speed(0.01).range(0.01..=100.0)).changed() {
+                            changed = true;
+                        }
+                    });
+                });
+
+            egui::CollapsingHeader::new("Origin")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("X:");
+                        if ui.add(egui::DragValue::new(&mut origin_x).speed(0.5)).changed() {
+                            changed = true;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Y:");
+                        if ui.add(egui::DragValue::new(&mut origin_y).speed(0.5)).changed() {
+                            changed = true;
+                        }
+                    });
+                });
+
+            if changed {
+                actions.push(SidebarAction::SetElementProperty {
+                    element_id: elem_id.to_string(),
+                    position: crate::model::Vec2::new(pos_x, pos_y),
+                    rotation: rotation_deg.to_radians(),
+                    scale: crate::model::Vec2::new(scale_x, scale_y),
+                    origin: crate::model::Vec2::new(origin_x, origin_y),
+                });
+            }
+    }
+
+    ui.add_space(4.0);
+    ui.small("Drag to move | Ctrl+C/V copy/paste | Delete to remove");
 }
 
 /// Draw IK chain management UI in the select tool panel (shown when an animation is selected)
