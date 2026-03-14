@@ -26,7 +26,8 @@ Building a native Rust desktop app (eframe/egui) for creating animated SVG sprit
 Project (.spriteproj file)
 ├── name, formatVersion, exportDir
 ├── palette: Palette { name, colors: PaletteColor[] }  // index 0 = transparent, shared by ALL sprites
-├── sprites: ProjectSpriteRef[] (id, filePath, position, rotation, zOrder)  // position/rotation/zOrder are for dashboard layout only, not game-spatial
+├── sprites: ProjectSpriteRef[] (id, filePath, position, rotation, zOrder, selectedAnimationId?, selectedSkinId?)  // layout + preview state for dashboard, not game-spatial
+├── exportSettings: ExportSettings { mode: "bone"|"spritesheet", fps, layout: "row"|"column"|"grid", trim, padding }
 └── editorPreferences (theme, gridSize, gridMode, showGrid)
 
 Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:1, no scale factor)
@@ -55,8 +56,15 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 │     procedural?: ProceduralModifier[]                  // additive oscillation
 │   }
 │   ProceduralModifier { property, waveform: "sine"|"noise", amplitude, frequency, phase, blend: "additive"|"multiplicative" }
+├── skins: Skin[]
+│   └── Skin { id, name, overrides: SkinOverride[] }
+│       └── SkinOverride { elementId, strokeColorIndex?, fillColorIndex?, strokeWidth? }
+│           // Each override replaces visual properties on a specific element
+│           // Omitted fields inherit from the base element
+│           // The base sprite (no skin applied) is the implicit "default" skin
 └── animations: AnimationSequence[]
     └── AnimationSequence { id, name, duration, looping, tracks: PropertyTrack[], ikChains: IKChain[] }
+        // duration auto-extends when a keyframe is placed past the current end; also manually editable (e.g., to add trailing hold time)
         └── PropertyTrack { property, elementId, layerId, keyframes: Keyframe[] }
             └── Keyframe { id, time, value, easing: EasingCurve }
                 └── EasingCurve { preset, controlPoints: [x1,y1,x2,y2] }
@@ -73,6 +81,8 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 *Vertex animation uses stable vertex IDs (not positional indices) so tracks survive vertex insertion/deletion.*
 
 **Visibility & drawing on non-zero frames**: Elements have a `visible` property (animatable, hold-previous interpolation). Drawing a new element while the playhead is at a non-zero time auto-creates a visibility track: hidden before the current time, visible from the current time onward. Hidden elements are excluded from the evaluation pipeline entirely — no IK, physics, or constraints until visible.
+
+**Rest pose**: Frame 0 with no animation playing is the canonical rest/bind pose. All element positions, rotations, scales, and vertex positions at frame 0 define the default state. IK bone lengths are computed from the rest pose (distance from socket vertex to child layer's origin). The export pipeline uses the rest pose as the reference for default transforms and bone setup. Editing the sprite with the playhead at frame 0 and no sequence selected modifies the rest pose directly.
 
 ---
 
@@ -118,6 +128,8 @@ Grid density changes automatically with zoom level:
 - Layers are groups containing multiple elements. Elements render in creation order within a layer; layers render bottom-to-top
 - **Add** new layer
 - **Remove** layer
+- **Duplicate** layer (deep-copies all elements with new IDs. Animation tracks, socket references, and constraints are not copied)
+- **Mirror** layer (flip all elements horizontally or vertically around the bounding box center of the layer's elements. Flips vertex positions and control points. Useful for creating symmetrical body parts — e.g., duplicate left arm, mirror to make right arm)
 - **Combine** (merge two layers into one). If either layer is socketed, the combined layer keeps the socket of the *top* layer. If only the bottom layer was socketed, a warning dialog is shown before proceeding (socket will be dropped). If either layer is a socket parent for other layers, those child references update to point to the combined layer
 - **Move** (drag to reorder)
 - Visibility toggle, lock toggle
@@ -127,10 +139,10 @@ Grid density changes automatically with zoom level:
 - Click **empty canvas or inside an open path** to set the sprite's `backgroundColorIndex` (like Paint's bucket fill)
 
 ### Select tool
-- Click to select, shift-click for multi-select, drag for marquee selection
+- Click to select, shift-click for multi-select, drag for marquee selection, Ctrl+A to select all elements on unlocked layers
 - Ctrl+C/V for copy/paste, Delete key to remove
 - Drag to move, handles for scale/rotate (pivot = element's user-defined origin, snaps to grid)
-- **Copy/paste**: Paste creates a new layer containing copies of the selected elements. All pasted elements get new IDs. Animation tracks, socket references, and layer constraints are not copied (constraints reference other elements/layers by ID and would break). Pasted layer is positioned with a small offset (+10, +10) from the original
+- **Copy/paste**: Paste creates a new layer containing copies of the selected elements. All pasted elements get new IDs. Animation tracks, socket references, and layer constraints are not copied (constraints reference other elements/layers by ID and would break). Pasted layer is positioned with a small offset (+10, +10) from the original. **Cross-sprite paste**: Elements are serialized to the system clipboard as JSON, so copy/paste works across sprite tabs. Color indices reference the shared project palette, so colors stay consistent
 
 ### Palette constraints
 - Max 256 colors. Index 0 = transparent/none
@@ -196,11 +208,21 @@ Grid density changes automatically with zoom level:
 - Handles angle wrapping at ±π (shortest angular difference)
 - Good for: eyes tracking a point, turrets, head turns
 
+### Skins (visual variants)
+- A sprite can have multiple **skins** — named sets of visual overrides applied on top of the base element properties
+- Each skin contains overrides per element: replacement `strokeColorIndex`, `fillColorIndex`, and/or `strokeWidth`. Omitted fields inherit from the base element
+- The base sprite with no skin applied is the implicit "default" skin — it doesn't appear in the skins list
+- **Bone structure, vertices, animations, sockets, IK chains, and constraints are shared across all skins** — only visual properties differ. Animate once, swap appearance
+- Skin selector dropdown in the editor toolbar lets you preview any skin while editing
+- When a skin is active in the editor, drawing/editing changes modify the **base** element (shared geometry), but the canvas renders with the skin's visual overrides so you can see the result
+- **Export**: each skin produces its own texture atlas (different part PNGs), but all skins share the same animation RON data. The exported RON includes a skin manifest listing available skins and their atlas references
+- Use case: same walk/attack/idle animations reused across soldier variants, enemy tiers, or equipment loadouts with different color schemes
+
 ### Undo/Redo
 - Single shared stack for all mutations (drawing + animation)
 
 ### Autosave
-- Debounced save 500ms after last change, plus save on tab switch and app blur
+- Debounced save 3 seconds after last change, plus save on tab switch and app blur
 - No "unsaved changes" dialogs — undo stack handles mistakes
 - **First save**: Creating a new project prompts for a save directory (`rfd` file dialog). New sprites are saved as `.sprite` files relative to the project directory. Autosave only activates once a file path is established
 
@@ -213,6 +235,10 @@ Grid density changes automatically with zoom level:
 - Canvas size presets: 64x64, 128x128, 256x256, 512x512
 - Freeform width/height input for custom sizes
 - Name field
+
+### Canvas boundary
+- A dashed rectangle on the canvas shows the export area (`canvasWidth` x `canvasHeight`). Art outside this boundary is preserved but excluded from spritesheet export. Bone export rasterizes each element at its own bounding box (canvas boundary is visual reference only)
+- Boundary always visible regardless of zoom, rendered in a subtle contrasting color (theme-aware)
 
 ### Canvas resize
 - Change `canvasWidth`/`canvasHeight` after creation via sprite settings
@@ -231,7 +257,7 @@ messy-grapefruit/
 │   │   ├── mod.rs
 │   │   ├── vec2.rs          (Vec2 math type with ops)
 │   │   ├── project.rs       (Project, Palette, EditorPreferences)
-│   │   └── sprite.rs        (Sprite, Layer, StrokeElement, PathVertex)
+│   │   └── sprite.rs        (Sprite, Layer, StrokeElement, PathVertex, Skin)
 │   ├── state/
 │   │   ├── mod.rs
 │   │   ├── editor.rs        (EditorState, ViewportState, SelectionState, tools)
@@ -244,7 +270,7 @@ messy-grapefruit/
 │   │   ├── canvas.rs        (canvas rendering, viewport pan/zoom, drawing)
 │   │   ├── grid.rs          (standard + isometric dot grid, adaptive sizing)
 │   │   ├── toolbar.rs       (top toolbar with tool buttons)
-│   │   ├── sidebar.rs       (hybrid right sidebar — tool options + layers/palette tabs)
+│   │   ├── sidebar.rs       (hybrid right sidebar — tool options + layers/palette/skins tabs)
 │   │   ├── timeline.rs      (animation timeline, keyframe tracks, playhead)
 │   │   └── status_bar.rs    (bottom status bar)
 │   ├── engine/
@@ -262,8 +288,6 @@ messy-grapefruit/
 │       └── spritesheet.rs    (frame atlas packing)
 └── .gitignore
 ```
-
----
 
 ---
 
@@ -293,16 +317,26 @@ Sprite + AnimationSequence
     → Build SVG string from transformed elements + resolved palette colors
     → Rasterize SVG → PNG via resvg/usvg/tiny_skia
     → Fill frame background with sprite's backgroundColorIndex (if non-transparent)
-  → Pack all frames into spritesheet atlas (uniform NxM grid layout)
+  → Trim transparent borders uniformly (find smallest bounding box that fits the largest frame, apply to all)
+  → Pack all frames into spritesheet atlas with configurable layout and padding
   → Write atlas.png + metadata.ron (Bevy TextureAtlasLayout-compatible)
 ```
 
-Useful for VFX, particles, UI elements, and simple environmental props that don't warrant a bone rig. Spritesheet FPS is configurable (default 12). Physics simulation always runs at 60 FPS internally — export samples frames at the configured FPS rate, so baked physics matches the preview. RON metadata maps to Bevy's `TextureAtlasLayout::from_grid()`.
+Useful for VFX, particles, UI elements, and simple environmental props that don't warrant a bone rig.
+
+**Spritesheet options:**
+- **FPS**: Configurable (default 12). Physics simulation always runs at 60 FPS internally — export samples frames at the configured FPS rate, so baked physics matches the preview
+- **Layout**: Row (single row), column (single column), or grid (NxM, default). Determines `columns` and `rows` in the atlas
+- **Trim**: Toggle (default on). Removes transparent borders uniformly — computes the smallest bounding box across all frames and crops all frames to that size. Keeps frames uniform for `from_grid()`
+- **Padding**: Pixels between frames (default 1). Prevents texture bleed at edges during rendering
+
+RON metadata includes `tile_size`, `columns`, `rows`, `padding`, and `offset` — maps directly to Bevy's `TextureAtlasLayout::from_grid()`.
 
 ### Shared behavior
 
 - **Preview** runs at 60 FPS in the editor (matches game target)
-- Auto-export triggers on save. Watcher mode re-exports **only the changed sprite** on `.sprite` file changes. Bevy hot-reloads from the output directory
+- **Manual export**: Opens a preview dialog displaying the generated atlas image and RON metadata summary (tile size, frame count, atlas dimensions). Allows adjusting settings (FPS, layout, trim, padding) and re-previewing before confirming. Settings are saved and reused by auto-export
+- **Auto-export on save**: Uses the last-used export settings, no dialog, writes directly to disk. Watcher mode re-exports **only the changed sprite** on `.sprite` file changes. Bevy hot-reloads from the output directory
 
 ---
 
@@ -318,7 +352,7 @@ Snapshot-based undo — every mutation captures the full sprite state before and
 
 **Dark mode (Twilight 5)**: `#292831` (bg), `#333f58` (panels), `#4a7a96` (accent), `#ee8695` (secondary), `#fbbbad` (text)
 
-**Light mode (Golden Sunset)**: `#25213e` (bg), `#7a4a5a` (panels), `#cb765c` (accent), `#ffb873` (secondary), `#ffecd6` (text)
+**Light mode (Golden Sunset)**: `#ffecd6` (bg), `#ffb873` (panels), `#cb765c` (accent), `#7a4a5a` (secondary), `#25213e` (text)
 
 ---
 
@@ -341,8 +375,9 @@ The right sidebar has two zones:
   - *Eraser tool* → (minimal or empty)
   - *Settings mode* → palette management, theme toggle, grid config
 - **Bottom zone (fixed tabs):** Always-visible regardless of active tool
-  - *Layers tab* → layer list with visibility/lock toggles, add/remove/combine/reorder
+  - *Layers tab* → layer list with visibility/lock toggles, add/remove/duplicate/mirror/combine/reorder
   - *Palette tab* → color swatches, add/delete, Lospec importer
+  - *Skins tab* → skin list with create/rename/duplicate/delete, per-element override editor
 
 ---
 
@@ -354,6 +389,7 @@ The right sidebar has two zones:
 - Save/open/new sprite via `rfd` file dialogs and `serde_json`
 - AppShell layout with egui panels (canvas + top toolbar + hybrid right sidebar + status bar)
 - Hybrid sidebar shell: context-sensitive top zone + fixed-tab bottom zone
+- Canvas boundary rendering (dashed rectangle at canvasWidth x canvasHeight)
 - Canvas rendering with egui `Painter` + viewport pan/zoom
 - Standard dot grid with adaptive zoom-based sizing
 - Grid snapping
@@ -364,13 +400,13 @@ The right sidebar has two zones:
 ### Phase 2: Drawing Completeness
 - Straight/curve hotkey toggle (`C` key)
 - Isometric grid mode (2:1 ratio, 26.57°)
-- Select tool (click, shift-click multi-select, drag marquee, Ctrl+C/V, Delete, scale/rotate with user-defined origin)
+- Select tool (click, shift-click multi-select, drag marquee, Ctrl+A select all, Ctrl+C/V copy/paste including cross-sprite, Delete, scale/rotate with user-defined origin)
 - Fill bucket tool (closed elements → fillColorIndex, empty canvas/open paths → backgroundColorIndex)
 - Eraser tool: click a vertex to delete it and all connected line segments (splits path if needed, warns if element has animation tracks)
 - Palette panel (fixed tab, bottom zone): color swatches + RGB picker + add/delete colors (max 256)
 - Lospec importer (blocking HTTP fetch via `reqwest`)
 - Indexed color rendering
-- Layer panel (fixed tab, bottom zone): **add**, **remove**, **combine**, **move** (drag reorder), visibility, lock
+- Layer panel (fixed tab, bottom zone): **add**, **remove**, **duplicate**, **mirror**, **combine**, **move** (drag reorder), visibility, lock
 - Context-sensitive tool options (top zone): stroke width slider, color index, origin point — content swaps per active tool
 - Undo/redo wired to all mutations (single shared stack)
 - Dark/light theme toggle
@@ -393,7 +429,17 @@ The right sidebar has two zones:
 ### Phase 4: Layer Sockets
 - **Layer sockets**: attach a layer to a parent vertex, inherit position + rotation, unlimited chain depth. Socket UI in layer panel. Circular reference detection. Warning on parent vertex deletion
 
-### Phase 5: Inverse Kinematics
+### Phase 5: Skins
+- Skin data model: `Skin { id, name, overrides: SkinOverride[] }` per sprite
+- `SkinOverride { elementId, strokeColorIndex?, fillColorIndex?, strokeWidth? }` — omitted fields inherit from base element
+- Skin management panel in sidebar: create, rename, duplicate, delete skins
+- Per-skin override editor: select an element, toggle which visual properties this skin overrides, set override values
+- Skin selector dropdown in editor toolbar for previewing skins while editing
+- Canvas renders with active skin's overrides applied; drawing/editing always modifies the shared base geometry
+- Undo/redo support for all skin mutations (create, delete, modify overrides)
+- Export integration: each skin produces a separate texture atlas, all skins share the same animation RON. RON includes a skin manifest mapping skin names to atlas references
+
+### Phase 6: Inverse Kinematics
 - **2-bone analytical IK solver**: law of cosines, bend direction sign flip, keyframeable target position + mix
 - **FABRIK solver**: forward-backward reaching for chains > 2, perturbation for collinear cases
 - IK chain definition UI: select socketed layers to form a chain, set solver type
@@ -402,7 +448,7 @@ The right sidebar has two zones:
 - FK/IK mix wired to evaluation pipeline (FK → socket walk → IK → final socket walk)
 - Unit tests for IK solver math (law of cosines, FABRIK convergence, angle constraints, bend direction)
 
-### Phase 6: Constraints & Dynamics
+### Phase 7: Constraints & Dynamics
 - **Spring/jiggle physics**: per-layer constraint with frequency, damping, mix sliders. Semi-implicit Euler integration
 - **Gravity + wind**: per-physics-constraint forces, gravity angle/strength, wind strength/frequency. Default 0
 - Spring state reset on animation restart
@@ -414,23 +460,25 @@ The right sidebar has two zones:
 - **Visual debug overlays**: render bone chains, IK targets, constraint gizmos, spring targets as toggleable canvas overlays (for authoring and debugging)
 - Unit tests for spring integrator, angle wrapping, Catmull-Rom conversion, procedural waveforms
 
-### Phase 7: Export Pipeline
+### Phase 8: Export Pipeline
 - `svg_gen.rs`: Sprite + time → SVG string (with backgroundColorIndex fill)
 - `rasterize.rs`: SVG → PNG via resvg
-- `bone_export.rs`: element → individual part PNGs + animation data RON for runtime bone mode (primary export path)
+- `bone_export.rs`: element → individual part PNGs + animation data RON for runtime bone mode (primary export path). Skin-aware: export one atlas per skin, shared animation RON with skin manifest
 - `ron_meta.rs`: generate Bevy-compatible RON metadata
+- Export preview dialog: show atlas preview + RON metadata summary, adjust settings before confirming
 - Wire export commands
-- Auto-export on save
+- Auto-export on save: exports all animations for the changed sprite using last-used settings, no dialog
 - File watcher with `notify` crate (re-exports only the changed sprite)
 
-### Phase 8: Project Overview & Polish
-- Project overview page (freeform dashboard — 2D canvas with draggable sprite thumbnails for organization, no game-spatial meaning)
+### Phase 9: Project Overview & Polish
+- Project overview page (live compose preview — 2D canvas with draggable sprites for previewing how they look together)
+- Each sprite on the dashboard renders its animation live (not static thumbnails), with per-sprite dropdowns to select which animation sequence and skin to preview
 - Sprite arrangement (position, rotation, z-order for dashboard layout)
 - Project file save/load (sprites require project context)
 - New sprite dialog
 - Keyboard shortcuts
 - File dialogs (`rfd` crate)
-- **Spritesheet export** (secondary, lower priority): `spritesheet.rs` for simple assets (VFX, particles, props). Configurable FPS, uniform grid atlas + TextureAtlasLayout RON
+- **Spritesheet export** (secondary, lower priority): `spritesheet.rs` for simple assets (VFX, particles, props). Configurable FPS, layout (row/column/grid), uniform trim toggle, padding. Exports atlas PNG + TextureAtlasLayout RON via `from_grid()`
 - UI polish
 
 ---
@@ -438,7 +486,7 @@ The right sidebar has two zones:
 ## Testing Strategy
 
 - **Unit tests on engine math**: IK solvers (law of cosines, FABRIK convergence, angle constraints, bend direction), spring integrator (convergence, energy conservation), angle wrapping (±π), Catmull-Rom → cubic bezier conversion, procedural waveform generators. These are pure functions — easy to test, high regression value.
-- **Visual debug overlays**: Toggleable canvas overlays that render bone chains, IK targets, constraint gizmos, and spring targets. Not automated, but essential for authoring and debugging procedural animation. Built during Phase 4b.
+- **Visual debug overlays**: Toggleable canvas overlays that render bone chains, IK targets, constraint gizmos, and spring targets. Not automated, but essential for authoring and debugging procedural animation. Built during Phase 7.
 - **Round-trip save/load tests**: If serialization bugs appear, add targeted tests for `.sprite` / `.spriteproj` round-trips via serde.
 
 ---
@@ -447,11 +495,11 @@ The right sidebar has two zones:
 
 1. **Drawing**: Open app → see dot grid → draw lines with auto-curve → verify snap to grid → drag curve handles → approach an existing vertex → verify merge preview highlights target → confirm auto-merge fuses elements when vertices coincide → verify vertex IDs are stable after merge
 2. **Palette**: Import lospec palette by slug → draw with indexed colors → change a palette color → verify all art using that index updates → verify 256 color max is enforced
-3. **Layers**: Add layers → draw on different layers → toggle visibility → reorder → combine → verify rendering order
-4. **Selection**: Click to select → shift-click multi-select → drag marquee → Ctrl+C/V copy/paste → Delete to remove → verify origin point is draggable and grid-snapped
+3. **Layers**: Add layers → draw on different layers → toggle visibility → reorder → combine → duplicate → mirror horizontally → verify rendering order
+4. **Selection**: Click to select → shift-click multi-select → Ctrl+A select all → drag marquee → Ctrl+C/V copy/paste (including cross-sprite paste) → Delete to remove → verify origin point is draggable and grid-snapped
 5. **Fill**: Fill closed path → verify fillColorIndex set → fill empty canvas → verify backgroundColorIndex set → verify background renders in export
 6. **Eraser**: Delete mid-path vertex → verify path splits into two elements → try erasing vertex on animated element → verify confirmation dialog appears → confirm split → verify tracks stay with correct elements
-7. **Animation**: Add keyframes on a property → set different easing presets → play animation → use skip forward/backward → verify interpolation and curve editor → verify color index uses hold-previous → verify rotation/scale pivots around origin → move playhead to non-zero time → draw new element → verify it has a visibility track (hidden before, visible after)
+7. **Animation**: Add keyframes on a property → set different easing presets → play animation → use skip forward/backward → verify interpolation and curve editor → verify color index uses hold-previous → verify rotation/scale pivots around origin → place keyframe past duration → verify duration auto-extends → move playhead to non-zero time → draw new element → verify it has a visibility track (hidden before, visible after)
 8. **Layer sockets**: Draw an arm element → draw a weapon on a separate layer → socket the weapon layer to a vertex on the arm → animate the arm → verify weapon follows → chain a third layer to the weapon → verify full chain works → try creating a circular reference → verify it's rejected → delete the socket vertex → verify warning and child detaches to world-space position
 9. **IK**: Create a 2-bone socket chain (upper arm → forearm → hand) → set up IK constraint → drag IK target → verify joints solve correctly → flip bend direction → verify elbow flips → animate IK target position → play → verify smooth tracking → animate mix from 0→1 → verify FK-to-IK transition → set angle constraints → verify elbow respects limits → create a 4-bone chain → switch to FABRIK → verify it solves
 10. **Spring physics**: Add physics constraint to a socketed layer → set frequency=2, damping=0.3 → animate parent → play → verify child overshoots and settles → add gravity (270°, moderate strength) → verify element sags downward → add wind → verify sinusoidal sway → restart animation → verify spring state resets
@@ -459,9 +507,10 @@ The right sidebar has two zones:
 12. **Procedural modifiers**: Add sine modifier on position.y (0.5Hz, small amplitude) → play → verify smooth floating motion → add noise modifier on rotation → verify organic wobble → verify modifiers layer additively on top of keyframed values
 13. **Look-at**: Add look-at constraint on an element → set target element → verify rotation follows target → set angle limits → verify clamping → enable spring smoothing → verify smooth tracking instead of snap → move target past angle limits → verify element stops at limit
 14. **Lospec import**: Import a palette → verify it replaces the current one → verify existing elements remap by index → import a shorter palette → verify out-of-range indices fall back to transparent
-15. **Export (runtime bone)**: Save sprite → check output directory for texture atlas + RON animation data → verify per-element part PNGs are packed correctly → verify RON contains keyframes, IK chains, physics params → test in a Bevy project with runtime evaluator + hot-reload → verify socketed layers and procedural animation work at 60 FPS
-16. **Export (spritesheet, if implemented)**: Export a simple VFX sprite → verify atlas PNG + TextureAtlasLayout RON → verify configurable FPS → verify physics bakes correctly via sequential evaluation
-17. **Autosave**: Make changes → wait 500ms → verify file saved automatically → switch tabs → verify save triggers → verify no "unsaved changes" dialogs
-18. **Navigation**: Double-click sprite card → verify editor tab opens → open multiple sprites → verify tabs work → verify project overview stays as first tab
-19. **Watcher**: Start watcher → modify and save a .sprite file externally → verify only that sprite re-exports (not all sprites)
-20. **Undo + physics**: Change a spring parameter mid-animation → undo → verify playhead stays at current position (FK-only pose) → replay → verify simulation re-runs correctly from frame 0
+15. **Skins**: Create a skin → override strokeColorIndex and fillColorIndex on several elements → switch between default and skin in the dropdown → verify canvas updates to show skin overrides → verify drawing modifies base geometry (shared) while rendering with skin → duplicate a skin → modify the duplicate → verify original is unchanged → delete a skin → verify undo restores it → export → verify separate atlas per skin and shared animation RON with skin manifest
+16. **Export (runtime bone)**: Save sprite → check output directory for texture atlas + RON animation data → verify per-element part PNGs are packed correctly → verify RON contains keyframes, IK chains, physics params, skin manifest → test in a Bevy project with runtime evaluator + hot-reload → verify socketed layers and procedural animation work at 60 FPS → verify skin switching loads correct atlas
+17. **Export (spritesheet, if implemented)**: Export a simple VFX sprite → verify atlas PNG + TextureAtlasLayout RON → verify configurable FPS → verify physics bakes correctly via sequential evaluation
+18. **Autosave**: Make changes → wait 3 seconds → verify file saved automatically → switch tabs → verify save triggers → verify no "unsaved changes" dialogs
+19. **Navigation**: Double-click sprite card → verify editor tab opens → open multiple sprites → verify tabs work → verify project overview stays as first tab → on project overview, verify sprites render animations live → switch animation sequence and skin via dropdowns → verify preview updates → drag sprites to compose them together
+20. **Watcher**: Start watcher → modify and save a .sprite file externally → verify only that sprite re-exports (not all sprites)
+21. **Undo + physics**: Change a spring parameter mid-animation → undo → verify playhead stays at current position (FK-only pose) → replay → verify simulation re-runs correctly from frame 0
