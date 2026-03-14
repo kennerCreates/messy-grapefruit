@@ -1,0 +1,86 @@
+/* CSS Reset */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#root {
+  height: 100vh;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Custom properties — default to dark theme */
+:root {
+  --bg: #292831;
+  --panels: #333f58;
+  --accent: #4a7a96;
+  --secondary: #ee8695;
+  --text: #fbbbad;
+  --border: rgba(255, 255, 255, 0.08);
+  --hover: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] {
+  --bg: #ffecd6;
+  --panels: #ffb873;
+  --accent: #cb765c;
+  --secondary: #7a4a5a;
+  --text: #25213e;
+  --border: rgba(0, 0, 0, 0.1);
+  --hover: rgba(0, 0, 0, 0.06);
+}
+
+/* Prevent text selection in UI chrome */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
