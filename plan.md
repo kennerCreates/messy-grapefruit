@@ -2,27 +2,25 @@
 
 ## Context
 
-Building a Tauri desktop app (Rust backend + SolidJS frontend) for creating animated SVG sprites for a 2D isometric Bevy game. The art style targets **high-resolution isometric line art** (similar to *They Are Billions*), not pixel art. The tool draws vector art using lines/curves with an indexed color palette, animates via keyframes with editable easing curves, and exports runtime bone animation data (RON) + texture atlases that Bevy hot-reloads.
+Building a native Rust desktop app (eframe/egui) for creating animated SVG sprites for a 2D isometric Bevy game. The art style targets **high-resolution isometric line art** (similar to *They Are Billions*), not pixel art. The tool draws vector art using lines/curves with an indexed color palette, animates via keyframes with editable easing curves, and exports runtime bone animation data (RON) + texture atlases that Bevy hot-reloads.
 
 ---
 
 ## Architecture
 
-- **Tauri v2** — Rust backend for file I/O, SVG generation, PNG rasterization (`resvg`), texture atlas packing, file watching (`notify`), RON export
-- **SolidJS + TypeScript** — Frontend with HTML Canvas 2D for drawing, SolidJS stores for reactive state
-- **HTML Canvas 2D** — Drawing surface. Native `lineCap="round"`, `lineJoin="round"`, `Path2D`, `bezierCurveTo`, `isPointInStroke` for hit-testing
+- **eframe + egui** — Pure Rust desktop app. egui immediate-mode UI for panels, toolbars, and controls. egui's `Painter` API for the canvas drawing surface (bezier curves, strokes, shapes, hit-testing)
+- **Rust** — All logic in Rust: file I/O, SVG generation, PNG rasterization (`resvg`), texture atlas packing, file watching (`notify`), RON export
 - **JSON file format** — `.sprite` (per sprite) and `.spriteproj` (project overview). Human-readable, diffable, trivial serde
 
 ### Why these choices
-- **SolidJS over React**: Fine-grained reactivity without VDOM. Deep store paths like `setStore("layers", i, "elements", j, "vertices", k, "x", val)` update only the one binding that reads it. Critical for a drawing app with many elements.
-- **Canvas 2D over SVG DOM**: Imperative rendering is faster for animation preview and avoids framework/DOM conflicts. Built-in curve and stroke support.
+- **eframe/egui**: Single-language (Rust), no web stack complexity, immediate-mode UI is natural for a drawing/animation tool with frequent repaints. egui's `Painter` provides direct drawing primitives (bezier curves, strokes, shapes).
 - **JSON over binary**: Sprite files are small (vector data). Human-readable, version-controllable, diffable.
 
 ---
 
 ## Data Model
 
-### Core Types (TypeScript — Rust mirrors these with serde)
+### Core Types (Rust with serde)
 
 ```
 Project (.spriteproj file)
@@ -204,7 +202,7 @@ Grid density changes automatically with zoom level:
 ### Autosave
 - Debounced save 500ms after last change, plus save on tab switch and app blur
 - No "unsaved changes" dialogs — undo stack handles mistakes
-- **First save**: Creating a new project prompts for a save directory (Tauri file dialog). New sprites are saved as `.sprite` files relative to the project directory. Autosave only activates once a file path is established
+- **First save**: Creating a new project prompts for a save directory (`rfd` file dialog). New sprites are saved as `.sprite` files relative to the project directory. Autosave only activates once a file path is established
 
 ### Navigation
 - **Project overview** is always the first tab
@@ -226,56 +224,46 @@ Grid density changes automatically with zoom level:
 
 ```
 messy-grapefruit/
-├── src-tauri/
-│   ├── Cargo.toml
-│   ├── tauri.conf.json
-│   └── src/
-│       ├── main.rs, lib.rs
-│       ├── commands/        (file.rs, export.rs, palette.rs, watcher.rs)
-│       ├── models/          (project.rs, animation.rs, palette.rs, export.rs)
-│       └── export/          (svg_gen.rs, rasterize.rs, bone_export.rs, ron_meta.rs, spritesheet.rs)
+├── Cargo.toml
 ├── src/
-│   ├── index.html, app.tsx
-│   ├── lib/                 (types.ts, tauri.ts, math.ts, history.ts, constants.ts)
-│   ├── stores/              (project.ts, editor.ts, palette.ts, animation.ts, preferences.ts)
+│   ├── main.rs              (eframe app entry point)
+│   ├── model/
+│   │   ├── mod.rs
+│   │   ├── vec2.rs          (Vec2 math type with ops)
+│   │   ├── project.rs       (Project, Palette, EditorPreferences)
+│   │   └── sprite.rs        (Sprite, Layer, StrokeElement, PathVertex)
+│   ├── state/
+│   │   ├── mod.rs
+│   │   ├── editor.rs        (EditorState, ViewportState, SelectionState, tools)
+│   │   ├── project.rs       (ProjectState, OpenSprite, tab management)
+│   │   └── history.rs       (snapshot-based undo/redo)
+│   ├── io.rs                (save/load sprite/project JSON, Lospec fetch)
+│   ├── math.rs              (Catmull-Rom, bezier eval/split/flatten, auto-curves)
+│   ├── theme.rs             (dark/light theme colors for egui)
+│   ├── ui/                  (egui UI modules — panels, toolbar, sidebar, canvas)
+│   │   ├── canvas.rs        (canvas rendering, viewport pan/zoom, drawing)
+│   │   ├── grid.rs          (standard + isometric dot grid, adaptive sizing)
+│   │   ├── toolbar.rs       (top toolbar with tool buttons)
+│   │   ├── sidebar.rs       (hybrid right sidebar — tool options + layers/palette tabs)
+│   │   ├── timeline.rs      (animation timeline, keyframe tracks, playhead)
+│   │   └── status_bar.rs    (bottom status bar)
 │   ├── engine/
-│   │   ├── canvas.ts        (rendering loop, viewport pan/zoom)
-│   │   ├── grid.ts          (standard + isometric dot grid, adaptive sizing)
-│   │   ├── snap.ts          (grid snapping)
-│   │   ├── hit-test.ts      (isPointInStroke/isPointInPath)
-│   │   ├── merge.ts         (auto-merge coincident vertices)
-│   │   ├── ik.ts            (2-bone analytical + FABRIK solvers)
-│   │   ├── physics.ts       (spring simulation, gravity, wind)
-│   │   ├── constraints.ts   (look-at, volume preserve, procedural modifiers)
-│   │   └── tools/           (base.ts, line.ts, select.ts, fill.ts, eraser.ts)
-│   ├── components/
-│   │   ├── layout/          (AppShell, Toolbar, SidePanel, StatusBar)
-│   │   ├── canvas/          (CanvasView, CanvasOverlay — curve handles, selection)
-│   │   ├── sidebar/         (ToolOptionsPanel, LineToolOptions, SelectToolOptions, FillToolOptions, SettingsPanel)
-│   │   ├── panels/          (LayerPanel, PalettePanel, AnimationPanel)
-│   │   ├── timeline/        (Timeline, KeyframeTrack, Playhead, CurveEditor)
-│   │   ├── palette/         (ColorPicker, LospecImporter, PaletteSwatch)
-│   │   ├── project/         (ProjectOverview, SpriteCard, NewSpriteDialog)
-│   │   └── shared/          (IconButton, NumberInput, Toggle, Dialog)
-│   ├── assets/              (SVG icons — Material Design, viewBox 0 -960 960 960, fill="currentColor")
-│   ├── pages/               (ProjectPage, EditorPage)
-│   └── styles/              (theme.css, global.css)
-├── package.json, vite.config.ts, tsconfig.json
+│   │   ├── snap.rs          (grid snapping)
+│   │   ├── hit_test.rs      (point-in-stroke/path)
+│   │   ├── merge.rs         (auto-merge coincident vertices)
+│   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)
+│   │   ├── physics.rs       (spring simulation, gravity, wind)
+│   │   └── constraints.rs   (look-at, volume preserve, procedural modifiers)
+│   └── export/
+│       ├── svg_gen.rs        (Sprite + time → SVG string)
+│       ├── rasterize.rs      (SVG → PNG via resvg)
+│       ├── bone_export.rs    (element → part PNGs + animation RON)
+│       ├── ron_meta.rs       (Bevy-compatible RON metadata)
+│       └── spritesheet.rs    (frame atlas packing)
 └── .gitignore
 ```
 
 ---
-
-## Tauri Command API
-
-| Command | Purpose |
-|---------|---------|
-| `new_project` / `open_project` / `save_project` | Project file CRUD |
-| `new_sprite` / `open_sprite` / `save_sprite` | Sprite file CRUD |
-| `export_sprite(sprite, animation, output_dir, mode)` | Export one animation → spritesheet or runtime bone data |
-| `export_all(project, sprites, mode)` | Export all sprites' animations |
-| `fetch_lospec_palette(slug)` | Fetch palette from lospec.com JSON API |
-| `start_watcher(watch_dir, output_dir)` / `stop_watcher` | File watcher for auto re-export |
 
 ---
 
@@ -320,7 +308,7 @@ Useful for VFX, particles, UI elements, and simple environmental props that don'
 
 ## Undo/Redo
 
-Command pattern — every mutation wraps in `{ execute(), undo() }` pushed to a single shared history stack (drawing + animation edits combined). SolidJS store mutations go through this. Ctrl+Z/Ctrl+Y navigate the stack. The redo stack clears on new actions.
+Snapshot-based undo — every mutation captures the full sprite state before and after. Pushed to a single shared history stack (drawing + animation edits combined). Ctrl+Z/Ctrl+Y navigate the stack. The redo stack clears on new actions.
 
 **Physics & undo**: Undoing a physics/constraint parameter change does not rewind the playhead. Since physics only runs during playback (scrubbing shows FK-only), there is no stale simulation state — physics will re-simulate correctly from frame 0 the next time playback starts.
 
@@ -341,7 +329,7 @@ Command pattern — every mutation wraps in `{ execute(), undo() }` pushed to a 
 - **Small inline color swatches** — not large color pickers; swatches show palette colors directly
 - **Minimal chrome** — panels feel lightweight, not heavy dialog boxes; thin borders, subtle separators
 - **Vertically stacked tool options** in sidebar — each option on its own row, not a dense property grid
-- **Icons**: 30 Material Design SVGs in `src/assets/`, using `fill="currentColor"` so they inherit theme text color via CSS. Covers tools, layer controls, animation controls, actions, and theme toggle
+- **Icons**: egui built-in icons and Unicode symbols for tool/action buttons
 
 ### Hybrid Sidebar Layout
 
@@ -361,13 +349,12 @@ The right sidebar has two zones:
 ## Implementation Phases
 
 ### Phase 1: Foundation
-- Init Tauri v2 (latest stable) + SolidJS + Vite project
+- Init eframe/egui project with Cargo dependencies
 - Rust data models with serde (including `id` on PathVertex, `origin` on StrokeElement, `backgroundColorIndex` on Sprite)
-- Basic Tauri commands: save/open/new sprite
-- TypeScript types mirroring Rust
-- AppShell layout with CSS Grid (canvas + top toolbar + hybrid right sidebar + status bar)
+- Save/open/new sprite via `rfd` file dialogs and `serde_json`
+- AppShell layout with egui panels (canvas + top toolbar + hybrid right sidebar + status bar)
 - Hybrid sidebar shell: context-sensitive top zone + fixed-tab bottom zone
-- Canvas rendering loop with viewport pan/zoom
+- Canvas rendering with egui `Painter` + viewport pan/zoom
 - Standard dot grid with adaptive zoom-based sizing
 - Grid snapping
 - **Line tool**: click to place vertices, auto-curve default (Catmull-Rom, duplicated endpoints), double-click to finish
@@ -381,7 +368,7 @@ The right sidebar has two zones:
 - Fill bucket tool (closed elements → fillColorIndex, empty canvas/open paths → backgroundColorIndex)
 - Eraser tool: click a vertex to delete it and all connected line segments (splits path if needed, warns if element has animation tracks)
 - Palette panel (fixed tab, bottom zone): color swatches + RGB picker + add/delete colors (max 256)
-- Lospec importer (`fetch_lospec_palette` command)
+- Lospec importer (blocking HTTP fetch via `reqwest`)
 - Indexed color rendering
 - Layer panel (fixed tab, bottom zone): **add**, **remove**, **combine**, **move** (drag reorder), visibility, lock
 - Context-sensitive tool options (top zone): stroke width slider, color index, origin point — content swaps per active tool
@@ -442,7 +429,7 @@ The right sidebar has two zones:
 - Project file save/load (sprites require project context)
 - New sprite dialog
 - Keyboard shortcuts
-- File dialogs (Tauri dialog plugin)
+- File dialogs (`rfd` crate)
 - **Spritesheet export** (secondary, lower priority): `spritesheet.rs` for simple assets (VFX, particles, props). Configurable FPS, uniform grid atlas + TextureAtlasLayout RON
 - UI polish
 
