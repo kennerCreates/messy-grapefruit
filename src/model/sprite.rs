@@ -539,7 +539,7 @@ impl PropertyTrack {
             .iter()
             .filter(|k| k.time < time - epsilon)
             .map(|k| k.time)
-            .last()
+            .next_back()
     }
 
     /// Find the next keyframe time relative to the given time.

@@ -67,8 +67,8 @@ pub fn secondary_color(theme: Theme) -> egui::Color32 {
 
 pub fn grid_color(theme: Theme) -> egui::Color32 {
     match theme {
-        Theme::Dark => egui::Color32::from_rgba_premultiplied(0xfb, 0xbb, 0xad, 40),
-        Theme::Light => egui::Color32::from_rgba_premultiplied(0x25, 0x21, 0x3e, 40),
+        Theme::Dark => egui::Color32::from_rgba_unmultiplied(0xfb, 0xbb, 0xad, 40),
+        Theme::Light => egui::Color32::from_rgba_unmultiplied(0x25, 0x21, 0x3e, 40),
     }
 }
 

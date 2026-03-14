@@ -5,6 +5,7 @@ use crate::model::project::ExportSettings;
 
 /// State for the export dialog.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct ExportDialogState {
     /// Whether the dialog is open.
     pub open: bool,
@@ -18,20 +19,10 @@ pub struct ExportDialogState {
     pub watcher_active: bool,
     /// Last export status message.
     pub last_export_status: Option<String>,
+    /// Last time auto-export was triggered (to avoid re-exporting every frame).
+    pub last_auto_export_time: Option<std::time::Instant>,
 }
 
-impl Default for ExportDialogState {
-    fn default() -> Self {
-        Self {
-            open: false,
-            settings: ExportSettings::default(),
-            summary: String::new(),
-            auto_export_enabled: false,
-            watcher_active: false,
-            last_export_status: None,
-        }
-    }
-}
 
 /// Actions returned from the export dialog.
 pub enum ExportDialogAction {

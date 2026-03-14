@@ -84,7 +84,11 @@ pub fn fetch_lospec_palette(slug: &str) -> Result<Vec<String>, IoError> {
         .and_then(|c| c.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                .filter_map(|v| v.as_str().map(|s| {
+                    let hex = s.to_lowercase();
+                    // Lospec returns 6-char hex; append "ff" for full opacity
+                    if hex.len() == 6 { format!("{}ff", hex) } else { hex }
+                }))
                 .collect::<Vec<String>>()
         })
         .unwrap_or_default();

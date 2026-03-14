@@ -379,7 +379,7 @@ fn draw_timeline_tracks(
     let track_height = 24.0;
     let label_width = 160.0;
     let timeline_width = (available_width - label_width - 20.0).max(100.0);
-    let duration = seq.duration;
+    let duration = seq.duration.max(f32::EPSILON);
 
     egui::ScrollArea::vertical()
         .auto_shrink([false; 2])
@@ -397,7 +397,7 @@ fn draw_timeline_tracks(
             painter.rect_filled(
                 ruler_rect,
                 0.0,
-                egui::Color32::from_rgba_premultiplied(40, 40, 50, 200),
+                egui::Color32::from_rgba_unmultiplied(40, 40, 50, 200),
             );
 
             // Time markers
@@ -444,13 +444,12 @@ fn draw_timeline_tracks(
                 ),
                 egui::Sense::click_and_drag(),
             );
-            if ruler_response.clicked() || ruler_response.dragged() {
-                if let Some(pos) = ruler_response.hover_pos().or(ruler_response.interact_pointer_pos()) {
+            if (ruler_response.clicked() || ruler_response.dragged())
+                && let Some(pos) = ruler_response.hover_pos().or(ruler_response.interact_pointer_pos()) {
                     let t = ((pos.x - ruler_timeline_left) / timeline_width).clamp(0.0, 1.0)
                         * duration;
                     actions.push(TimelineAction::SetTime(t));
                 }
-            }
 
             // Draw each track
             for (track_idx, track) in seq.tracks.iter().enumerate() {
@@ -491,9 +490,9 @@ fn draw_timeline_tracks(
 
                     // Track background
                     let bg_color = if is_selected {
-                        egui::Color32::from_rgba_premultiplied(50, 60, 80, 200)
+                        egui::Color32::from_rgba_unmultiplied(50, 60, 80, 200)
                     } else {
-                        egui::Color32::from_rgba_premultiplied(35, 40, 55, 200)
+                        egui::Color32::from_rgba_unmultiplied(35, 40, 55, 200)
                     };
                     painter.rect_filled(track_rect, 0.0, bg_color);
 
@@ -542,8 +541,8 @@ fn draw_timeline_tracks(
                     );
 
                     // Click on timeline to add keyframe or select existing one
-                    if track_response.clicked() {
-                        if let Some(pos) = track_response.interact_pointer_pos() {
+                    if track_response.clicked()
+                        && let Some(pos) = track_response.interact_pointer_pos() {
                             let click_t =
                                 ((pos.x - track_rect.min.x) / timeline_width).clamp(0.0, 1.0)
                                     * duration;
@@ -573,7 +572,6 @@ fn draw_timeline_tracks(
                                 });
                             }
                         }
-                    }
                 });
             }
 
@@ -701,7 +699,7 @@ fn draw_curve_editor(
     painter.rect_filled(
         curve_rect,
         2.0,
-        egui::Color32::from_rgba_premultiplied(30, 30, 40, 220),
+        egui::Color32::from_rgba_unmultiplied(30, 30, 40, 220),
     );
 
     // Find value range
@@ -779,12 +777,12 @@ fn draw_curve_editor(
             egui::pos2(ph_x, curve_rect.min.y),
             egui::pos2(ph_x, curve_rect.max.y),
         ],
-        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0xee, 0x86, 0x95, 128)),
+        egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0xee, 0x86, 0x95, 128)),
     );
 
     // Selected keyframe editing
-    if let Some(ref kf_id) = anim_state.selected_keyframe_id {
-        if let Some(kf) = track.keyframes.iter().find(|k| &k.id == kf_id) {
+    if let Some(ref kf_id) = anim_state.selected_keyframe_id
+        && let Some(kf) = track.keyframes.iter().find(|k| &k.id == kf_id) {
             ui.horizontal(|ui| {
                 ui.label(format!(
                     "Keyframe at {:.2}s = {:.2}",
@@ -837,7 +835,6 @@ fn draw_curve_editor(
                 }
             });
         }
-    }
 }
 
 /// Create an EasingCurve from a preset.

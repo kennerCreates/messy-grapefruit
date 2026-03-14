@@ -128,8 +128,8 @@ fn resolve_element_visuals(element: &StrokeElement, skin: Option<&Skin>) -> Reso
         stroke_width: element.stroke_width,
     };
 
-    if let Some(skin) = skin {
-        if let Some(ov) = skin.overrides.iter().find(|o| o.element_id == element.id) {
+    if let Some(skin) = skin
+        && let Some(ov) = skin.overrides.iter().find(|o| o.element_id == element.id) {
             if let Some(sci) = ov.stroke_color_index {
                 vis.stroke_color_index = sci;
             }
@@ -140,7 +140,6 @@ fn resolve_element_visuals(element: &StrokeElement, skin: Option<&Skin>) -> Reso
                 vis.stroke_width = sw;
             }
         }
-    }
 
     vis
 }

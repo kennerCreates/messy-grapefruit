@@ -25,15 +25,14 @@ pub fn hit_test_elements(
             // Check single vertex
             if let Some(v) = element.vertices.first() {
                 let d = point.distance(v.pos);
-                if d <= threshold {
-                    if best.as_ref().is_none_or(|b| d < b.distance) {
+                if d <= threshold
+                    && best.as_ref().is_none_or(|b| d < b.distance) {
                         best = Some(HitResult {
                             element_id: element.id.clone(),
                             vertex_id: Some(v.id.clone()),
                             distance: d,
                         });
                     }
-                }
             }
             continue;
         }
@@ -49,29 +48,27 @@ pub fn hit_test_elements(
         // Check distance from point to each line segment in the polyline
         for i in 0..polyline.len().saturating_sub(1) {
             let d = point_to_segment_distance(point, polyline[i], polyline[i + 1]);
-            if d <= threshold {
-                if best.as_ref().is_none_or(|b| d < b.distance) {
+            if d <= threshold
+                && best.as_ref().is_none_or(|b| d < b.distance) {
                     best = Some(HitResult {
                         element_id: element.id.clone(),
                         vertex_id: None,
                         distance: d,
                     });
                 }
-            }
         }
 
         // Also check proximity to vertices specifically
         for v in &element.vertices {
             let d = point.distance(v.pos);
-            if d <= threshold {
-                if best.as_ref().is_none_or(|b| d < b.distance) {
+            if d <= threshold
+                && best.as_ref().is_none_or(|b| d < b.distance) {
                     best = Some(HitResult {
                         element_id: element.id.clone(),
                         vertex_id: Some(v.id.clone()),
                         distance: d,
                     });
                 }
-            }
         }
     }
 

@@ -34,6 +34,7 @@ pub fn cubic_bezier_eval(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: f32) -> Vec2
 
 /// De Casteljau split: splits a cubic bezier at parameter t into two cubic beziers.
 /// Returns ((left_p0, left_p1, left_p2, left_p3), (right_p0, right_p1, right_p2, right_p3)).
+#[allow(clippy::type_complexity)]
 pub fn de_casteljau_split(
     p0: Vec2,
     p1: Vec2,
@@ -107,9 +108,10 @@ fn point_to_line_distance(point: Vec2, line_start: Vec2, line_end: Vec2) -> f32 
     cross.abs() / len_sq.sqrt()
 }
 
-/// Auto-generate cp1/cp2 for all vertices using Catmull-Rom with
-/// duplicated-endpoint phantom points (zero curvature at path ends).
-pub fn recompute_auto_curves(vertices: &mut [PathVertex]) {
+/// Auto-generate cp1/cp2 for all vertices using Catmull-Rom.
+/// For open paths, uses duplicated-endpoint phantom points (zero curvature at ends).
+/// For closed paths, uses modular indexing so the closing segment is also curved.
+pub fn recompute_auto_curves(vertices: &mut [PathVertex], closed: bool) {
     let n = vertices.len();
     if n < 2 {
         // Clear any existing control points on single vertices
@@ -120,35 +122,40 @@ pub fn recompute_auto_curves(vertices: &mut [PathVertex]) {
         return;
     }
 
-    // Build the Catmull-Rom point list with duplicated endpoints
+    // Build the Catmull-Rom point list
     let positions: Vec<Vec2> = vertices.iter().map(|v| v.pos).collect();
 
+    // Helper: get position with wrapping (closed) or clamping (open)
+    let get_pos = |idx: isize| -> Vec2 {
+        if closed {
+            positions[((idx % n as isize + n as isize) % n as isize) as usize]
+        } else {
+            positions[idx.clamp(0, n as isize - 1) as usize]
+        }
+    };
+
     for i in 0..n {
-        // For Catmull-Rom, we need four points: p_{i-1}, p_i, p_{i+1}, p_{i+2}
-        // Duplicated-endpoint phantom: clamp indices to [0, n-1]
-        let p0 = positions[if i == 0 { 0 } else { i - 1 }];
+        let p0 = get_pos(i as isize - 1);
         let p1 = positions[i];
-        let p2 = positions[if i + 1 < n { i + 1 } else { n - 1 }];
-        let p3 = positions[if i + 2 < n { i + 2 } else { n - 1 }];
+        let p2 = get_pos(i as isize + 1);
+        let p3 = get_pos(i as isize + 2);
 
         let (cp1, cp2) = catmull_rom_to_cubic(p0, p1, p2, p3);
 
-        // cp1 is the outgoing control point for vertex i (stored as cp2 on vertex i)
-        // cp2 is the incoming control point for vertex i+1 (stored as cp1 on vertex i+1)
-        // But for the Catmull-Rom approach, we compute per-segment.
-        // We store: vertex[i].cp2 = outgoing handle, vertex[i].cp1 = incoming handle.
-
-        // For segment i -> i+1: cp1 belongs as outgoing from vertex i, cp2 as incoming to vertex i+1
-        if i + 1 < n {
+        // For segment i -> i+1: cp1 = outgoing from vertex i (stored as cp2),
+        // cp2 = incoming to vertex i+1 (stored as cp1)
+        let next = if closed { (i + 1) % n } else { i + 1 };
+        if closed || i + 1 < n {
             vertices[i].cp2 = Some(cp1);
-            vertices[i + 1].cp1 = Some(cp2);
+            vertices[next].cp1 = Some(cp2);
         }
     }
 
-    // First vertex has no incoming handle
-    vertices[0].cp1 = None;
-    // Last vertex has no outgoing handle
-    vertices[n - 1].cp2 = None;
+    if !closed {
+        // Open paths: first vertex has no incoming handle, last has no outgoing
+        vertices[0].cp1 = None;
+        vertices[n - 1].cp2 = None;
+    }
 }
 
 /// Get the bezier points for a segment between two vertices.

@@ -102,27 +102,24 @@ pub fn draw_project_overview(
             let painter = ui.painter_at(available_rect);
 
             // --- Pan with middle mouse ---
-            if response.middle_clicked() || (response.dragged_by(egui::PointerButton::Middle)) {
-                if !overview_state.is_panning {
+            if (response.middle_clicked() || (response.dragged_by(egui::PointerButton::Middle)))
+                && !overview_state.is_panning {
                     overview_state.is_panning = true;
                     if let Some(pos) = response.hover_pos() {
                         overview_state.pan_start_pos = Some(Vec2::from(pos));
                         overview_state.pan_start_offset = Some(overview_state.offset);
                     }
                 }
-            }
             if overview_state.is_panning {
                 if let (Some(start_pos), Some(start_offset)) =
                     (overview_state.pan_start_pos, overview_state.pan_start_offset)
-                {
-                    if let Some(current_pos) = response.hover_pos() {
+                    && let Some(current_pos) = response.hover_pos() {
                         let delta = Vec2::from(current_pos) - start_pos;
                         overview_state.offset = Vec2::new(
                             start_offset.x + delta.x / overview_state.zoom,
                             start_offset.y + delta.y / overview_state.zoom,
                         );
                     }
-                }
                 if !ctx.input(|i| i.pointer.middle_down()) {
                     overview_state.is_panning = false;
                     overview_state.pan_start_pos = None;
@@ -208,7 +205,7 @@ pub fn draw_project_overview(
                 painter.rect_filled(
                     btn_rect,
                     4.0,
-                    egui::Color32::from_rgba_premultiplied(60, 80, 100, 180),
+                    egui::Color32::from_rgba_unmultiplied(60, 80, 100, 180),
                 );
                 painter.rect_stroke(
                     btn_rect,
@@ -227,8 +224,8 @@ pub fn draw_project_overview(
 
             // --- Handle interactions ---
             // Click detection on sprite cards
-            if response.clicked() {
-                if let Some(pos) = response.interact_pointer_pos() {
+            if response.clicked()
+                && let Some(pos) = response.interact_pointer_pos() {
                     let click_pos = Vec2::from(pos);
 
                     // Check new sprite button
@@ -236,11 +233,10 @@ pub fn draw_project_overview(
                         actions.push(OverviewAction::NewSprite);
                     }
                 }
-            }
 
             // Double-click to open a sprite
-            if response.double_clicked() {
-                if let Some(pos) = response.interact_pointer_pos() {
+            if response.double_clicked()
+                && let Some(pos) = response.interact_pointer_pos() {
                     let click_pos = Vec2::from(pos);
                     for &ref_idx in sorted_indices.iter().rev() {
                         if ref_idx >= sprites.len() {
@@ -254,14 +250,12 @@ pub fn draw_project_overview(
                         }
                     }
                 }
-            }
 
             // Drag to move sprite cards (primary button only, not panning)
             if !overview_state.is_panning {
                 if response.drag_started_by(egui::PointerButton::Primary)
                     && overview_state.dragging_sprite.is_none()
-                {
-                    if let Some(pos) = response.interact_pointer_pos() {
+                    && let Some(pos) = response.interact_pointer_pos() {
                         let click_pos = Vec2::from(pos);
                         // Find which card was clicked (topmost first)
                         for &ref_idx in sorted_indices.iter().rev() {
@@ -284,15 +278,14 @@ pub fn draw_project_overview(
                             }
                         }
                     }
-                }
 
                 if let Some(drag_idx) = overview_state.dragging_sprite {
-                    if response.dragged_by(egui::PointerButton::Primary) {
-                        if let (Some(start_screen), Some(start_pos)) = (
+                    if response.dragged_by(egui::PointerButton::Primary)
+                        && let (Some(start_screen), Some(start_pos)) = (
                             overview_state.drag_start_screen,
                             overview_state.drag_start_pos,
-                        ) {
-                            if let Some(current_pos) = response.hover_pos() {
+                        )
+                            && let Some(current_pos) = response.hover_pos() {
                                 let delta = Vec2::from(current_pos) - start_screen;
                                 let new_pos = Vec2::new(
                                     start_pos.x + delta.x / overview_state.zoom,
@@ -300,8 +293,6 @@ pub fn draw_project_overview(
                                 );
                                 actions.push(OverviewAction::MoveSprite(drag_idx, new_pos));
                             }
-                        }
-                    }
                     if response.drag_stopped_by(egui::PointerButton::Primary) {
                         overview_state.dragging_sprite = None;
                         overview_state.drag_start_screen = None;
@@ -342,12 +333,11 @@ pub fn draw_project_overview(
                             break;
                         }
                     }
-                    if !found {
-                        if ui.button("New Sprite").clicked() {
+                    if !found
+                        && ui.button("New Sprite").clicked() {
                             actions.push(OverviewAction::NewSprite);
                             ui.close_menu();
                         }
-                    }
                 }
             });
 
@@ -517,7 +507,7 @@ fn draw_sprite_card(
     {
         palette.colors[sprite.background_color_index].to_color32()
     } else {
-        egui::Color32::from_rgba_premultiplied(40, 45, 55, 230)
+        egui::Color32::from_rgba_unmultiplied(40, 45, 55, 230)
     };
 
     painter.rect_filled(

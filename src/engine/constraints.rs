@@ -35,8 +35,8 @@ pub fn look_at_solve(
     let desired = rest_angle + clamped;
 
     // Blend with current rotation
-    let blended = lerp_angle(current_rotation, desired, mix);
-    blended
+    
+    lerp_angle(current_rotation, desired, mix)
 }
 
 /// Linear interpolation between two angles, using shortest path.
@@ -45,15 +45,15 @@ fn lerp_angle(from: f32, to: f32, t: f32) -> f32 {
     wrap_angle(from + diff * t)
 }
 
-/// Apply volume preservation: scale_x = 1/scale_y.
-/// Takes the current scale and returns the corrected scale.
+/// Apply volume preservation: maintain original area (scale_x * scale_y = constant).
+/// Uses scale_y as the driving value, adjusts scale_x to preserve the original area.
 pub fn volume_preserve(scale_x: f32, scale_y: f32) -> (f32, f32) {
-    // Use scale_y as the driving value, compute scale_x to preserve area
+    let original_area = scale_x * scale_y;
     if scale_y.abs() < 1e-6 {
         // Avoid division by zero; keep scale as is
         (scale_x, scale_y)
     } else {
-        (1.0 / scale_y, scale_y)
+        (original_area / scale_y, scale_y)
     }
 }
 
@@ -221,9 +221,12 @@ mod tests {
 
     #[test]
     fn test_volume_preserve() {
+        // Original area = 1.0 * 2.0 = 2.0; preserving area: sx = 2.0/2.0 = 1.0
         let (sx, sy) = volume_preserve(1.0, 2.0);
-        assert!((sx - 0.5).abs() < 0.001, "sx={}", sx);
+        assert!((sx - 1.0).abs() < 0.001, "sx={}", sx);
         assert!((sy - 2.0).abs() < 0.001, "sy={}", sy);
+        // Verify area preserved
+        assert!((sx * sy - 2.0).abs() < 0.001);
     }
 
     #[test]

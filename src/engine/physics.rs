@@ -141,24 +141,22 @@ pub fn apply_external_forces(
     let mut velocity = state.velocity;
 
     // Gravity: constant force in a given direction
-    if let Some(ref gravity) = constraint.gravity {
-        if gravity.strength > 0.0 {
+    if let Some(ref gravity) = constraint.gravity
+        && gravity.strength > 0.0 {
             let angle_rad = gravity.angle.to_radians();
             let gx = angle_rad.cos() * gravity.strength;
             let gy = angle_rad.sin() * gravity.strength;
             velocity.x += gx * dt;
             velocity.y += gy * dt;
         }
-    }
 
     // Wind: sinusoidal force (horizontal)
-    if let Some(ref wind) = constraint.wind {
-        if wind.strength > 0.0 {
+    if let Some(ref wind) = constraint.wind
+        && wind.strength > 0.0 {
             let wind_force = wind.strength
                 * (time * wind.frequency * 2.0 * std::f32::consts::PI).sin();
             velocity.x += wind_force * dt;
         }
-    }
 
     SpringState {
         position: state.position,

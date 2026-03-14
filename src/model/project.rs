@@ -89,7 +89,7 @@ pub fn parse_hex_color(hex: &str) -> egui::Color32 {
             let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
             let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
             let a = u8::from_str_radix(&hex[6..8], 16).unwrap_or(255);
-            egui::Color32::from_rgba_premultiplied(r, g, b, a)
+            egui::Color32::from_rgba_unmultiplied(r, g, b, a)
         }
         _ => egui::Color32::TRANSPARENT,
     }

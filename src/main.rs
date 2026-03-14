@@ -73,7 +73,8 @@ impl App {
 
         // Save each sprite to its own .sprite file
         // Update project sprite refs with file paths
-        self.project_state.project.sprites.clear();
+        // Preserve existing positions before clearing
+        let old_refs: Vec<_> = self.project_state.project.sprites.drain(..).collect();
         for (i, sprite) in self.project_state.overview_sprites.iter().enumerate() {
             let filename = format!("{}.sprite", sanitize_filename(&sprite.name));
             let sprite_path = proj_dir.join(&filename);
@@ -89,20 +90,18 @@ impl App {
                 return;
             }
 
-            // Build ProjectSpriteRef
+            // Build ProjectSpriteRef, preserving position from old refs
+            let old_ref = old_refs.iter().find(|r| r.id == sprite.id);
             let sprite_ref = model::project::ProjectSpriteRef {
                 id: sprite.id.clone(),
                 file_path: filename,
-                position: if i < self.project_state.project.sprites.len() {
-                    self.project_state.project.sprites[i].position
-                } else {
-                    // Find existing ref for this sprite or use default position
-                    model::Vec2::new(i as f32 * 180.0, 0.0)
-                },
-                rotation: 0.0,
-                z_order: i as i32,
-                selected_animation_id: None,
-                selected_skin_id: None,
+                position: old_ref
+                    .map(|r| r.position)
+                    .unwrap_or_else(|| model::Vec2::new(i as f32 * 180.0, 0.0)),
+                rotation: old_ref.map(|r| r.rotation).unwrap_or(0.0),
+                z_order: old_ref.map(|r| r.z_order).unwrap_or(i as i32),
+                selected_animation_id: old_ref.and_then(|r| r.selected_animation_id.clone()),
+                selected_skin_id: old_ref.and_then(|r| r.selected_skin_id.clone()),
             };
             self.project_state.project.sprites.push(sprite_ref);
 
@@ -243,7 +242,7 @@ impl App {
 
         // Open in a new tab
         let open_sprite = OpenSprite {
-            sprite: sprite,
+            sprite,
             file_path: None,
             editor_state: EditorState::default(),
             physics_state: engine::physics::PhysicsState::new(),
@@ -446,11 +445,10 @@ impl eframe::App for App {
             // Apply tab switch
             if let Some(tab) = new_active_tab {
                 // Sync current sprite back to overview before switching
-                if let ActiveTab::Sprite(old_idx) = self.project_state.active_tab {
-                    if ActiveTab::Sprite(old_idx) != tab {
+                if let ActiveTab::Sprite(old_idx) = self.project_state.active_tab
+                    && ActiveTab::Sprite(old_idx) != tab {
                         self.project_state.sync_overview_sprite(old_idx);
                     }
-                }
                 self.project_state.active_tab = tab;
                 self.project_state.active_sprite_index =
                     self.project_state.current_sprite_index();
@@ -610,21 +608,18 @@ impl eframe::App for App {
             }
 
             // Request repaint during animation playback
-            if let Some(open) = self.project_state.active_sprite() {
-                if open.editor_state.animation.playing {
+            if let Some(open) = self.project_state.active_sprite()
+                && open.editor_state.animation.playing {
                     ctx.request_repaint();
                 }
-            }
         }
 
         // Clear expired toasts
-        if let Some(open) = self.project_state.active_sprite_mut() {
-            if let Some(ref toast) = open.editor_state.toast {
-                if toast.created.elapsed().as_secs() >= 4 {
+        if let Some(open) = self.project_state.active_sprite_mut()
+            && let Some(ref toast) = open.editor_state.toast
+                && toast.created.elapsed().as_secs() >= 4 {
                     open.editor_state.toast = None;
                 }
-            }
-        }
 
         // --- New Sprite Dialog ---
         let new_sprite_actions = ui::new_sprite_dialog::draw_new_sprite_dialog(
@@ -734,19 +729,20 @@ impl eframe::App for App {
         }
 
         // --- Auto-export on save ---
-        if self.export_dialog.auto_export_enabled {
-            if let Some(change_time) = self.project_state.last_change_time {
-                let save_time = self.project_state.last_save_time.unwrap_or(change_time);
-                if save_time >= change_time {
-                    // Save just happened; trigger auto-export
+        if self.export_dialog.auto_export_enabled
+            && let Some(save_time) = self.project_state.last_save_time {
+                // Only auto-export once per save (check if save is newer than last auto-export)
+                let should_export = self.export_dialog.last_auto_export_time
+                    .is_none_or(|last_export| save_time > last_export);
+                if should_export {
                     let status = perform_export(
                         &self.project_state,
                         &self.project_state.project.export_settings,
                     );
                     eprintln!("Auto-export: {}", status);
+                    self.export_dialog.last_auto_export_time = Some(std::time::Instant::now());
                 }
             }
-        }
     }
 }
 
@@ -831,18 +827,16 @@ fn process_sidebar_action(
             }
         }
         ui::sidebar::SidebarAction::ToggleLayerVisibility(idx) => {
-            if let Some(open) = project_state.active_sprite_mut() {
-                if let Some(layer) = open.sprite.layers.get_mut(idx) {
+            if let Some(open) = project_state.active_sprite_mut()
+                && let Some(layer) = open.sprite.layers.get_mut(idx) {
                     layer.visible = !layer.visible;
                 }
-            }
         }
         ui::sidebar::SidebarAction::ToggleLayerLock(idx) => {
-            if let Some(open) = project_state.active_sprite_mut() {
-                if let Some(layer) = open.sprite.layers.get_mut(idx) {
+            if let Some(open) = project_state.active_sprite_mut()
+                && let Some(layer) = open.sprite.layers.get_mut(idx) {
                     layer.locked = !layer.locked;
                 }
-            }
         }
         ui::sidebar::SidebarAction::SetActiveColor(idx) => {
             if let Some(open) = project_state.active_sprite_mut() {
@@ -1048,11 +1042,10 @@ fn process_sidebar_action(
             if idx > 0 && idx < project_state.project.palette.colors.len() {
                 project_state.project.palette.colors.remove(idx);
                 let palette_len = project_state.project.palette.colors.len();
-                if let Some(open) = project_state.active_sprite_mut() {
-                    if open.editor_state.active_color_index >= palette_len {
+                if let Some(open) = project_state.active_sprite_mut()
+                    && open.editor_state.active_color_index >= palette_len {
                         open.editor_state.active_color_index = palette_len - 1;
                     }
-                }
                 project_state.mark_changed();
             }
         }
@@ -1099,8 +1092,8 @@ fn process_sidebar_action(
             project_state.mark_changed();
         }
         ui::sidebar::SidebarAction::ResizeCanvas(new_w, new_h) => {
-            if let Some(open) = project_state.active_sprite_mut() {
-                if new_w > 0 && new_h > 0 && (open.sprite.canvas_width != new_w || open.sprite.canvas_height != new_h) {
+            if let Some(open) = project_state.active_sprite_mut()
+                && new_w > 0 && new_h > 0 && (open.sprite.canvas_width != new_w || open.sprite.canvas_height != new_h) {
                     let before = open.sprite.clone();
                     open.sprite.canvas_width = new_w;
                     open.sprite.canvas_height = new_h;
@@ -1113,7 +1106,6 @@ fn process_sidebar_action(
                     });
                     project_state.mark_changed();
                 }
-            }
         }
         ui::sidebar::SidebarAction::SetSocket {
             layer_index,
@@ -1372,13 +1364,12 @@ fn process_sidebar_action(
                             model::vec2::Vec2::ZERO
                         };
 
-                        if let Some(tip_layer_id) = layer_ids.last() {
-                            if let Some(tip_layer) = open.sprite.layers.iter_mut().find(|l| l.id == *tip_layer_id) {
+                        if let Some(tip_layer_id) = layer_ids.last()
+                            && let Some(tip_layer) = open.sprite.layers.iter_mut().find(|l| l.id == *tip_layer_id) {
                                 let mut target = target;
                                 target.position = initial_pos;
                                 tip_layer.ik_targets.push(target);
                             }
-                        }
 
                         if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
                             let mut chain = chain;
@@ -1410,14 +1401,13 @@ fn process_sidebar_action(
                     if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
                         let before = open.sprite.clone();
 
-                        if let Some(seq) = open.sprite.animations.iter().find(|a| a.id == *seq_id) {
-                            if let Some(chain) = seq.ik_chains.iter().find(|c| c.id == chain_id) {
+                        if let Some(seq) = open.sprite.animations.iter().find(|a| a.id == *seq_id)
+                            && let Some(chain) = seq.ik_chains.iter().find(|c| c.id == chain_id) {
                                 let target_id = chain.target_element_id.clone();
                                 for layer in &mut open.sprite.layers {
                                     layer.ik_targets.retain(|t| t.id != target_id);
                                 }
                             }
-                        }
 
                         if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
                             seq.ik_chains.retain(|c| c.id != chain_id);
@@ -1446,11 +1436,10 @@ fn process_sidebar_action(
                 if let Some(open) = project_state.active_sprite_mut() {
                     if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
                         let before = open.sprite.clone();
-                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                            if let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
+                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                            && let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
                                 chain.solver = solver;
                             }
-                        }
                         (Some(before), Some(open.sprite.clone()))
                     } else {
                         (None, None)
@@ -1474,11 +1463,10 @@ fn process_sidebar_action(
                 if let Some(open) = project_state.active_sprite_mut() {
                     if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
                         let before = open.sprite.clone();
-                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                            if let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
+                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                            && let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
                                 chain.bend_direction = bend_direction;
                             }
-                        }
                         (Some(before), Some(open.sprite.clone()))
                     } else {
                         (None, None)
@@ -1502,11 +1490,10 @@ fn process_sidebar_action(
                 if let Some(open) = project_state.active_sprite_mut() {
                     if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
                         let before = open.sprite.clone();
-                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                            if let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
+                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                            && let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
                                 chain.mix = mix;
                             }
-                        }
                         (Some(before), Some(open.sprite.clone()))
                     } else {
                         (None, None)
@@ -1530,8 +1517,8 @@ fn process_sidebar_action(
                 if let Some(open) = project_state.active_sprite_mut() {
                     if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
                         let before = open.sprite.clone();
-                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                            if let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
+                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                            && let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
                                 if let Some(constraint) = chain.angle_constraints.iter_mut().find(|c| c.layer_id == layer_id) {
                                     constraint.min = min;
                                     constraint.max = max;
@@ -1543,7 +1530,6 @@ fn process_sidebar_action(
                                     });
                                 }
                             }
-                        }
                         (Some(before), Some(open.sprite.clone()))
                     } else {
                         (None, None)
@@ -1567,11 +1553,10 @@ fn process_sidebar_action(
                 if let Some(open) = project_state.active_sprite_mut() {
                     if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
                         let before = open.sprite.clone();
-                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                            if let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
+                        if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                            && let Some(chain) = seq.ik_chains.iter_mut().find(|c| c.id == chain_id) {
                                 chain.angle_constraints.retain(|c| c.layer_id != layer_id);
                             }
-                        }
                         (Some(before), Some(open.sprite.clone()))
                     } else {
                         (None, None)
@@ -1921,15 +1906,14 @@ fn process_timeline_action(
         timeline::TimelineAction::SkipBackward => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let current_time = open.editor_state.animation.current_time;
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                    if let Some(seq) = open.sprite.animations.iter().find(|a| a.id == *seq_id) {
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
+                    && let Some(seq) = open.sprite.animations.iter().find(|a| a.id == *seq_id) {
                         if let Some(prev_t) = engine::animation::prev_keyframe_time(seq, current_time) {
                             open.editor_state.animation.current_time = prev_t;
                         } else {
                             open.editor_state.animation.current_time = 0.0;
                         }
                     }
-                }
                 if open.editor_state.animation.playing {
                     open.editor_state.animation.playback_start_time =
                         open.editor_state.animation.current_time;
@@ -1941,13 +1925,11 @@ fn process_timeline_action(
         timeline::TimelineAction::SkipForward => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let current_time = open.editor_state.animation.current_time;
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                    if let Some(seq) = open.sprite.animations.iter().find(|a| a.id == *seq_id) {
-                        if let Some(next_t) = engine::animation::next_keyframe_time(seq, current_time) {
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
+                    && let Some(seq) = open.sprite.animations.iter().find(|a| a.id == *seq_id)
+                        && let Some(next_t) = engine::animation::next_keyframe_time(seq, current_time) {
                             open.editor_state.animation.current_time = next_t;
                         }
-                    }
-                }
                 if open.editor_state.animation.playing {
                     open.editor_state.animation.playback_start_time =
                         open.editor_state.animation.current_time;
@@ -1985,14 +1967,12 @@ fn process_timeline_action(
         } => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                    if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                        if track_index < seq.tracks.len() {
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
+                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                        && track_index < seq.tracks.len() {
                             seq.tracks[track_index].set_keyframe(time, value, easing);
                             seq.auto_extend_duration();
                         }
-                    }
-                }
                 history.push(SnapshotCommand {
                     description: "Add keyframe".to_string(),
                     sprite_index,
@@ -2008,13 +1988,11 @@ fn process_timeline_action(
         } => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                    if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                        if track_index < seq.tracks.len() {
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
+                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                        && track_index < seq.tracks.len() {
                             seq.tracks[track_index].remove_keyframe(&keyframe_id);
                         }
-                    }
-                }
                 history.push(SnapshotCommand {
                     description: "Remove keyframe".to_string(),
                     sprite_index,
@@ -2041,19 +2019,16 @@ fn process_timeline_action(
         } => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                    if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                        if track_index < seq.tracks.len() {
-                            if let Some(kf) = seq.tracks[track_index]
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
+                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                        && track_index < seq.tracks.len()
+                            && let Some(kf) = seq.tracks[track_index]
                                 .keyframes
                                 .iter_mut()
                                 .find(|k| k.id == keyframe_id)
                             {
                                 kf.easing = easing;
                             }
-                        }
-                    }
-                }
                 history.push(SnapshotCommand {
                     description: "Update easing".to_string(),
                     sprite_index,
@@ -2077,11 +2052,10 @@ fn process_timeline_action(
         timeline::TimelineAction::SetDuration(dur) => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                    if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
+                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
                         seq.duration = dur.max(0.1);
                     }
-                }
                 history.push(SnapshotCommand {
                     description: "Set duration".to_string(),
                     sprite_index,
@@ -2164,11 +2138,10 @@ fn process_timeline_action(
                 };
 
                 let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                    if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
+                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
                         seq.find_or_create_track(property, &resolved_element_id, &resolved_layer_id);
                     }
-                }
                 history.push(SnapshotCommand {
                     description: "Add track".to_string(),
                     sprite_index,
@@ -2181,13 +2154,11 @@ fn process_timeline_action(
         timeline::TimelineAction::RemoveTrack(track_index) => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                    if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                        if track_index < seq.tracks.len() {
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
+                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
+                        && track_index < seq.tracks.len() {
                             seq.tracks.remove(track_index);
                         }
-                    }
-                }
                 if open.editor_state.animation.selected_track_index == Some(track_index) {
                     open.editor_state.animation.selected_track_index = None;
                     open.editor_state.animation.selected_keyframe_id = None;
@@ -2230,40 +2201,34 @@ fn handle_keyboard_shortcuts(
         }
 
         // Tool switching (only when a sprite editor is active)
-        if i.key_pressed(egui::Key::Num1) {
-            if let Some(open) = project_state.active_sprite_mut() {
+        if i.key_pressed(egui::Key::Num1)
+            && let Some(open) = project_state.active_sprite_mut() {
                 open.editor_state.active_tool = ToolKind::Line;
             }
-        }
-        if i.key_pressed(egui::Key::Num2) {
-            if let Some(open) = project_state.active_sprite_mut() {
+        if i.key_pressed(egui::Key::Num2)
+            && let Some(open) = project_state.active_sprite_mut() {
                 open.editor_state.active_tool = ToolKind::Select;
             }
-        }
-        if i.key_pressed(egui::Key::Num3) {
-            if let Some(open) = project_state.active_sprite_mut() {
+        if i.key_pressed(egui::Key::Num3)
+            && let Some(open) = project_state.active_sprite_mut() {
                 open.editor_state.active_tool = ToolKind::Fill;
             }
-        }
-        if i.key_pressed(egui::Key::Num4) {
-            if let Some(open) = project_state.active_sprite_mut() {
+        if i.key_pressed(egui::Key::Num4)
+            && let Some(open) = project_state.active_sprite_mut() {
                 open.editor_state.active_tool = ToolKind::Eraser;
             }
-        }
 
         // Curve mode toggle
-        if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl {
-            if let Some(open) = project_state.active_sprite_mut() {
-                if open.editor_state.active_tool == ToolKind::Line {
+        if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl
+            && let Some(open) = project_state.active_sprite_mut()
+                && open.editor_state.active_tool == ToolKind::Line {
                     open.editor_state.curve_mode = !open.editor_state.curve_mode;
                 }
-            }
-        }
 
         // Space bar: toggle animation playback
-        if i.key_pressed(egui::Key::Space) && !i.modifiers.ctrl {
-            if let Some(open) = project_state.active_sprite_mut() {
-                if open.editor_state.animation.selected_sequence_id.is_some() {
+        if i.key_pressed(egui::Key::Space) && !i.modifiers.ctrl
+            && let Some(open) = project_state.active_sprite_mut()
+                && open.editor_state.animation.selected_sequence_id.is_some() {
                     if open.editor_state.animation.playing {
                         open.editor_state.animation.playing = false;
                         open.editor_state.animation.playback_start_instant = None;
@@ -2278,12 +2243,10 @@ fn handle_keyboard_shortcuts(
                         }
                     }
                 }
-            }
-        }
 
         // Home key: jump to start
-        if i.key_pressed(egui::Key::Home) {
-            if let Some(open) = project_state.active_sprite_mut() {
+        if i.key_pressed(egui::Key::Home)
+            && let Some(open) = project_state.active_sprite_mut() {
                 open.editor_state.animation.current_time = 0.0;
                 if open.editor_state.animation.playing {
                     open.editor_state.animation.playback_start_time = 0.0;
@@ -2291,40 +2254,32 @@ fn handle_keyboard_shortcuts(
                         Some(std::time::Instant::now());
                 }
             }
-        }
 
         // Escape to finish current line element
-        if i.key_pressed(egui::Key::Escape) {
-            if let Some(open) = project_state.active_sprite_mut() {
-                if open.editor_state.line_tool_state.active_element_id.is_some() {
+        if i.key_pressed(egui::Key::Escape)
+            && let Some(open) = project_state.active_sprite_mut()
+                && open.editor_state.line_tool_state.active_element_id.is_some() {
                     let layer_idx = open.editor_state.active_layer_index;
                     if let Some(ref active_id) = open.editor_state.line_tool_state.active_element_id
-                    {
-                        if layer_idx < open.sprite.layers.len() {
-                            if let Some(element) = open.sprite.layers[layer_idx]
+                        && layer_idx < open.sprite.layers.len()
+                            && let Some(element) = open.sprite.layers[layer_idx]
                                 .elements
                                 .iter()
                                 .find(|e| &e.id == active_id)
-                            {
-                                if element.vertices.len() < 2 {
+                                && element.vertices.len() < 2 {
                                     let id = active_id.clone();
                                     open.sprite.layers[layer_idx]
                                         .elements
                                         .retain(|e| e.id != id);
                                 }
-                            }
-                        }
-                    }
                     open.editor_state.line_tool_state.active_element_id = None;
                 }
-            }
-        }
 
         // Delete key: remove selected elements
         if i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace) {
             let sprite_index = project_state.current_sprite_index();
-            if let Some(open) = project_state.active_sprite_mut() {
-                if open.editor_state.active_tool == ToolKind::Select
+            if let Some(open) = project_state.active_sprite_mut()
+                && open.editor_state.active_tool == ToolKind::Select
                     && !open.editor_state.selection.selected_element_ids.is_empty()
                 {
                     let before = open.sprite.clone();
@@ -2340,13 +2295,12 @@ fn handle_keyboard_shortcuts(
                         after: open.sprite.clone(),
                     });
                 }
-            }
         }
 
         // Ctrl+A: select all elements on unlocked layers
-        if i.modifiers.ctrl && i.key_pressed(egui::Key::A) {
-            if let Some(open) = project_state.active_sprite_mut() {
-                if open.editor_state.active_tool == ToolKind::Select {
+        if i.modifiers.ctrl && i.key_pressed(egui::Key::A)
+            && let Some(open) = project_state.active_sprite_mut()
+                && open.editor_state.active_tool == ToolKind::Select {
                     open.editor_state.selection.clear();
                     for layer in &open.sprite.layers {
                         if !layer.locked && layer.visible {
@@ -2356,13 +2310,11 @@ fn handle_keyboard_shortcuts(
                         }
                     }
                 }
-            }
-        }
 
         // Ctrl+C: copy selected elements
-        if i.modifiers.ctrl && i.key_pressed(egui::Key::C) {
-            if let Some(open) = project_state.active_sprite_mut() {
-                if !open.editor_state.selection.selected_element_ids.is_empty() {
+        if i.modifiers.ctrl && i.key_pressed(egui::Key::C)
+            && let Some(open) = project_state.active_sprite_mut()
+                && !open.editor_state.selection.selected_element_ids.is_empty() {
                     let mut copied_elements = Vec::new();
                     for layer in &open.sprite.layers {
                         for element in &layer.elements {
@@ -2375,15 +2327,13 @@ fn handle_keyboard_shortcuts(
                         elements: copied_elements,
                     });
                 }
-            }
-        }
 
         // Ctrl+V: paste copied elements (creates new layer with copies)
         if i.modifiers.ctrl && i.key_pressed(egui::Key::V) {
             let sprite_index = project_state.current_sprite_index();
-            if let Some(open) = project_state.active_sprite_mut() {
-                if let Some(ref clipboard) = open.editor_state.clipboard.clone() {
-                    if !clipboard.elements.is_empty() {
+            if let Some(open) = project_state.active_sprite_mut()
+                && let Some(ref clipboard) = open.editor_state.clipboard.clone()
+                    && !clipboard.elements.is_empty() {
                         let before = open.sprite.clone();
                         let mut paste_layer = Layer::new("Pasted");
 
@@ -2422,29 +2372,22 @@ fn handle_keyboard_shortcuts(
                             after: open.sprite.clone(),
                         });
                     }
-                }
-            }
         }
 
         // Undo: Ctrl+Z
-        if i.modifiers.ctrl && i.key_pressed(egui::Key::Z) && !i.modifiers.shift {
-            if let Some(cmd) = history.undo() {
-                if let Some(open) = project_state.open_sprites.get_mut(cmd.sprite_index) {
+        if i.modifiers.ctrl && i.key_pressed(egui::Key::Z) && !i.modifiers.shift
+            && let Some(cmd) = history.undo()
+                && let Some(open) = project_state.open_sprites.get_mut(cmd.sprite_index) {
                     open.sprite = cmd.before.clone();
                 }
-            }
-        }
 
         // Redo: Ctrl+Y or Ctrl+Shift+Z
-        if (i.modifiers.ctrl && i.key_pressed(egui::Key::Y))
-            || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Z))
-        {
-            if let Some(cmd) = history.redo() {
-                if let Some(open) = project_state.open_sprites.get_mut(cmd.sprite_index) {
+        if ((i.modifiers.ctrl && i.key_pressed(egui::Key::Y))
+            || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Z)))
+            && let Some(cmd) = history.redo()
+                && let Some(open) = project_state.open_sprites.get_mut(cmd.sprite_index) {
                     open.sprite = cmd.after.clone();
                 }
-            }
-        }
     });
 
     ShortcutFlags {

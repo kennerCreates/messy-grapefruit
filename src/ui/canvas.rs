@@ -223,8 +223,8 @@ pub fn draw_canvas(
             );
 
             // --- Draw marquee rectangle ---
-            if editor_state.marquee.is_active {
-                if let (Some(start), Some(current)) = (
+            if editor_state.marquee.is_active
+                && let (Some(start), Some(current)) = (
                     editor_state.marquee.start_world,
                     editor_state.marquee.current_world,
                 ) {
@@ -237,16 +237,15 @@ pub fn draw_canvas(
                     painter.rect_stroke(
                         rect,
                         0.0,
-                        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0x4a, 0x7a, 0x96, 200)),
+                        egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x4a, 0x7a, 0x96, 200)),
                         egui::epaint::StrokeKind::Outside,
                     );
                     painter.rect_filled(
                         rect,
                         0.0,
-                        egui::Color32::from_rgba_premultiplied(0x4a, 0x7a, 0x96, 30),
+                        egui::Color32::from_rgba_unmultiplied(0x4a, 0x7a, 0x96, 30),
                     );
                 }
-            }
 
             // --- Draw curve handles on selected vertices ---
             draw_curve_handles(
@@ -273,14 +272,14 @@ pub fn draw_canvas(
                     painter.rect_filled(
                         toast_rect,
                         4.0,
-                        egui::Color32::from_rgba_premultiplied(40, 40, 40, alpha),
+                        egui::Color32::from_rgba_unmultiplied(40, 40, 40, alpha),
                     );
                     painter.text(
                         toast_rect.center(),
                         egui::Align2::CENTER_CENTER,
                         &toast.text,
                         egui::FontId::default(),
-                        egui::Color32::from_rgba_premultiplied(255, 255, 255, alpha),
+                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha),
                     );
                     ctx.request_repaint();
                 }
@@ -387,7 +386,7 @@ fn render_onion_skins(
             palette,
             editor_state,
             opacity,
-            egui::Color32::from_rgba_premultiplied(80, 120, 200, (opacity * 255.0) as u8),
+            egui::Color32::from_rgba_unmultiplied(80, 120, 200, (opacity * 255.0) as u8),
             seq,
             ghost_time,
         );
@@ -409,7 +408,7 @@ fn render_onion_skins(
             palette,
             editor_state,
             opacity,
-            egui::Color32::from_rgba_premultiplied(200, 80, 80, (opacity * 255.0) as u8),
+            egui::Color32::from_rgba_unmultiplied(200, 80, 80, (opacity * 255.0) as u8),
             seq,
             ghost_time,
         );
@@ -431,7 +430,7 @@ fn render_ghost_frame(
     time: f32,
 ) {
     let alpha = (opacity * 255.0).min(255.0) as u8;
-    let ghost_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(
+    let ghost_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(
         tint.r(), tint.g(), tint.b(), alpha,
     ));
 
@@ -548,8 +547,8 @@ fn draw_canvas_boundary(
 
     // Dashed rectangle
     let boundary_color = match current_theme {
-        Theme::Dark => egui::Color32::from_rgba_premultiplied(0xfb, 0xbb, 0xad, 80),
-        Theme::Light => egui::Color32::from_rgba_premultiplied(0x25, 0x21, 0x3e, 80),
+        Theme::Dark => egui::Color32::from_rgba_unmultiplied(0xfb, 0xbb, 0xad, 80),
+        Theme::Light => egui::Color32::from_rgba_unmultiplied(0x25, 0x21, 0x3e, 80),
     };
     let stroke = egui::Stroke::new(1.0, boundary_color);
 
@@ -618,6 +617,7 @@ fn resolve_skin_overrides(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_elements(
     painter: &egui::Painter,
     viewport: &crate::state::editor::ViewportState,
@@ -645,11 +645,10 @@ fn render_elements(
 
         for element in &layer.elements {
             // Check element visibility via animation
-            if let Some(seq) = active_sequence {
-                if !anim_engine::is_element_visible(seq, &element.id, current_time) {
+            if let Some(seq) = active_sequence
+                && !anim_engine::is_element_visible(seq, &element.id, current_time) {
                     continue;
                 }
-            }
 
             // Apply skin overrides if active
             let (effective_stroke_color_index, effective_fill_color_index, effective_stroke_width) =
@@ -1009,7 +1008,7 @@ fn render_debug_overlays(
                 }
 
                 // Draw angle limits as arcs
-                let limit_color = egui::Color32::from_rgba_premultiplied(0xff, 0xff, 0x00, 80);
+                let limit_color = egui::Color32::from_rgba_unmultiplied(0xff, 0xff, 0x00, 80);
                 let rest = look_at.rest_angle;
                 let arc_radius = 20.0; // screen pixels
                 let steps = 16;
@@ -1213,15 +1212,13 @@ fn handle_viewport_controls(
     ctx: &egui::Context,
 ) {
     // Middle-click pan
-    if response.middle_clicked() || (response.dragged_by(egui::PointerButton::Middle)) {
-        if let Some(pos) = response.hover_pos() {
-            if !editor_state.is_panning {
+    if (response.middle_clicked() || (response.dragged_by(egui::PointerButton::Middle)))
+        && let Some(pos) = response.hover_pos()
+            && !editor_state.is_panning {
                 editor_state.is_panning = true;
                 editor_state.pan_start_pos = Some(Vec2::from(pos));
                 editor_state.pan_start_offset = Some(editor_state.viewport.offset);
             }
-        }
-    }
 
     if editor_state.is_panning {
         if let (Some(start), Some(start_offset), Some(current)) = (
@@ -1248,8 +1245,8 @@ fn handle_viewport_controls(
 
     // Scroll wheel zoom (centered on cursor)
     let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
-    if scroll_delta != 0.0 && response.hovered() {
-        if let Some(hover_pos) = response.hover_pos() {
+    if scroll_delta != 0.0 && response.hovered()
+        && let Some(hover_pos) = response.hover_pos() {
             let hover_screen = Vec2::from(hover_pos);
             let world_before = editor_state
                 .viewport
@@ -1267,7 +1264,6 @@ fn handle_viewport_controls(
             let correction = world_after - world_before;
             editor_state.viewport.offset = editor_state.viewport.offset + correction;
         }
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1328,14 +1324,13 @@ fn handle_line_tool(
     }
 
     // Draw preview line from last vertex to cursor
-    if let Some(ref active_id) = editor_state.line_tool_state.active_element_id.clone() {
-        if let Some(snapped_pos) = snapped_world_pos {
-            if let Some(element) = sprite.layers[layer_index]
+    if let Some(ref active_id) = editor_state.line_tool_state.active_element_id.clone()
+        && let Some(snapped_pos) = snapped_world_pos
+            && let Some(element) = sprite.layers[layer_index]
                 .elements
                 .iter()
                 .find(|e| &e.id == active_id)
-            {
-                if let Some(last_vertex) = element.vertices.last() {
+                && let Some(last_vertex) = element.vertices.last() {
                     let screen_from = editor_state
                         .viewport
                         .world_to_screen(last_vertex.pos, canvas_center);
@@ -1359,13 +1354,10 @@ fn handle_line_tool(
                         egui::Stroke::new(1.0, preview_color),
                     );
                 }
-            }
-        }
-    }
 
     // Handle click to place vertex
-    if response.clicked() {
-        if let Some(snapped_pos) = snapped_world_pos {
+    if response.clicked()
+        && let Some(snapped_pos) = snapped_world_pos {
             // Check for double-click (finishing the element)
             let is_double_click = if let Some(ref active_id) = editor_state.line_tool_state.active_element_id {
                 sprite.layers[layer_index]
@@ -1398,7 +1390,7 @@ fn handle_line_tool(
                     {
                         engine::close_element(element);
                         if editor_state.curve_mode {
-                            math::recompute_auto_curves(&mut element.vertices);
+                            math::recompute_auto_curves(&mut element.vertices, element.closed);
                         }
                     }
                     history.push(SnapshotCommand {
@@ -1422,15 +1414,14 @@ fn handle_line_tool(
                         true,
                     );
                     // Recompute curves on the merged element
-                    if editor_state.curve_mode {
-                        if let Some(element) = sprite.layers[layer_index]
+                    if editor_state.curve_mode
+                        && let Some(element) = sprite.layers[layer_index]
                             .elements
                             .iter_mut()
                             .find(|e| e.id == merge_target.element_id)
                         {
-                            math::recompute_auto_curves(&mut element.vertices);
+                            math::recompute_auto_curves(&mut element.vertices, element.closed);
                         }
-                    }
                     history.push(SnapshotCommand {
                         description: "Merge elements".to_string(),
                         sprite_index,
@@ -1457,7 +1448,7 @@ fn handle_line_tool(
                 {
                     element.vertices.push(new_vertex);
                     if editor_state.curve_mode {
-                        math::recompute_auto_curves(&mut element.vertices);
+                        math::recompute_auto_curves(&mut element.vertices, element.closed);
                     }
                     // If straight mode, ensure no control points
                     // (vertices already start with cp1=None, cp2=None)
@@ -1481,7 +1472,6 @@ fn handle_line_tool(
             });
             actions.push(CanvasAction::SpriteChanged);
         }
-    }
 
     // Double-click to finish element (egui double_clicked)
     if response.double_clicked() {
@@ -1503,14 +1493,12 @@ fn finish_line_element(
             .elements
             .iter()
             .find(|e| &e.id == active_id)
-        {
-            if element.vertices.len() < 2 {
+            && element.vertices.len() < 2 {
                 let id = active_id.clone();
                 sprite.layers[layer_index]
                     .elements
                     .retain(|e| e.id != id);
             }
-        }
     }
     editor_state.line_tool_state.active_element_id = None;
 }
@@ -1532,8 +1520,8 @@ fn handle_select_tool(
     let shift_held = ctx.input(|i| i.modifiers.shift);
 
     // Handle drag for moving selected elements, IK targets, or marquee selection
-    if response.drag_started_by(egui::PointerButton::Primary) {
-        if let Some(pos) = response.hover_pos() {
+    if response.drag_started_by(egui::PointerButton::Primary)
+        && let Some(pos) = response.hover_pos() {
             let world_pos = editor_state.viewport.screen_to_world(Vec2::from(pos), canvas_center);
 
             // First check if clicking on an IK target
@@ -1564,11 +1552,10 @@ fn handle_select_tool(
                 }
             }
         }
-    }
 
     // Update drag/marquee during drag
-    if response.dragged_by(egui::PointerButton::Primary) {
-        if let Some(pos) = response.hover_pos() {
+    if response.dragged_by(egui::PointerButton::Primary)
+        && let Some(pos) = response.hover_pos() {
             let world_pos = editor_state.viewport.screen_to_world(Vec2::from(pos), canvas_center);
 
             if let Some(ref target_id) = editor_state.dragging_ik_target.clone() {
@@ -1589,7 +1576,6 @@ fn handle_select_tool(
                 editor_state.marquee.current_world = Some(world_pos);
             }
         }
-    }
 
     // End drag/marquee
     if response.drag_stopped_by(egui::PointerButton::Primary) {
@@ -1684,8 +1670,8 @@ fn handle_select_tool(
     }
 
     // Handle click (non-drag) for selection
-    if response.clicked() && !editor_state.select_drag.is_dragging && !editor_state.marquee.is_active {
-        if let Some(pos) = response.hover_pos() {
+    if response.clicked() && !editor_state.select_drag.is_dragging && !editor_state.marquee.is_active
+        && let Some(pos) = response.hover_pos() {
             let world_pos = editor_state.viewport.screen_to_world(Vec2::from(pos), canvas_center);
 
             let hit = hit_test_all_visible_layers(sprite, world_pos, editor_state);
@@ -1701,7 +1687,6 @@ fn handle_select_tool(
                 editor_state.selection.clear();
             }
         }
-    }
 }
 
 /// Hit test across all visible, unlocked layers
@@ -1714,14 +1699,13 @@ fn hit_test_all_visible_layers(
     let mut best: Option<engine::hit_test::HitResult> = None;
 
     for layer in &sprite.layers {
-        if !layer.visible {
+        if !layer.visible || layer.locked {
             continue;
         }
-        if let Some(hit) = engine::hit_test_elements(world_pos, &layer.elements, threshold) {
-            if best.as_ref().is_none_or(|b| hit.distance < b.distance) {
+        if let Some(hit) = engine::hit_test_elements(world_pos, &layer.elements, threshold)
+            && best.as_ref().is_none_or(|b| hit.distance < b.distance) {
                 best = Some(hit);
             }
-        }
     }
 
     best
@@ -1803,15 +1787,13 @@ fn handle_fill_tool(
         if !layer.visible || layer.locked {
             continue;
         }
-        if let Some(hit) = engine::hit_test_elements(world_pos, &layer.elements, threshold) {
-            if let Some(element) = layer.elements.iter_mut().find(|e| e.id == hit.element_id) {
-                if element.closed {
+        if let Some(hit) = engine::hit_test_elements(world_pos, &layer.elements, threshold)
+            && let Some(element) = layer.elements.iter_mut().find(|e| e.id == hit.element_id)
+                && element.closed {
                     element.fill_color_index = editor_state.active_color_index;
                     hit_closed = true;
                     break;
                 }
-            }
-        }
     }
 
     if hit_closed {
@@ -1871,11 +1853,10 @@ fn handle_eraser_tool(
     for element in &sprite.layers[layer_index].elements {
         for vertex in &element.vertices {
             let d = world_pos.distance(vertex.pos);
-            if d <= threshold {
-                if best_vertex.as_ref().is_none_or(|(_, _, bd)| d < *bd) {
+            if d <= threshold
+                && best_vertex.as_ref().is_none_or(|(_, _, bd)| d < *bd) {
                     best_vertex = Some((element.id.clone(), vertex.id.clone(), d));
                 }
-            }
         }
     }
 
@@ -1948,12 +1929,12 @@ fn handle_eraser_tool(
         if elem.vertices.len() < 3 {
             elem.closed = false;
         }
-        math::recompute_auto_curves(&mut elem.vertices);
+        math::recompute_auto_curves(&mut elem.vertices, elem.closed);
     } else if vert_idx == 0 || vert_idx == num_vertices - 1 {
         // Removing from start or end - just remove the vertex
         let elem = &mut sprite.layers[layer_index].elements[elem_idx];
         elem.vertices.remove(vert_idx);
-        math::recompute_auto_curves(&mut elem.vertices);
+        math::recompute_auto_curves(&mut elem.vertices, elem.closed);
     } else {
         // Removing a middle vertex splits the path into two elements
         let original = sprite.layers[layer_index].elements[elem_idx].clone();
@@ -1968,7 +1949,7 @@ fn handle_eraser_tool(
         elem1.scale = original.scale;
         elem1.origin = original.origin;
         elem1.vertices = original.vertices[0..vert_idx].to_vec();
-        math::recompute_auto_curves(&mut elem1.vertices);
+        math::recompute_auto_curves(&mut elem1.vertices, false);
 
         // Second part: vertices (vert_idx+1)..
         let mut elem2 = StrokeElement::new();
@@ -1980,7 +1961,7 @@ fn handle_eraser_tool(
         elem2.scale = original.scale;
         elem2.origin = original.origin;
         elem2.vertices = original.vertices[(vert_idx + 1)..].to_vec();
-        math::recompute_auto_curves(&mut elem2.vertices);
+        math::recompute_auto_curves(&mut elem2.vertices, false);
 
         // Remove original and add the two parts
         sprite.layers[layer_index].elements.remove(elem_idx);
@@ -2009,7 +1990,7 @@ fn draw_curve_handles(
     _current_theme: Theme,
 ) {
     let handle_color = egui::Color32::from_rgb(0x4a, 0x7a, 0x96);
-    let handle_line_color = egui::Color32::from_rgba_premultiplied(0x4a, 0x7a, 0x96, 128);
+    let handle_line_color = egui::Color32::from_rgba_unmultiplied(0x4a, 0x7a, 0x96, 128);
 
     for layer in &sprite.layers {
         if !layer.visible {

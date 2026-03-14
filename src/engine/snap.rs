@@ -59,7 +59,7 @@ pub fn snap_to_grid(pos: Vec2, grid_size: f32, grid_mode: GridMode) -> Vec2 {
                     (col_ceil, row_ceil),
                 ];
 
-                let mut best = (col as i32, row as i32);
+                let mut best = (col, row);
                 let mut best_dist = f32::MAX;
                 for (c, r) in candidates {
                     if (c + r) % 2 == 0 {

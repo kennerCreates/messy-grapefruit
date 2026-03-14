@@ -115,6 +115,7 @@ pub enum SidebarAction {
 }
 
 /// Persistent state for the sidebar (color editing, lospec input, etc.)
+#[derive(Default)]
 pub struct SidebarState {
     pub editing_color_index: Option<usize>,
     pub editing_color_rgb: [u8; 3],
@@ -134,22 +135,6 @@ pub struct SidebarState {
     pub ik_chain_name_buffer: String,
 }
 
-impl Default for SidebarState {
-    fn default() -> Self {
-        Self {
-            editing_color_index: None,
-            editing_color_rgb: [0, 0, 0],
-            lospec_slug: String::new(),
-            lospec_error: None,
-            socket_picker_layer: None,
-            renaming_skin_id: None,
-            skin_rename_buffer: String::new(),
-            ik_chain_creating: false,
-            ik_chain_layer_ids: Vec::new(),
-            ik_chain_name_buffer: String::new(),
-        }
-    }
-}
 
 /// Draw the right sidebar panel.
 pub fn draw_sidebar(
@@ -508,11 +493,10 @@ fn draw_layers_panel(
         if ui.button("+ Add").clicked() {
             actions.push(SidebarAction::AddLayer);
         }
-        if sprite.layers.len() > 1 {
-            if ui.button("- Remove").clicked() {
+        if sprite.layers.len() > 1
+            && ui.button("- Remove").clicked() {
                 actions.push(SidebarAction::RemoveLayer(active_layer_index));
             }
-        }
     });
 
     ui.horizontal(|ui| {
@@ -717,11 +701,10 @@ fn draw_palette_panel(
         }
 
         // Don't allow deleting index 0 (transparent)
-        if active_color_index > 0 && active_color_index < palette.colors.len() {
-            if ui.button("- Delete").clicked() {
+        if active_color_index > 0 && active_color_index < palette.colors.len()
+            && ui.button("- Delete").clicked() {
                 actions.push(SidebarAction::DeletePaletteColor(active_color_index));
             }
-        }
     });
 
     ui.add_space(4.0);
@@ -995,8 +978,8 @@ fn draw_skins_panel(
         });
 
     // Per-element override editor: only shown when a skin is active and element(s) are selected
-    if let Some(ref active_skin_id) = editor_state.active_skin_id {
-        if let Some(skin) = sprite.skins.iter().find(|s| s.id == *active_skin_id) {
+    if let Some(ref active_skin_id) = editor_state.active_skin_id
+        && let Some(skin) = sprite.skins.iter().find(|s| s.id == *active_skin_id) {
             if !editor_state.selection.selected_element_ids.is_empty() {
                 ui.separator();
                 ui.label("Skin Overrides");
@@ -1184,7 +1167,6 @@ fn draw_skins_panel(
                 ui.label("Select an element to edit skin overrides");
             }
         }
-    }
 }
 
 fn draw_settings_panel(

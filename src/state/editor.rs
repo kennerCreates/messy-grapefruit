@@ -102,18 +102,12 @@ impl SelectionState {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct LineToolState {
     /// The element currently being drawn (None = not drawing)
     pub active_element_id: Option<String>,
 }
 
-impl Default for LineToolState {
-    fn default() -> Self {
-        Self {
-            active_element_id: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct MergeTarget {
@@ -126,39 +120,23 @@ pub struct MergeTarget {
 
 /// State for the select tool's drag-to-move functionality
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct SelectDragState {
     pub is_dragging: bool,
     pub drag_start_world: Option<Vec2>,
     pub drag_last_world: Option<Vec2>,
 }
 
-impl Default for SelectDragState {
-    fn default() -> Self {
-        Self {
-            is_dragging: false,
-            drag_start_world: None,
-            drag_last_world: None,
-        }
-    }
-}
 
 /// State for marquee (rectangular area) selection
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct MarqueeState {
     pub is_active: bool,
     pub start_world: Option<Vec2>,
     pub current_world: Option<Vec2>,
 }
 
-impl Default for MarqueeState {
-    fn default() -> Self {
-        Self {
-            is_active: false,
-            start_world: None,
-            current_world: None,
-        }
-    }
-}
 
 /// Clipboard data for copy/paste
 #[derive(Debug, Clone)]
@@ -175,6 +153,7 @@ pub struct ToastMessage {
 
 /// Debug overlay toggles
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct DebugOverlays {
     /// Show bone chain lines connecting socketed layers
     pub show_bones: bool,
@@ -186,16 +165,6 @@ pub struct DebugOverlays {
     pub show_spring_targets: bool,
 }
 
-impl Default for DebugOverlays {
-    fn default() -> Self {
-        Self {
-            show_bones: false,
-            show_ik_targets: false,
-            show_constraints: false,
-            show_spring_targets: false,
-        }
-    }
-}
 
 /// Animation playback and editing state
 #[derive(Debug, Clone)]

@@ -63,14 +63,15 @@ pub fn two_bone_solve(
     );
 
     // Apply angle constraint on the first joint (bone1 angle) if present
-    let mid = if let Some(constraint) = constraints.first() {
+    // Update bone1_angle so bone2 constraint uses the constrained value
+    let (mid, bone1_angle) = if let Some(constraint) = constraints.first() {
         let constrained_angle = clamp_angle(bone1_angle, constraint.min, constraint.max);
-        Vec2::new(
+        (Vec2::new(
             root.x + bone1_len * constrained_angle.cos(),
             root.y + bone1_len * constrained_angle.sin(),
-        )
+        ), constrained_angle)
     } else {
-        mid
+        (mid, bone1_angle)
     };
 
     // Compute tip position: direction from mid toward target, length = bone2_len

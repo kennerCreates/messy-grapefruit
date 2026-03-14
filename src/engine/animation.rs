@@ -147,7 +147,7 @@ pub fn evaluate_animation(
 
     // Handle looping
     let effective_time = if sequence.looping && sequence.duration > 0.0 {
-        time % sequence.duration
+        time.rem_euclid(sequence.duration)
     } else {
         time.min(sequence.duration)
     };
@@ -254,17 +254,16 @@ pub fn is_element_visible(
 ) -> bool {
     // Handle looping
     let effective_time = if sequence.looping && sequence.duration > 0.0 {
-        time % sequence.duration
+        time.rem_euclid(sequence.duration)
     } else {
         time.min(sequence.duration)
     };
 
     for track in &sequence.tracks {
-        if track.element_id == element_id && track.property == AnimatableProperty::Visible {
-            if let Some(value) = interpolate_track(track, effective_time) {
+        if track.element_id == element_id && track.property == AnimatableProperty::Visible
+            && let Some(value) = interpolate_track(track, effective_time) {
                 return value > 0.5;
             }
-        }
     }
     // Default: visible
     true
@@ -282,11 +281,10 @@ pub fn prev_keyframe_time(sequence: &AnimationSequence, current_time: f32) -> Op
     let mut best: Option<f32> = None;
     for track in &sequence.tracks {
         for kf in &track.keyframes {
-            if kf.time < effective_time - epsilon {
-                if best.is_none() || kf.time > best.unwrap() {
+            if kf.time < effective_time - epsilon
+                && (best.is_none() || kf.time > best.unwrap()) {
                     best = Some(kf.time);
                 }
-            }
         }
     }
     best
@@ -304,11 +302,10 @@ pub fn next_keyframe_time(sequence: &AnimationSequence, current_time: f32) -> Op
     let mut best: Option<f32> = None;
     for track in &sequence.tracks {
         for kf in &track.keyframes {
-            if kf.time > effective_time + epsilon {
-                if best.is_none() || kf.time < best.unwrap() {
+            if kf.time > effective_time + epsilon
+                && (best.is_none() || kf.time < best.unwrap()) {
                     best = Some(kf.time);
                 }
-            }
         }
     }
     best
@@ -333,7 +330,7 @@ pub fn collect_ik_mix_values(
     time: f32,
 ) -> Vec<(String, f32)> {
     let effective_time = if sequence.looping && sequence.duration > 0.0 {
-        time % sequence.duration
+        time.rem_euclid(sequence.duration)
     } else {
         time.min(sequence.duration)
     };
@@ -341,12 +338,11 @@ pub fn collect_ik_mix_values(
     let mut mix_values = Vec::new();
 
     for track in &sequence.tracks {
-        if track.property == AnimatableProperty::IKMix {
-            if let Some(value) = interpolate_track(track, effective_time) {
+        if track.property == AnimatableProperty::IKMix
+            && let Some(value) = interpolate_track(track, effective_time) {
                 // For IKMix tracks, element_id stores the IK chain ID
                 mix_values.push((track.element_id.clone(), value as f32));
             }
-        }
     }
 
     mix_values
@@ -393,12 +389,24 @@ pub fn create_animated_sprite_with_physics(
     if !sequence.ik_chains.is_empty() {
         let ik_targets = collect_ik_target_positions(&animated);
         let ik_mix = collect_ik_mix_values(sequence, time);
-        let _ik_results = crate::engine::ik::solve_ik_chains(
+        let ik_results = crate::engine::ik::solve_ik_chains(
             &animated,
             &sequence.ik_chains,
             &ik_targets,
             &ik_mix,
         );
+
+        // Apply IK results: offset layer elements to match solved world positions
+        for (layer_id, new_world_pos) in &ik_results {
+            let st = crate::engine::socket::resolve_socket_transform(&animated, layer_id);
+            if let Some(layer) = animated.layers.iter_mut().find(|l| l.id == *layer_id)
+                && let Some(first_elem) = layer.elements.first_mut() {
+                    // The IK result is a world position for the layer origin.
+                    // Subtract the socket transform to get the local position offset.
+                    first_elem.position.x = new_world_pos.x - st.position.x - first_elem.origin.x;
+                    first_elem.position.y = new_world_pos.y - st.position.y - first_elem.origin.y;
+                }
+        }
     }
 
     // Step 4: Apply constraints (look-at, volume preservation)
@@ -473,8 +481,8 @@ fn apply_constraints(
         );
 
         // Apply spring smoothing if configured
-        if let Some(ref smooth) = look_at.smooth {
-            if let Some(ref mut phys_state) = physics_state.as_deref_mut() {
+        if let Some(ref smooth) = look_at.smooth
+            && let Some(ref mut phys_state) = physics_state.as_deref_mut() {
                 let layer_id = sprite.layers[layer_idx].id.clone();
                 let angular_state = phys_state
                     .look_at_springs
@@ -493,7 +501,6 @@ fn apply_constraints(
                 );
                 desired_angle = angular_state.angle;
             }
-        }
 
         // Apply to all elements on this layer
         for elem in &mut sprite.layers[layer_idx].elements {
@@ -658,8 +665,11 @@ fn find_element_world_pos(sprite: &Sprite, element_id: &str, vertex_id: Option<&
                             ));
                         }
                     }
+                    // Vertex ID was specified but not found -- don't silently
+                    // fall back to element origin
+                    return None;
                 }
-                // Return element origin position
+                // No vertex requested -- return element origin position
                 return Some(Vec2::new(
                     st.position.x + element.position.x + element.origin.x,
                     st.position.y + element.position.y + element.origin.y,

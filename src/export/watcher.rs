@@ -71,11 +71,10 @@ impl WatcherState {
                             // Send via channel for the main loop
                             let _ = tx.send(change.clone());
                             // Also add to pending exports
-                            if let Ok(mut pending) = pending.lock() {
-                                if !pending.iter().any(|p| p == path) {
+                            if let Ok(mut pending) = pending.lock()
+                                && !pending.iter().any(|p| p == path) {
                                     pending.push(path.clone());
                                 }
-                            }
                         }
                     }
                 }
@@ -115,11 +114,10 @@ impl WatcherState {
         // Drain from channel first
         if let Some(ref watcher) = self.watcher {
             while let Ok(event) = watcher.receiver.try_recv() {
-                if let Ok(mut pending) = self.pending_exports.lock() {
-                    if !pending.iter().any(|p| p == &event.path) {
+                if let Ok(mut pending) = self.pending_exports.lock()
+                    && !pending.iter().any(|p| p == &event.path) {
                         pending.push(event.path);
                     }
-                }
             }
         }
 

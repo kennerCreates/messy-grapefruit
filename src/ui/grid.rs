@@ -46,6 +46,7 @@ pub fn draw_grid(
     grid_size
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_standard_grid(
     painter: &egui::Painter,
     viewport: &ViewportState,
@@ -85,6 +86,7 @@ fn draw_standard_grid(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_isometric_grid(
     painter: &egui::Painter,
     viewport: &ViewportState,

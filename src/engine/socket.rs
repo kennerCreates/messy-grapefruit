@@ -180,11 +180,10 @@ fn find_element_rotation(sprite: &Sprite, element_id: &str) -> f32 {
 pub fn find_child_layers_for_vertex(sprite: &Sprite, element_id: &str, vertex_id: &str) -> Vec<String> {
     let mut children = Vec::new();
     for layer in &sprite.layers {
-        if let Some(ref socket) = layer.socket {
-            if socket.parent_element_id == element_id && socket.parent_vertex_id == vertex_id {
+        if let Some(ref socket) = layer.socket
+            && socket.parent_element_id == element_id && socket.parent_vertex_id == vertex_id {
                 children.push(layer.id.clone());
             }
-        }
     }
     children
 }
@@ -193,11 +192,10 @@ pub fn find_child_layers_for_vertex(sprite: &Sprite, element_id: &str, vertex_id
 pub fn find_child_layers_for_element(sprite: &Sprite, element_id: &str) -> Vec<String> {
     let mut children = Vec::new();
     for layer in &sprite.layers {
-        if let Some(ref socket) = layer.socket {
-            if socket.parent_element_id == element_id {
+        if let Some(ref socket) = layer.socket
+            && socket.parent_element_id == element_id {
                 children.push(layer.id.clone());
             }
-        }
     }
     children
 }
@@ -212,40 +210,44 @@ pub fn detach_layer_to_world_space(sprite: &mut Sprite, layer_id: &str) {
     if let Some(layer) = sprite.layers.iter_mut().find(|l| l.id == layer_id) {
         layer.socket = None;
 
-        // Offset all element positions by the accumulated socket transform
-        // so the layer stays visually in the same place
+        // Apply the accumulated socket transform so the layer stays visually in place.
+        // Vertices and control points are in element-local space (relative), so only
+        // rotation is applied to them. The world-space translation is folded into
+        // element.position only, to avoid double-applying the offset.
         for element in &mut layer.elements {
             let cos_r = world_transform.rotation.cos();
             let sin_r = world_transform.rotation.sin();
 
-            // Rotate each vertex by the accumulated rotation and add position offset
+            // Rotate each vertex by the accumulated rotation (no translation -- vertices are relative)
             for vertex in &mut element.vertices {
                 let rx = vertex.pos.x * cos_r - vertex.pos.y * sin_r;
                 let ry = vertex.pos.x * sin_r + vertex.pos.y * cos_r;
-                vertex.pos = Vec2::new(rx + world_transform.position.x, ry + world_transform.position.y);
+                vertex.pos = Vec2::new(rx, ry);
 
+                // Control points are relative offsets from vertex position -- only rotate
                 if let Some(ref mut cp1) = vertex.cp1 {
                     let rx = cp1.x * cos_r - cp1.y * sin_r;
                     let ry = cp1.x * sin_r + cp1.y * cos_r;
-                    *cp1 = Vec2::new(rx + world_transform.position.x, ry + world_transform.position.y);
+                    *cp1 = Vec2::new(rx, ry);
                 }
                 if let Some(ref mut cp2) = vertex.cp2 {
                     let rx = cp2.x * cos_r - cp2.y * sin_r;
                     let ry = cp2.x * sin_r + cp2.y * cos_r;
-                    *cp2 = Vec2::new(rx + world_transform.position.x, ry + world_transform.position.y);
+                    *cp2 = Vec2::new(rx, ry);
                 }
             }
 
-            // Also apply to element position and origin
+            // Apply rotation + translation to element position (world-space offset)
             let px = element.position.x * cos_r - element.position.y * sin_r;
             let py = element.position.x * sin_r + element.position.y * cos_r;
             element.position = Vec2::new(px + world_transform.position.x, py + world_transform.position.y);
 
             element.rotation += world_transform.rotation;
 
+            // Origin is element-local, only rotate
             let ox = element.origin.x * cos_r - element.origin.y * sin_r;
             let oy = element.origin.x * sin_r + element.origin.y * cos_r;
-            element.origin = Vec2::new(ox + world_transform.position.x, oy + world_transform.position.y);
+            element.origin = Vec2::new(ox, oy);
         }
     }
 }
