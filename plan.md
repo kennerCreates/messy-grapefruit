@@ -26,27 +26,28 @@ Building a Tauri desktop app (Rust backend + SolidJS frontend) for creating anim
 
 ```
 Project (.spriteproj file)
-├── name, version, exportDir
+├── name, formatVersion, exportDir
 ├── palette: Palette { name, colors: PaletteColor[] }  // index 0 = transparent, shared by ALL sprites
 ├── sprites: ProjectSpriteRef[] (id, filePath, position, rotation, zOrder)  // position/rotation/zOrder are for dashboard layout only, not game-spatial
 └── editorPreferences (theme, gridSize, gridMode, showGrid)
 
 Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:1, no scale factor)
-├── id, name, canvasWidth, canvasHeight, backgroundColorIndex (default 0/transparent)
+├── id, name, formatVersion, canvasWidth, canvasHeight, backgroundColorIndex (default 0/transparent)
 ├── layers: Layer[]
 │   └── Layer { id, name, visible, locked, elements: Element[],
 │         socket?: { parentElementId, parentVertexId } }  // if set, layer follows this vertex
+│       └── constraints?: LayerConstraints
 │       └── Element = StrokeElement | IKTargetElement
-│           StrokeElement { id, type: "stroke", vertices: PathVertex[], closed, strokeWidth,
-│               strokeColorIndex, fillColorIndex, position, rotation, scale, origin: Vec2,
-│               constraints?: ElementConstraints }
-│           IKTargetElement { id, type: "ik-target", position: Vec2, ikChainId: string }
+│           StrokeElement { id, name?, type: "stroke", vertices: PathVertex[], closed, strokeWidth,
+│               strokeColorIndex, fillColorIndex, position, rotation, scale, origin: Vec2 }
+│           IKTargetElement { id, name?, type: "ik-target", position: Vec2, ikChainId: string }
 │               (lightweight — no vertices/strokes, renders as crosshair icon on canvas)
+│               (position is world-space — not relative to the layer. Lives on tip layer for organization only)
 │           └── PathVertex { id, pos: Vec2, cp1?: Vec2, cp2?: Vec2 }
 │               (cp1/cp2 = cubic bezier handles; absent = straight line)
 │               (origin = user-defined pivot point for rotation/scale, snaps to grid)
 │
-│   ElementConstraints {
+│   LayerConstraints {
 │     volumePreserve?: boolean,                          // scale_x = 1/scale_y
 │     lookAt?: { targetElementId, targetVertexId?,       // aim at element origin or specific vertex
 │       restAngle, minAngle, maxAngle, mix, smooth?: { frequency, damping } }
@@ -73,7 +74,7 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 
 *Vertex animation uses stable vertex IDs (not positional indices) so tracks survive vertex insertion/deletion.*
 
-**Visibility & drawing on non-zero frames**: Elements have a `visible` property (animatable, hold-previous interpolation). Drawing a new element while the playhead is at a non-zero time auto-creates a visibility track: hidden before the current time, visible from the current time onward.
+**Visibility & drawing on non-zero frames**: Elements have a `visible` property (animatable, hold-previous interpolation). Drawing a new element while the playhead is at a non-zero time auto-creates a visibility track: hidden before the current time, visible from the current time onward. Hidden elements are excluded from the evaluation pipeline entirely — no IK, physics, or constraints until visible.
 
 ---
 
@@ -84,7 +85,7 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 - **Pan**: Middle-click drag
 
 ### Auto-merge vertices
-When a vertex is placed at the same grid position as an existing vertex on the same layer, the elements **fuse into a single StrokeElement** with a combined vertex list. This enables connected paths and joined shapes. The merge is based on exact grid-snapped coordinates. Cross-element merges fuse the two elements; same-element merges close the path. Undo captures the pre-merge state of both elements so the merge can be fully reversed.
+When a vertex is placed at the same grid position as an existing vertex on the same layer, the elements **fuse into a single StrokeElement** with a combined vertex list. This enables connected paths and joined shapes. The merge is based on exact grid-snapped coordinates. Cross-element merges fuse the two elements; same-element merges close the path. **Property resolution**: the target (existing) element's properties win — `strokeWidth`, `strokeColorIndex`, `fillColorIndex`, `position`, `rotation`, `scale`, and `origin` are kept from the element being merged into. **Animation tracks**: if the absorbed element has animation tracks, a confirmation dialog warns before merging — absorbed element's tracks are dropped (target element's tracks are kept). Undo captures the pre-merge state of both elements so the merge can be fully reversed.
 
 **Visual merge preview**: When placing a vertex near an existing vertex that would trigger a merge, the target vertex/element highlights and a snap indicator appears. This makes the merge behavior predictable and avoids surprise fusions.
 
@@ -111,7 +112,7 @@ Grid density changes automatically with zoom level:
 
 ### Eraser tool
 - Click a vertex to delete it and all line segments connected to it
-- Removes the vertex from the path; if the path is split into disconnected parts, they become separate elements
+- Removes the vertex from the path; if the path is split into disconnected parts, they become separate elements. Both resulting elements inherit `position`, `rotation`, `scale`, `origin`, and color indices from the original
 - **If the element has animation tracks**, show a confirmation dialog before splitting (to prevent silent data loss)
 - **Track behavior on split**: Each animation track stays with whichever resulting element contains the vertex/property it references. Tracks referencing deleted vertices are dropped.
 
@@ -119,7 +120,7 @@ Grid density changes automatically with zoom level:
 - Layers are groups containing multiple elements. Elements render in creation order within a layer; layers render bottom-to-top
 - **Add** new layer
 - **Remove** layer
-- **Combine** (merge two layers into one). If either layer is socketed, the combined layer keeps the socket of the *top* layer (or drops it if only the bottom was socketed — user should detach first). If either layer is a socket parent for other layers, those child references update to point to the combined layer
+- **Combine** (merge two layers into one). If either layer is socketed, the combined layer keeps the socket of the *top* layer. If only the bottom layer was socketed, a warning dialog is shown before proceeding (socket will be dropped). If either layer is a socket parent for other layers, those child references update to point to the combined layer
 - **Move** (drag to reorder)
 - Visibility toggle, lock toggle
 
@@ -131,7 +132,7 @@ Grid density changes automatically with zoom level:
 - Click to select, shift-click for multi-select, drag for marquee selection
 - Ctrl+C/V for copy/paste, Delete key to remove
 - Drag to move, handles for scale/rotate (pivot = element's user-defined origin, snaps to grid)
-- **Copy/paste**: Paste creates a new layer containing copies of the selected elements. All pasted elements get new IDs. Animation tracks and socket references are not copied. Pasted layer is positioned with a small offset (+10, +10) from the original
+- **Copy/paste**: Paste creates a new layer containing copies of the selected elements. All pasted elements get new IDs. Animation tracks, socket references, and layer constraints are not copied (constraints reference other elements/layers by ID and would break). Pasted layer is positioned with a small offset (+10, +10) from the original
 
 ### Palette constraints
 - Max 256 colors. Index 0 = transparent/none
@@ -172,7 +173,7 @@ Grid density changes automatically with zoom level:
 - IK chains are defined over sequences of socketed layers — the socket chain is the bone hierarchy
 
 **Spring / Jiggle Physics**
-- Per-element opt-in constraint. The spring chases the element's keyframed+IK+constraint-solved position as its target
+- Per-layer opt-in constraint. The spring chases the layer's keyframed+IK+constraint-solved position as its target
 - Parameters: **frequency** (Hz, 0.1–10, default 2), **damping** ratio (0–2, default 0.5), **mix** (0–1)
 - **Gravity**: constant force with configurable angle (270° = down) and strength. Default 0 (opt-in)
 - **Wind**: sinusoidal force with configurable strength and frequency. Default 0 (opt-in)
@@ -180,18 +181,18 @@ Grid density changes automatically with zoom level:
 - Spring state resets when animation restarts (snap to FK pose)
 
 **Squash & Stretch**
-- Per-element `volumePreserve` toggle. When enabled, `scale_x = 1 / scale_y` is enforced automatically
+- Per-layer `volumePreserve` toggle. When enabled, `scale_x = 1 / scale_y` is enforced automatically
 - Works with keyframed scale, IK, and physics — applied as a post-constraint fixup
 - Pivot is the element's `origin` point
 
 **Procedural Modifiers**
-- Per-element list of additive oscillations on any animatable property
+- Per-layer list of additive oscillations on any animatable property
 - Parameters: **waveform** (sine or Perlin noise), **amplitude**, **frequency** (Hz), **phase** (degrees), **blend** mode (additive or multiplicative)
 - Good for: idle breathing (sine on scale.y ~0.25Hz), floating (sine on position.y ~0.5Hz), flickering flames (noise on rotation)
 - Applied **before** physics, so spring dynamics can smooth procedural oscillation into organic secondary motion
 
 **Look-At Constraint**
-- Per-element constraint. Element rotates to face a target element (or a specific vertex on a target element)
+- Per-layer constraint. Layer rotates to face a target element (or a specific vertex on a target element)
 - Parameters: **restAngle** (default facing direction), **minAngle/maxAngle** (rotation limits relative to rest), **mix** (0–1, keyframeable)
 - Optional **spring smoothing**: instead of snapping to the target angle, smooth via damped spring (reuses frequency + damping params). Prevents mechanical snapping
 - Handles angle wrapping at ±π (shortest angular difference)
@@ -203,6 +204,7 @@ Grid density changes automatically with zoom level:
 ### Autosave
 - Debounced save 500ms after last change, plus save on tab switch and app blur
 - No "unsaved changes" dialogs — undo stack handles mistakes
+- **First save**: Creating a new project prompts for a save directory (Tauri file dialog). New sprites are saved as `.sprite` files relative to the project directory. Autosave only activates once a file path is established
 
 ### Navigation
 - **Project overview** is always the first tab
@@ -213,6 +215,10 @@ Grid density changes automatically with zoom level:
 - Canvas size presets: 64x64, 128x128, 256x256, 512x512
 - Freeform width/height input for custom sizes
 - Name field
+
+### Canvas resize
+- Change `canvasWidth`/`canvasHeight` after creation via sprite settings
+- Existing art stays at its current position (no scaling or repositioning)
 
 ---
 
@@ -288,7 +294,7 @@ Sprite
   → Bevy runtime component reads RON, assembles parts, evaluates animation at 60 FPS
 ```
 
-Runtime bone export produces smaller textures and smooth full-framerate animation. Requires a Bevy-side runtime component that evaluates the animation pipeline (FK → IK → constraints → physics → procedural → socket transforms). This is the primary export path — high-res line art sprites would produce prohibitively large spritesheets at decent frame rates.
+Runtime bone export produces smaller textures and smooth full-framerate animation. Requires a Bevy-side runtime component that evaluates the animation pipeline (FK → IK → constraints → physics → procedural → socket transforms) — this is a separate project with its own documentation. This is the primary export path — high-res line art sprites would produce prohibitively large spritesheets at decent frame rates.
 
 ### Secondary: Spritesheet (simple assets, lower priority)
 
@@ -303,7 +309,7 @@ Sprite + AnimationSequence
   → Write atlas.png + metadata.ron (Bevy TextureAtlasLayout-compatible)
 ```
 
-Useful for VFX, particles, UI elements, and simple environmental props that don't warrant a bone rig. Spritesheet FPS is configurable (default 12). RON metadata maps to Bevy's `TextureAtlasLayout::from_grid()`.
+Useful for VFX, particles, UI elements, and simple environmental props that don't warrant a bone rig. Spritesheet FPS is configurable (default 12). Physics simulation always runs at 60 FPS internally — export samples frames at the configured FPS rate, so baked physics matches the preview. RON metadata maps to Bevy's `TextureAtlasLayout::from_grid()`.
 
 ### Shared behavior
 
@@ -316,7 +322,7 @@ Useful for VFX, particles, UI elements, and simple environmental props that don'
 
 Command pattern — every mutation wraps in `{ execute(), undo() }` pushed to a single shared history stack (drawing + animation edits combined). SolidJS store mutations go through this. Ctrl+Z/Ctrl+Y navigate the stack. The redo stack clears on new actions.
 
-**Physics & undo**: Undoing a physics/constraint parameter change rewinds the playhead to frame 0. This avoids stale simulation state — physics must be stepped sequentially from frame 0, so replaying from the start is the only correct option.
+**Physics & undo**: Undoing a physics/constraint parameter change does not rewind the playhead. Since physics only runs during playback (scrubbing shows FK-only), there is no stale simulation state — physics will re-simulate correctly from frame 0 the next time playback starts.
 
 ---
 
@@ -387,7 +393,7 @@ The right sidebar has two zones:
 - **Animation sequence tabs** at top of timeline panel: click to switch, right-click to rename/delete, + button to create new sequence
 - Keyframe track per property (tracks reference vertex IDs, not indices)
 - Animation player controls: **play/pause**, **start over** (jump to frame 0), **skip backward** (jump to previous keyframe), **skip forward** (jump to next keyframe), loop toggle
-- Preview playback at 60 FPS
+- Preview playback at 60 FPS (physics/spring simulation only runs during playback; scrubbing the timeline shows FK-only pose)
 - Keyframe interpolation (linear + cubic bezier easing)
 - Canvas renderer wired to animation currentTime
 - Curve editor (visual bezier with draggable control points)
@@ -395,9 +401,12 @@ The right sidebar has two zones:
 - Vertex position animation (stable vertex IDs)
 - Color index step animation (hold-previous interpolation)
 - Rotation/scale animation uses element's user-defined origin as pivot
+- **Onion skinning**: toggle to show ghost frames before/after the current frame. Configurable number of frames (default 2 before, 2 after). Ghost frames rendered with reduced opacity. Useful for timing and spacing
+
+### Phase 4: Layer Sockets
 - **Layer sockets**: attach a layer to a parent vertex, inherit position + rotation, unlimited chain depth. Socket UI in layer panel. Circular reference detection. Warning on parent vertex deletion
 
-### Phase 4a: Inverse Kinematics
+### Phase 5: Inverse Kinematics
 - **2-bone analytical IK solver**: law of cosines, bend direction sign flip, keyframeable target position + mix
 - **FABRIK solver**: forward-backward reaching for chains > 2, perturbation for collinear cases
 - IK chain definition UI: select socketed layers to form a chain, set solver type
@@ -406,19 +415,19 @@ The right sidebar has two zones:
 - FK/IK mix wired to evaluation pipeline (FK → socket walk → IK → final socket walk)
 - Unit tests for IK solver math (law of cosines, FABRIK convergence, angle constraints, bend direction)
 
-### Phase 4b: Constraints & Dynamics
-- **Spring/jiggle physics**: per-element constraint with frequency, damping, mix sliders. Semi-implicit Euler integration
+### Phase 6: Constraints & Dynamics
+- **Spring/jiggle physics**: per-layer constraint with frequency, damping, mix sliders. Semi-implicit Euler integration
 - **Gravity + wind**: per-physics-constraint forces, gravity angle/strength, wind strength/frequency. Default 0
 - Spring state reset on animation restart
-- **Squash & stretch**: per-element volume-preserve toggle, scale_x = 1/scale_y
-- **Procedural modifiers**: per-element sine/noise oscillation on any property. Amplitude, frequency, phase, blend mode
-- **Look-at constraint**: per-element aim at target element/vertex, rest angle, angle limits, mix, optional spring smoothing
+- **Squash & stretch**: per-layer volume-preserve toggle, scale_x = 1/scale_y
+- **Procedural modifiers**: per-layer sine/noise oscillation on any property. Amplitude, frequency, phase, blend mode
+- **Look-at constraint**: per-layer aim at target element/vertex, rest angle, angle limits, mix, optional spring smoothing
 - Full evaluation pipeline wired in correct order: FK → IK → constraints → procedural → physics → socket transforms
-- Constraint parameters exposed in the select tool's context-sensitive sidebar panel
+- Constraint parameters exposed in the layer panel and select tool's context-sensitive sidebar panel
 - **Visual debug overlays**: render bone chains, IK targets, constraint gizmos, spring targets as toggleable canvas overlays (for authoring and debugging)
 - Unit tests for spring integrator, angle wrapping, Catmull-Rom conversion, procedural waveforms
 
-### Phase 5: Export Pipeline
+### Phase 7: Export Pipeline
 - `svg_gen.rs`: Sprite + time → SVG string (with backgroundColorIndex fill)
 - `rasterize.rs`: SVG → PNG via resvg
 - `bone_export.rs`: element → individual part PNGs + animation data RON for runtime bone mode (primary export path)
@@ -427,7 +436,7 @@ The right sidebar has two zones:
 - Auto-export on save
 - File watcher with `notify` crate (re-exports only the changed sprite)
 
-### Phase 6: Project Overview & Polish
+### Phase 8: Project Overview & Polish
 - Project overview page (freeform dashboard — 2D canvas with draggable sprite thumbnails for organization, no game-spatial meaning)
 - Sprite arrangement (position, rotation, z-order for dashboard layout)
 - Project file save/load (sprites require project context)
@@ -468,4 +477,4 @@ The right sidebar has two zones:
 17. **Autosave**: Make changes → wait 500ms → verify file saved automatically → switch tabs → verify save triggers → verify no "unsaved changes" dialogs
 18. **Navigation**: Double-click sprite card → verify editor tab opens → open multiple sprites → verify tabs work → verify project overview stays as first tab
 19. **Watcher**: Start watcher → modify and save a .sprite file externally → verify only that sprite re-exports (not all sprites)
-20. **Undo + physics**: Change a spring parameter mid-animation → undo → verify playhead rewinds to frame 0 → replay → verify simulation is correct
+20. **Undo + physics**: Change a spring parameter mid-animation → undo → verify playhead stays at current position (FK-only pose) → replay → verify simulation re-runs correctly from frame 0
