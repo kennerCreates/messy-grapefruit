@@ -158,6 +158,28 @@ pub fn recompute_auto_curves(vertices: &mut [PathVertex], closed: bool) {
     }
 }
 
+/// Ray-casting point-in-polygon test.
+/// Returns true if `point` is inside the polygon defined by `vertices`.
+pub fn point_in_polygon(point: Vec2, vertices: &[Vec2]) -> bool {
+    let n = vertices.len();
+    if n < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let vi = vertices[i];
+        let vj = vertices[j];
+        if ((vi.y > point.y) != (vj.y > point.y))
+            && (point.x < (vj.x - vi.x) * (point.y - vi.y) / (vj.y - vi.y) + vi.x)
+        {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
 /// Get the bezier points for a segment between two vertices.
 /// Returns (start, cp1, cp2, end) for cubic bezier rendering.
 pub fn segment_bezier_points(v0: &PathVertex, v1: &PathVertex) -> (Vec2, Vec2, Vec2, Vec2) {

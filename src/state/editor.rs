@@ -109,15 +109,6 @@ pub struct LineToolState {
 }
 
 
-#[derive(Debug, Clone)]
-pub struct MergeTarget {
-    pub element_id: String,
-    pub vertex_id: String,
-    pub position: Vec2,
-    /// True if the merge target is on the same element as the one being drawn
-    pub same_element: bool,
-}
-
 /// State for the select tool's drag-to-move functionality
 #[derive(Debug, Clone)]
 #[derive(Default)]
@@ -282,7 +273,6 @@ pub struct EditorState {
     pub cursor_screen_pos: Option<Vec2>,
     pub cursor_world_pos: Option<Vec2>,
     pub curve_mode: bool,
-    pub merge_preview: Option<MergeTarget>,
     pub active_layer_index: usize,
     #[allow(dead_code)]
     pub transform_mode: TransformMode,
@@ -324,8 +314,7 @@ impl Default for EditorState {
             line_tool_state: LineToolState::default(),
             cursor_screen_pos: None,
             cursor_world_pos: None,
-            curve_mode: true,
-            merge_preview: None,
+            curve_mode: false,
             active_layer_index: 0,
             transform_mode: TransformMode::None,
             is_panning: false,

@@ -310,7 +310,7 @@ impl eframe::App for App {
                 });
             } else {
                 active_tool = ToolKind::Line;
-                curve_mode = true;
+                curve_mode = false;
                 skin_info = None;
             }
             ui::toolbar::draw_toolbar(ctx, active_tool, curve_mode, skin_info.as_ref())

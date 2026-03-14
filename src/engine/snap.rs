@@ -4,8 +4,8 @@ use crate::model::project::GridMode;
 /// Compute the adaptive grid size based on current zoom level.
 /// Uses power-of-2 grid sizes. At higher zoom, grid is finer; at lower zoom, grid is coarser.
 pub fn adaptive_grid_size(base_grid_size: f32, zoom: f32) -> f32 {
-    // Target: keep grid dots at ~20-40 pixel screen spacing
-    let target_screen_spacing = 32.0;
+    // Target: keep grid dots at ~12-24 pixel screen spacing
+    let target_screen_spacing = 16.0;
     let world_spacing = target_screen_spacing / zoom;
 
     // Round to nearest power of 2 that's >= base_grid_size minimum of 1

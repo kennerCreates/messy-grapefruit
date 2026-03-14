@@ -42,16 +42,6 @@ pub fn draw_status_bar(ctx: &egui::Context, editor_state: &EditorState, grid_siz
                 ui.label("Drawing...");
             }
 
-            // Merge preview indicator
-            if let Some(ref merge) = editor_state.merge_preview {
-                ui.separator();
-                if merge.same_element {
-                    ui.label("Close path");
-                } else {
-                    ui.label("Merge");
-                }
-            }
-
             // Animation info
             if editor_state.animation.selected_sequence_id.is_some() {
                 ui.separator();

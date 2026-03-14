@@ -2,7 +2,6 @@ pub mod animation;
 pub mod constraints;
 pub mod hit_test;
 pub mod ik;
-pub mod merge;
 pub mod physics;
 pub mod snap;
 pub mod socket;
@@ -15,8 +14,6 @@ pub use constraints::*;
 pub use hit_test::*;
 #[allow(unused_imports)]
 pub use ik::*;
-#[allow(unused_imports)]
-pub use merge::*;
 #[allow(unused_imports)]
 pub use physics::*;
 #[allow(unused_imports)]

@@ -196,24 +196,6 @@ pub fn draw_canvas(
                 }
             }
 
-            // --- Draw merge preview ---
-            if let Some(ref merge_target) = editor_state.merge_preview {
-                let screen_pos = editor_state
-                    .viewport
-                    .world_to_screen(merge_target.position, canvas_center);
-                let radius = 8.0;
-                let color = if merge_target.same_element {
-                    egui::Color32::from_rgb(0x00, 0xff, 0x00) // Green for close
-                } else {
-                    egui::Color32::from_rgb(0xff, 0xff, 0x00) // Yellow for merge
-                };
-                painter.circle_stroke(
-                    egui::pos2(screen_pos.x, screen_pos.y),
-                    radius,
-                    egui::Stroke::new(2.0, color),
-                );
-            }
-
             // --- Draw selection highlights ---
             draw_selection_highlights(
                 &painter,
@@ -1309,32 +1291,6 @@ fn handle_line_tool(
         engine::snap_to_grid(pos, grid_size, grid_mode)
     });
 
-    // Update merge preview
-    editor_state.merge_preview = None;
-    if let Some(snapped_pos) = snapped_world_pos {
-        let current_elem_id = editor_state.line_tool_state.active_element_id.as_deref();
-        if let Some(merge_target) =
-            engine::find_merge_target(snapped_pos, &sprite.layers[layer_index], current_elem_id, grid_size * 0.5)
-        {
-            // Don't show merge preview for the vertex we just placed
-            let is_active_last_vertex = if let Some(ref active_id) = editor_state.line_tool_state.active_element_id {
-                sprite.layers[layer_index]
-                    .elements
-                    .iter()
-                    .find(|e| &e.id == active_id)
-                    .and_then(|e| e.vertices.last())
-                    .map(|v| v.id == merge_target.vertex_id)
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-
-            if !is_active_last_vertex {
-                editor_state.merge_preview = Some(merge_target);
-            }
-        }
-    }
-
     // Draw preview line from last vertex to cursor
     if let Some(ref active_id) = editor_state.line_tool_state.active_element_id.clone()
         && let Some(snapped_pos) = snapped_world_pos
@@ -1388,62 +1344,6 @@ fn handle_line_tool(
                 finish_line_element(sprite, editor_state, layer_index, history, sprite_index);
                 actions.push(CanvasAction::SpriteChanged);
                 return;
-            }
-
-            // Check for merge
-            if let Some(ref merge_target) = editor_state.merge_preview.clone() {
-                if merge_target.same_element {
-                    // Close the path
-                    let before = sprite.clone();
-                    if let Some(element) = sprite.layers[layer_index]
-                        .elements
-                        .iter_mut()
-                        .find(|e| e.id == merge_target.element_id)
-                    {
-                        engine::close_element(element);
-                        if editor_state.curve_mode {
-                            math::recompute_auto_curves(&mut element.vertices, element.closed);
-                        }
-                    }
-                    history.push(SnapshotCommand {
-                        description: "Close path".to_string(),
-                        sprite_index,
-                        before,
-                        after: sprite.clone(),
-                    });
-                    editor_state.line_tool_state.active_element_id = None;
-                    actions.push(CanvasAction::SpriteChanged);
-                    return;
-                } else if editor_state.line_tool_state.active_element_id.is_some() {
-                    // Cross-element merge
-                    let before = sprite.clone();
-                    let active_id = editor_state.line_tool_state.active_element_id.clone().unwrap();
-                    engine::merge_elements(
-                        &mut sprite.layers[layer_index],
-                        &merge_target.element_id,
-                        &merge_target.vertex_id,
-                        &active_id,
-                        true,
-                    );
-                    // Recompute curves on the merged element
-                    if editor_state.curve_mode
-                        && let Some(element) = sprite.layers[layer_index]
-                            .elements
-                            .iter_mut()
-                            .find(|e| e.id == merge_target.element_id)
-                        {
-                            math::recompute_auto_curves(&mut element.vertices, element.closed);
-                        }
-                    history.push(SnapshotCommand {
-                        description: "Merge elements".to_string(),
-                        sprite_index,
-                        before,
-                        after: sprite.clone(),
-                    });
-                    editor_state.line_tool_state.active_element_id = None;
-                    actions.push(CanvasAction::SpriteChanged);
-                    return;
-                }
             }
 
             let before = sprite.clone();
@@ -2063,9 +1963,7 @@ fn handle_fill_tool(
     };
 
     let world_pos = editor_state.viewport.screen_to_world(Vec2::from(pos), canvas_center);
-    let threshold = 10.0 / editor_state.viewport.zoom;
-
-    // Try to hit a closed element
+    // Try to hit inside an element polygon
     let mut hit_closed = false;
     let before = sprite.clone();
 
@@ -2073,13 +1971,31 @@ fn handle_fill_tool(
         if !layer.visible || layer.locked {
             continue;
         }
-        if let Some(hit) = engine::hit_test_elements(world_pos, &layer.elements, threshold)
-            && let Some(element) = layer.elements.iter_mut().find(|e| e.id == hit.element_id)
-                && element.closed {
-                    element.fill_color_index = editor_state.active_color_index;
-                    hit_closed = true;
-                    break;
+        for element in &mut layer.elements {
+            if element.vertices.len() < 3 {
+                continue;
+            }
+            // Flatten the element into a polygon and do point-in-polygon test
+            let mut polygon = Vec::new();
+            let vert_count = element.vertices.len();
+            for i in 0..vert_count {
+                let next = if element.closed { (i + 1) % vert_count } else if i + 1 < vert_count { i + 1 } else { break };
+                let (p0, p1, p2, p3) =
+                    math::segment_bezier_points(&element.vertices[i], &element.vertices[next]);
+                math::flatten_cubic_bezier(p0, p1, p2, p3, 0.5, &mut polygon);
+            }
+            if polygon.len() >= 3 && math::point_in_polygon(world_pos, &polygon) {
+                if !element.closed {
+                    element.closed = true;
                 }
+                element.fill_color_index = editor_state.active_color_index;
+                hit_closed = true;
+                break;
+            }
+        }
+        if hit_closed {
+            break;
+        }
     }
 
     if hit_closed {
@@ -2215,12 +2131,10 @@ fn handle_eraser_tool(
         if elem.vertices.len() < 3 {
             elem.closed = false;
         }
-        math::recompute_auto_curves(&mut elem.vertices, elem.closed);
     } else if vert_idx == 0 || vert_idx == num_vertices - 1 {
         // Removing from start or end - just remove the vertex
         let elem = &mut sprite.layers[layer_index].elements[elem_idx];
         elem.vertices.remove(vert_idx);
-        math::recompute_auto_curves(&mut elem.vertices, elem.closed);
     } else {
         // Removing a middle vertex splits the path into two elements
         let original = sprite.layers[layer_index].elements[elem_idx].clone();
@@ -2235,7 +2149,6 @@ fn handle_eraser_tool(
         elem1.scale = original.scale;
         elem1.origin = original.origin;
         elem1.vertices = original.vertices[0..vert_idx].to_vec();
-        math::recompute_auto_curves(&mut elem1.vertices, false);
 
         // Second part: vertices (vert_idx+1)..
         let mut elem2 = StrokeElement::new();
@@ -2247,7 +2160,6 @@ fn handle_eraser_tool(
         elem2.scale = original.scale;
         elem2.origin = original.origin;
         elem2.vertices = original.vertices[(vert_idx + 1)..].to_vec();
-        math::recompute_auto_curves(&mut elem2.vertices, false);
 
         // Remove original and add the two parts
         sprite.layers[layer_index].elements.remove(elem_idx);
