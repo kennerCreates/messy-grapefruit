@@ -1,4 +1,4 @@
-use crate::model::project::{GridMode, Project, Theme};
+use crate::model::project::{GridMode, Project};
 use crate::model::sprite::Sprite;
 use crate::state::editor::EditorState;
 use crate::state::history::History;
@@ -14,11 +14,11 @@ pub fn show_toolbar(
     sprite_path: &mut Option<std::path::PathBuf>,
 ) {
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.x = 8.0;
 
         // File buttons
         if ui
-            .add(icons::icon_button(icons::action_new()))
+            .add(icons::icon_button(icons::action_new(), ui))
             .on_hover_text("New")
             .clicked()
         {
@@ -31,7 +31,7 @@ pub fn show_toolbar(
         }
 
         if ui
-            .add(icons::icon_button(icons::action_load()))
+            .add(icons::icon_button(icons::action_load(), ui))
             .on_hover_text("Open")
             .clicked()
             && let Some(path) = rfd::FileDialog::new()
@@ -54,7 +54,7 @@ pub fn show_toolbar(
         }
 
         if ui
-            .add(icons::icon_button(icons::action_save()))
+            .add(icons::icon_button(icons::action_save(), ui))
             .on_hover_text("Save")
             .clicked()
         {
@@ -79,7 +79,7 @@ pub fn show_toolbar(
         }
 
         if ui
-            .add(icons::icon_button(icons::action_save_as()))
+            .add(icons::icon_button(icons::action_save_as(), ui))
             .on_hover_text("Save As")
             .clicked()
             && let Some(path) = rfd::FileDialog::new()
@@ -101,14 +101,14 @@ pub fn show_toolbar(
 
         // Undo/Redo
         if ui
-            .add_enabled(history.can_undo(), icons::icon_button(icons::undo()))
+            .add_enabled(history.can_undo(), icons::icon_button(icons::undo(), ui))
             .on_hover_text("Undo (Ctrl+Z)")
             .clicked()
         {
             history.undo(sprite);
         }
         if ui
-            .add_enabled(history.can_redo(), icons::icon_button(icons::redo()))
+            .add_enabled(history.can_redo(), icons::icon_button(icons::redo(), ui))
             .on_hover_text("Redo (Ctrl+Y)")
             .clicked()
         {
@@ -120,7 +120,7 @@ pub fn show_toolbar(
         // Tool: Line
         let is_line = matches!(editor.tool, crate::state::editor::ToolKind::Line);
         if ui
-            .add(icons::icon_button(icons::tool_line()).selected(is_line))
+            .add(icons::icon_button(icons::tool_line(), ui).selected(is_line))
             .on_hover_text("Line Tool (L)")
             .clicked()
         {
@@ -145,7 +145,7 @@ pub fn show_toolbar(
             });
 
         if ui
-            .add(icons::icon_button(icons::grid_dots()).selected(project.editor_preferences.show_dots))
+            .add(icons::icon_button(icons::grid_dots(), ui).selected(project.editor_preferences.show_dots))
             .on_hover_text("Grid Dots")
             .clicked()
         {
@@ -155,7 +155,7 @@ pub fn show_toolbar(
         // Three-way grid line mode: Off / Straight / Isometric (mutually exclusive)
         let is_straight = project.editor_preferences.grid_mode == GridMode::Straight;
         if ui
-            .add(icons::icon_button(icons::grid_lines()).selected(is_straight))
+            .add(icons::icon_button(icons::grid_lines(), ui).selected(is_straight))
             .on_hover_text("Straight Grid Lines")
             .clicked()
         {
@@ -168,7 +168,7 @@ pub fn show_toolbar(
 
         let is_iso = project.editor_preferences.grid_mode == GridMode::Isometric;
         if ui
-            .add(icons::icon_button(icons::grid_iso()).selected(is_iso))
+            .add(icons::icon_button(icons::grid_iso(), ui).selected(is_iso))
             .on_hover_text("Isometric Grid Lines")
             .clicked()
         {
@@ -183,31 +183,19 @@ pub fn show_toolbar(
 
         // View: Flip + Zoom to Fit
         if ui
-            .add(icons::icon_button(icons::view_flip()).selected(editor.viewport.flipped))
+            .add(icons::icon_button(icons::view_flip(), ui).selected(editor.viewport.flipped))
             .on_hover_text("Flip Canvas (H)")
             .clicked()
         {
             editor.viewport.flipped = !editor.viewport.flipped;
         }
         if ui
-            .add(icons::icon_button(icons::view_zoom_fit()))
+            .add(icons::icon_button(icons::view_zoom_fit(), ui))
             .on_hover_text("Zoom to Fit (F)")
             .clicked()
         {
             editor.zoom_to_fit_requested = true;
         }
 
-        ui.separator();
-
-        // Theme toggle
-        let is_dark = project.editor_preferences.theme == Theme::Dark;
-        let theme_icon = if is_dark { icons::theme_dark() } else { icons::theme_light() };
-        if ui
-            .add(icons::icon_button(theme_icon))
-            .on_hover_text(if is_dark { "Switch to Light Theme" } else { "Switch to Dark Theme" })
-            .clicked()
-        {
-            project.editor_preferences.theme = if is_dark { Theme::Light } else { Theme::Dark };
-        }
     });
 }

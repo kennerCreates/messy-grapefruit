@@ -1,7 +1,8 @@
-use egui::{Image, ImageSource};
+use egui::{Color32, Image, ImageSource};
 
-const ICON_SIZE: f32 = 16.0;
-const SMALL_ICON_SIZE: f32 = 12.0;
+const ICON_SIZE: f32 = 32.0;
+const SMALL_ICON_SIZE: f32 = 24.0;
+const SIDEBAR_TOGGLE_SIZE: f32 = 16.0;
 
 // Action icons
 pub fn action_new() -> ImageSource<'static> { egui::include_image!("../../assets/icons/action_new.svg") }
@@ -41,6 +42,14 @@ pub fn layer_add() -> ImageSource<'static> { egui::include_image!("../../assets/
 pub fn mode_curve() -> ImageSource<'static> { egui::include_image!("../../assets/icons/mode_curve.svg") }
 pub fn mode_straight() -> ImageSource<'static> { egui::include_image!("../../assets/icons/mode_straight.svg") }
 
+// Sidebar icons
+pub fn sidebar_expand() -> ImageSource<'static> { egui::include_image!("../../assets/icons/sidebar_expand.svg") }
+pub fn sidebar_collapse() -> ImageSource<'static> { egui::include_image!("../../assets/icons/sidebar_collapse.svg") }
+
+// Property icons
+pub fn prop_width() -> ImageSource<'static> { egui::include_image!("../../assets/icons/prop_width.svg") }
+pub fn prop_radius() -> ImageSource<'static> { egui::include_image!("../../assets/icons/prop_radius.svg") }
+
 // Metric icons
 pub fn metric_element() -> ImageSource<'static> { egui::include_image!("../../assets/icons/metric_element.svg") }
 pub fn metric_vertex() -> ImageSource<'static> { egui::include_image!("../../assets/icons/metric_vertex.svg") }
@@ -49,14 +58,37 @@ pub fn metric_animation() -> ImageSource<'static> { egui::include_image!("../../
 
 // Helpers
 
-/// Create a toolbar-sized icon button (16x16).
-pub fn icon_button(source: ImageSource<'static>) -> egui::Button<'static> {
+/// Get the icon tint color from the current UI visuals.
+pub fn tint(ui: &egui::Ui) -> Color32 {
+    ui.visuals().widgets.inactive.fg_stroke.color
+}
+
+/// Create a toolbar-sized icon button (16x16), tinted to match theme.
+pub fn icon_button(source: ImageSource<'static>, ui: &egui::Ui) -> egui::Button<'static> {
+    let tint = tint(ui);
     egui::Button::image(
-        Image::new(source).fit_to_exact_size(egui::Vec2::splat(ICON_SIZE))
+        Image::new(source).fit_to_exact_size(egui::Vec2::splat(ICON_SIZE)).tint(tint)
     )
 }
 
-/// Create a small icon image (12x12) for status bar.
-pub fn small_icon(source: ImageSource<'static>) -> Image<'static> {
-    Image::new(source).fit_to_exact_size(egui::Vec2::splat(SMALL_ICON_SIZE))
+/// Create a sidebar toggle button (16x16), kept smaller than other icons.
+pub fn sidebar_toggle_button(source: ImageSource<'static>, ui: &egui::Ui) -> egui::Button<'static> {
+    let tint = tint(ui);
+    egui::Button::image(
+        Image::new(source).fit_to_exact_size(egui::Vec2::splat(SIDEBAR_TOGGLE_SIZE)).tint(tint)
+    )
+}
+
+/// Create a small icon button (16x16) for layer controls, tinted to match theme.
+pub fn small_icon_button(source: ImageSource<'static>, ui: &egui::Ui) -> egui::Button<'static> {
+    let tint = tint(ui);
+    egui::Button::image(
+        Image::new(source).fit_to_exact_size(egui::Vec2::splat(SIDEBAR_TOGGLE_SIZE)).tint(tint)
+    )
+}
+
+/// Create a small icon image (24x24) for status bar, tinted to match theme.
+pub fn small_icon(source: ImageSource<'static>, ui: &egui::Ui) -> Image<'static> {
+    let tint = tint(ui);
+    Image::new(source).fit_to_exact_size(egui::Vec2::splat(SMALL_ICON_SIZE)).tint(tint)
 }

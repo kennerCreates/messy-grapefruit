@@ -92,6 +92,7 @@ pub struct EditorState {
     pub active_layer_idx: usize,
     pub hover_element_id: Option<String>,
     pub zoom_to_fit_requested: bool,
+    pub sidebar_expanded: bool,
 }
 
 impl Default for EditorState {
@@ -109,6 +110,7 @@ impl Default for EditorState {
             active_layer_idx: 0,
             hover_element_id: None,
             zoom_to_fit_requested: true,
+            sidebar_expanded: false,
         }
     }
 }

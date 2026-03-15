@@ -116,7 +116,7 @@ impl eframe::App for App {
         let floating_frame = egui::Frame::NONE
             .fill(panel_bg)
             .corner_radius(8.0)
-            .inner_margin(6.0);
+            .inner_margin(10.0);
 
         // Canvas fills entire window (no frame)
         egui::CentralPanel::default()
@@ -152,7 +152,8 @@ impl eframe::App for App {
                 );
             });
 
-        // Floating sidebar (right side)
+        // Floating sidebar (right side) — width depends on collapsed/expanded
+        let sidebar_width = if self.editor.sidebar_expanded { 220.0 } else { 56.0 };
         egui::Window::new("sidebar")
             .title_bar(false)
             .resizable(false)
@@ -160,8 +161,8 @@ impl eframe::App for App {
             .collapsible(false)
             .anchor(egui::Align2::RIGHT_TOP, [-8.0, 48.0])
             .frame(floating_frame)
-            .min_width(180.0)
-            .max_width(180.0)
+            .min_width(sidebar_width)
+            .max_width(sidebar_width)
             .show(ctx, |ui| {
                 ui::sidebar::show_sidebar(
                     ui,
