@@ -1,9 +1,0 @@
-pub mod canvas;
-pub mod export_dialog;
-pub mod grid;
-pub mod new_sprite_dialog;
-pub mod project_overview;
-pub mod sidebar;
-pub mod status_bar;
-pub mod timeline;
-pub mod toolbar;

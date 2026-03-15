@@ -2,7 +2,7 @@
 
 ## Context
 
-Building a native Rust desktop app (eframe/egui) for creating animated SVG sprites for a 2D isometric Bevy game. The art style targets **high-resolution isometric line art** (similar to *They Are Billions*), not pixel art. The tool draws vector art using lines/curves with an indexed color palette, animates via keyframes with editable easing curves, and exports runtime bone animation data (RON) + texture atlases that Bevy hot-reloads.
+Building a native Rust desktop app (eframe/egui) for creating animated SVG sprites for a 2D isometric Bevy game. The art style targets **high-resolution isometric line art** (similar to *They Are Billions*), not pixel art. The tool draws vector art using lines/curves with an indexed color palette, animates via pose-based keyframes with editable easing curves, and exports runtime bone animation data (RON) + texture atlases that Bevy hot-reloads.
 
 ---
 
@@ -63,24 +63,30 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 │           // Omitted fields inherit from the base element
 │           // The base sprite (no skin applied) is the implicit "default" skin
 └── animations: AnimationSequence[]
-    └── AnimationSequence { id, name, duration, looping, tracks: PropertyTrack[], ikChains: IKChain[] }
-        // duration auto-extends when a keyframe is placed past the current end; also manually editable (e.g., to add trailing hold time)
-        └── PropertyTrack { property, elementId, layerId, keyframes: Keyframe[] }
-            └── Keyframe { id, time, value, easing: EasingCurve }
-                └── EasingCurve { preset, controlPoints: [x1,y1,x2,y2] }
+    └── AnimationSequence { id, name, duration, looping, poseKeyframes: PoseKeyframe[], ikChains: IKChain[] }
+        // duration auto-extends when a pose keyframe is placed past the current end; also manually editable (e.g., to add trailing hold time)
+        └── PoseKeyframe { id, time, easing: EasingCurve, elementPoses: ElementPose[], ikMixValues: [(chainId, mix)]  }
+            // Captures the FULL state of all elements at a point in time — pose-to-pose animation
+            // Easing curve controls the transition TO this pose from the previous one
+            └── ElementPose { elementId, layerId, position, rotation, scale, visible,
+                  strokeColorIndex, fillColorIndex, vertexPositions: [(vertexId, Vec2)] }
+                // Per-element snapshot — all animatable properties in one struct
+            └── EasingCurve { preset, controlPoints: [x1,y1,x2,y2] }
         └── IKChain { id, name, layerIds: string[],       // ordered root→tip socket chain
-              targetElementId: string,                       // references an IKTargetElement (keyframe its position via PropertyTrack)
-              mix: number,                                   // 0=FK, 1=IK, keyframeable via PropertyTrack on the IKTargetElement
+              targetElementId: string,                       // references an IKTargetElement (position captured in ElementPose)
+              mix: number,                                   // 0=FK, 1=IK, stored per-pose in ikMixValues
               bendDirection: 1|-1,                           // sign flip for 2-bone
               solver: "two-bone"|"fabrik",                   // analytical or iterative
               angleConstraints?: { layerId, min, max }[] }   // per-joint angle limits (2-bone only initially)
 ```
 
-**Animatable properties**: `position.x`, `position.y`, `rotation`, `scale.x`, `scale.y`, `strokeColorIndex`, `fillColorIndex`, `vertex.{id}.x`, `vertex.{id}.y`, `visible`
+**Pose-based animation**: Each `PoseKeyframe` snapshots the full sprite state (all element positions, rotations, scales, vertex positions, colors, visibility) at a point in time. The animation system interpolates between adjacent poses using the easing curve on each pose. This is simpler than per-property tracks — the artist poses the sprite, inserts a keyframe, and the system captures everything at once.
 
-*Vertex animation uses stable vertex IDs (not positional indices) so tracks survive vertex insertion/deletion.*
+**Animatable properties** (captured per-element in each pose): `position`, `rotation`, `scale`, `strokeColorIndex`, `fillColorIndex`, `visible`, and all vertex positions (by stable vertex ID). Color indices and visibility are interpolated as integers (nearest/step). Continuous properties (position, rotation, scale, vertex positions) use the pose's easing curve.
 
-**Visibility & drawing on non-zero frames**: Elements have a `visible` property (animatable, hold-previous interpolation). Drawing a new element while the playhead is at a non-zero time auto-creates a visibility track: hidden before the current time, visible from the current time onward. Hidden elements are excluded from the evaluation pipeline entirely — no IK, physics, or constraints until visible.
+*Vertex animation uses stable vertex IDs (not positional indices) so poses survive vertex insertion/deletion.*
+
+**Visibility**: Each `ElementPose` has a `visible` boolean. Elements not present in a pose or marked invisible are excluded from the evaluation pipeline entirely — no IK, physics, or constraints until visible.
 
 **Rest pose**: Frame 0 with no animation playing is the canonical rest/bind pose. All element positions, rotations, scales, and vertex positions at frame 0 define the default state. IK bone lengths are computed from the rest pose (distance from socket vertex to child layer's origin). The export pipeline uses the rest pose as the reference for default transforms and bone setup. Editing the sprite with the playhead at frame 0 and no sequence selected modifies the rest pose directly.
 
@@ -93,7 +99,7 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 - **Pan**: Middle-click drag
 
 ### Auto-merge vertices
-When a vertex is placed at the same grid position as an existing vertex on the same layer, the elements **fuse into a single StrokeElement** with a combined vertex list. This enables connected paths and joined shapes. The merge is based on exact grid-snapped coordinates. Cross-element merges fuse the two elements; same-element merges close the path. **Property resolution**: the target (existing) element's properties win — `strokeWidth`, `strokeColorIndex`, `fillColorIndex`, `position`, `rotation`, `scale`, and `origin` are kept from the element being merged into. **Animation tracks**: if the absorbed element has animation tracks, a confirmation dialog warns before merging — absorbed element's tracks are dropped (target element's tracks are kept). Undo captures the pre-merge state of both elements so the merge can be fully reversed.
+When a vertex is placed at the same grid position as an existing vertex on the same layer, the elements **fuse into a single StrokeElement** with a combined vertex list. This enables connected paths and joined shapes. The merge is based on exact grid-snapped coordinates. Cross-element merges fuse the two elements; same-element merges close the path. **Property resolution**: the target (existing) element's properties win — `strokeWidth`, `strokeColorIndex`, `fillColorIndex`, `position`, `rotation`, `scale`, and `origin` are kept from the element being merged into. **Animation poses**: since poses capture all elements, the merged element's state in existing poses is taken from the target element. The absorbed element's pose data is dropped. Undo captures the pre-merge state of both elements so the merge can be fully reversed.
 
 **Visual merge preview**: When placing a vertex near an existing vertex that would trigger a merge, the target vertex/element highlights and a snap indicator appears. This makes the merge behavior predictable and avoids surprise fusions.
 
@@ -114,21 +120,20 @@ Grid density changes automatically with zoom level:
 - Elements store palette index, not color values
 - Changing a palette color instantly updates all elements across all sprites referencing that index (renderer looks up color at render time)
 - Index 0 is always transparent/none
-- Color index animation uses **hold-previous** step interpolation (value holds at current keyframe until next keyframe time, then snaps)
+- Color index animation uses **nearest/step** interpolation within pose transitions (integer values snap rather than blend smoothly)
 - The palette is passed to the sprite editor when opening a sprite, and saved with the project file
 - **Lospec import replaces** the current palette. Existing color indices remap to the same index in the new palette (index 3 stays index 3). If the new palette is shorter, elements referencing out-of-range indices fall back to index 0 (transparent)
 
 ### Eraser tool
 - Click a vertex to delete it and all line segments connected to it
 - Removes the vertex from the path; if the path is split into disconnected parts, they become separate elements. Both resulting elements inherit `position`, `rotation`, `scale`, `origin`, and color indices from the original
-- **If the element has animation tracks**, show a confirmation dialog before splitting (to prevent silent data loss)
-- **Track behavior on split**: Each animation track stays with whichever resulting element contains the vertex/property it references. Tracks referencing deleted vertices are dropped.
+- **Pose data on split**: Existing pose keyframes are updated — the original element's pose entry is duplicated for both resulting elements (same position/rotation/scale/colors), and vertex positions are split according to which element each vertex belongs to. Vertex positions referencing the deleted vertex are dropped.
 
 ### Layer operations
 - Layers are groups containing multiple elements. Elements render in creation order within a layer; layers render bottom-to-top
 - **Add** new layer
 - **Remove** layer
-- **Duplicate** layer (deep-copies all elements with new IDs. Animation tracks, socket references, and constraints are not copied)
+- **Duplicate** layer (deep-copies all elements with new IDs. Pose keyframe entries, socket references, and constraints are not copied for the new elements)
 - **Mirror** layer (flip all elements horizontally or vertically around the bounding box center of the layer's elements. Flips vertex positions and control points. Useful for creating symmetrical body parts — e.g., duplicate left arm, mirror to make right arm)
 - **Combine** (merge two layers into one). If either layer is socketed, the combined layer keeps the socket of the *top* layer. If only the bottom layer was socketed, a warning dialog is shown before proceeding (socket will be dropped). If either layer is a socket parent for other layers, those child references update to point to the combined layer
 - **Move** (drag to reorder)
@@ -142,7 +147,7 @@ Grid density changes automatically with zoom level:
 - Click to select, shift-click for multi-select, drag for marquee selection, Ctrl+A to select all elements on unlocked layers
 - Ctrl+C/V for copy/paste, Delete key to remove
 - Drag to move, handles for scale/rotate (pivot = element's user-defined origin, snaps to grid)
-- **Copy/paste**: Paste creates a new layer containing copies of the selected elements. All pasted elements get new IDs. Animation tracks, socket references, and layer constraints are not copied (constraints reference other elements/layers by ID and would break). Pasted layer is positioned with a small offset (+10, +10) from the original. **Cross-sprite paste**: Elements are serialized to the system clipboard as JSON, so copy/paste works across sprite tabs. Color indices reference the shared project palette, so colors stay consistent
+- **Copy/paste**: Paste creates a new layer containing copies of the selected elements. All pasted elements get new IDs. Pose keyframe entries, socket references, and layer constraints are not copied for pasted elements (constraints reference other elements/layers by ID and would break). Pasted layer is positioned with a small offset (+10, +10) from the original. **Cross-sprite paste**: Elements are serialized to the system clipboard as JSON, so copy/paste works across sprite tabs. Color indices reference the shared project palette, so colors stay consistent
 
 ### Palette constraints
 - Max 256 colors. Index 0 = transparent/none
@@ -165,7 +170,7 @@ Grid density changes automatically with zoom level:
 ### Procedural Animation
 
 **Evaluation order** (per frame, must be stepped sequentially from frame 0 due to stateful physics):
-1. Evaluate FK from keyframes (interpolate all property tracks)
+1. Evaluate FK from pose keyframes (interpolate between adjacent poses using easing curves)
 2. Initial socket chain walk: compute world-space positions for all joints (needed by IK solver)
 3. Solve IK chains (blended with FK via per-chain `mix`). IK bone length = distance from socket vertex to child layer's origin
 4. Apply constraints: look-at (atan2 + angle limits + optional spring smoothing), volume preservation (scale_x = 1/scale_y)
@@ -176,8 +181,8 @@ Grid density changes automatically with zoom level:
 **Inverse Kinematics (IK)**
 - **2-bone analytical solver**: Law of cosines. Covers arms/legs. Exact, no iteration. Bend direction is a +1/−1 sign flip on the offset angle
 - **FABRIK solver**: For chains longer than 2 (tails, tentacles, spines). Forward-backward reaching, 3–10 iterations. Add tiny perturbation to avoid collinear deadlock
-- **IK target**: A lightweight canvas element (position + crosshair icon, no vertices/strokes). Draggable on canvas, keyframeable via normal PropertyTrack. One target element per IK chain, lives on the chain's tip layer
-- **FK/IK mix**: A keyframeable 0–1 parameter per chain. At 0 = pure FK keyframes, at 1 = pure IK. Animate the mix to smoothly transition mid-timeline (Spine-style)
+- **IK target**: A lightweight canvas element (position + crosshair icon, no vertices/strokes). Draggable on canvas, position captured in each pose's `ElementPose`. One target element per IK chain, lives on the chain's tip layer
+- **FK/IK mix**: A 0–1 parameter per chain, stored per-pose in `ikMixValues`. At 0 = pure FK, at 1 = pure IK. Animate the mix across poses to smoothly transition mid-timeline (Spine-style)
 - **Angle constraints**: Per-joint min/max angle relative to parent bone. Start with 2-bone only; skip for FABRIK initially
 - **Bone length**: Distance from the socket vertex (on parent element) to the child layer's origin point. Computed from the rest pose
 - IK chains are defined over sequences of socketed layers — the socket chain is the bone hierarchy
@@ -203,7 +208,7 @@ Grid density changes automatically with zoom level:
 
 **Look-At Constraint**
 - Per-layer constraint. Layer rotates to face a target element (or a specific vertex on a target element)
-- Parameters: **restAngle** (default facing direction), **minAngle/maxAngle** (rotation limits relative to rest), **mix** (0–1, keyframeable)
+- Parameters: **restAngle** (default facing direction), **minAngle/maxAngle** (rotation limits relative to rest), **mix** (0–1)
 - Optional **spring smoothing**: instead of snapping to the target angle, smooth via damped spring (reuses frequency + damping params). Prevents mechanical snapping
 - Handles angle wrapping at ±π (shortest angular difference)
 - Good for: eyes tracking a point, turrets, head turns
@@ -257,7 +262,7 @@ messy-grapefruit/
 │   │   ├── mod.rs
 │   │   ├── vec2.rs          (Vec2 math type with ops)
 │   │   ├── project.rs       (Project, Palette, EditorPreferences)
-│   │   └── sprite.rs        (Sprite, Layer, StrokeElement, PathVertex, Skin)
+│   │   └── sprite.rs        (Sprite, Layer, StrokeElement, PathVertex, Skin, PoseKeyframe, ElementPose)
 │   ├── state/
 │   │   ├── mod.rs
 │   │   ├── editor.rs        (EditorState, ViewportState, SelectionState, tools)
@@ -271,12 +276,17 @@ messy-grapefruit/
 │   │   ├── grid.rs          (standard + isometric dot grid, adaptive sizing)
 │   │   ├── toolbar.rs       (top toolbar with tool buttons)
 │   │   ├── sidebar.rs       (hybrid right sidebar — tool options + layers/palette/skins tabs)
-│   │   ├── timeline.rs      (animation timeline, keyframe tracks, playhead)
-│   │   └── status_bar.rs    (bottom status bar)
+│   │   ├── timeline.rs      (animation timeline, pose keyframes, playhead)
+│   │   ├── status_bar.rs    (bottom status bar)
+│   │   ├── export_dialog.rs (export preview dialog with atlas image)
+│   │   ├── new_sprite_dialog.rs (new sprite creation dialog)
+│   │   └── project_overview.rs  (project dashboard with live sprite previews)
 │   ├── engine/
+│   │   ├── animation.rs     (pose interpolation, FK evaluation, full animation pipeline)
 │   │   ├── snap.rs          (grid snapping)
 │   │   ├── hit_test.rs      (point-in-stroke/path)
 │   │   ├── merge.rs         (auto-merge coincident vertices)
+│   │   ├── socket.rs        (socket chain transform resolution, cycle detection)
 │   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)
 │   │   ├── physics.rs       (spring simulation, gravity, wind)
 │   │   └── constraints.rs   (look-at, volume preserve, procedural modifiers)
@@ -285,7 +295,8 @@ messy-grapefruit/
 │       ├── rasterize.rs      (SVG → PNG via resvg)
 │       ├── bone_export.rs    (element → part PNGs + animation RON)
 │       ├── ron_meta.rs       (Bevy-compatible RON metadata)
-│       └── spritesheet.rs    (frame atlas packing)
+│       ├── spritesheet.rs    (frame atlas packing)
+│       └── watcher.rs        (file watcher for auto-export on save)
 └── .gitignore
 ```
 
@@ -301,19 +312,19 @@ Sprite
   → Pack part PNGs into a single texture atlas
   → Export animation data as RON:
     → Per-element: texture region, origin point, socket parent reference
-    → Per-animation: keyframes with interpolation info, IK chain definitions,
-      physics/constraint parameters, procedural modifier params
+    → Per-animation: pose keyframes with easing curves, per-element state snapshots,
+      IK chain definitions, physics/constraint parameters, procedural modifier params
   → Bevy runtime component reads RON, assembles parts, evaluates animation at 60 FPS
 ```
 
-Runtime bone export produces smaller textures and smooth full-framerate animation. Requires a Bevy-side runtime component that evaluates the animation pipeline (FK → IK → constraints → physics → procedural → socket transforms) — this is a separate project with its own documentation. This is the primary export path — high-res line art sprites would produce prohibitively large spritesheets at decent frame rates.
+Runtime bone export produces smaller textures and smooth full-framerate animation. Requires a Bevy-side runtime component that evaluates the animation pipeline (pose interpolation → IK → constraints → physics → procedural → socket transforms) — this is a separate project with its own documentation. This is the primary export path — high-res line art sprites would produce prohibitively large spritesheets at decent frame rates.
 
 ### Secondary: Spritesheet (simple assets, lower priority)
 
 ```
 Sprite + AnimationSequence
   → Step sequentially from frame 0 at configurable FPS:
-    → Full evaluation pipeline (FK → IK → constraints → procedural → physics → socket walk)
+    → Full evaluation pipeline (pose interpolation → IK → constraints → procedural → physics → socket walk)
     → Build SVG string from transformed elements + resolved palette colors
     → Rasterize SVG → PNG via resvg/usvg/tiny_skia
     → Fill frame background with sprite's backgroundColorIndex (if non-transparent)
@@ -344,7 +355,7 @@ RON metadata includes `tile_size`, `columns`, `rows`, `padding`, and `offset` �
 
 Snapshot-based undo — every mutation captures the full sprite state before and after. Pushed to a single shared history stack (drawing + animation edits combined). Ctrl+Z/Ctrl+Y navigate the stack. The redo stack clears on new actions.
 
-**Physics & undo**: Undoing a physics/constraint parameter change does not rewind the playhead. Since physics only runs during playback (scrubbing shows FK-only), there is no stale simulation state — physics will re-simulate correctly from frame 0 the next time playback starts.
+**Physics & undo**: Undoing a physics/constraint parameter change does not rewind the playhead. Since physics only runs during playback (scrubbing shows pose-interpolated state without physics), there is no stale simulation state — physics will re-simulate correctly from frame 0 the next time playback starts.
 
 ---
 
@@ -402,7 +413,7 @@ The right sidebar has two zones:
 - Isometric grid mode (2:1 ratio, 26.57°)
 - Select tool (click, shift-click multi-select, drag marquee, Ctrl+A select all, Ctrl+C/V copy/paste including cross-sprite, Delete, scale/rotate with user-defined origin)
 - Fill bucket tool (closed elements → fillColorIndex, empty canvas/open paths → backgroundColorIndex)
-- Eraser tool: click a vertex to delete it and all connected line segments (splits path if needed, warns if element has animation tracks)
+- Eraser tool: click a vertex to delete it and all connected line segments (splits path if needed, updates pose keyframes accordingly)
 - Palette panel (fixed tab, bottom zone): color swatches + RGB picker + add/delete colors (max 256)
 - Lospec importer (blocking HTTP fetch via `reqwest`)
 - Indexed color rendering
@@ -412,17 +423,15 @@ The right sidebar has two zones:
 - Dark/light theme toggle
 
 ### Phase 3: Animation System
-- Timeline component with time axis, tracks, playhead
+- Timeline component with time axis, pose keyframe markers, playhead
 - **Animation sequence tabs** at top of timeline panel: click to switch, right-click to rename/delete, + button to create new sequence
-- Keyframe track per property (tracks reference vertex IDs, not indices)
-- Animation player controls: **play/pause**, **start over** (jump to frame 0), **skip backward** (jump to previous keyframe), **skip forward** (jump to next keyframe), loop toggle
-- Preview playback at 60 FPS (physics/spring simulation only runs during playback; scrubbing the timeline shows FK-only pose)
-- Keyframe interpolation (linear + cubic bezier easing)
+- **Pose-based keyframes**: "Insert Pose" captures the full sprite state (all element positions, rotations, scales, vertex positions, colors, visibility) at the current playhead time. Each pose has an easing curve for the transition from the previous pose
+- Animation player controls: **play/pause**, **start over** (jump to frame 0), **skip backward** (jump to previous pose keyframe), **skip forward** (jump to next pose keyframe), loop toggle
+- Preview playback at 60 FPS (physics/spring simulation only runs during playback; scrubbing the timeline shows interpolated pose without physics)
+- Pose interpolation: continuous properties (position, rotation, scale, vertex positions) use the pose's easing curve; integer properties (color indices, visibility) use nearest/step
 - Canvas renderer wired to animation currentTime
-- Curve editor (visual bezier with draggable control points)
-- Easing presets (linear, ease-in/out, bounce, elastic)
-- Vertex position animation (stable vertex IDs)
-- Color index step animation (hold-previous interpolation)
+- Easing presets per pose (linear, ease-in/out, bounce, elastic, step, custom cubic bezier)
+- Vertex position animation via stable vertex IDs in each ElementPose
 - Rotation/scale animation uses element's user-defined origin as pivot
 - **Onion skinning**: toggle to show ghost frames before/after the current frame. Configurable number of frames (default 2 before, 2 after). Ghost frames rendered with reduced opacity. Useful for timing and spacing
 
@@ -440,12 +449,12 @@ The right sidebar has two zones:
 - Export integration: each skin produces a separate texture atlas, all skins share the same animation RON. RON includes a skin manifest mapping skin names to atlas references
 
 ### Phase 6: Inverse Kinematics
-- **2-bone analytical IK solver**: law of cosines, bend direction sign flip, keyframeable target position + mix
+- **2-bone analytical IK solver**: law of cosines, bend direction sign flip, target position captured per-pose
 - **FABRIK solver**: forward-backward reaching for chains > 2, perturbation for collinear cases
 - IK chain definition UI: select socketed layers to form a chain, set solver type
-- IK target as draggable canvas point, keyframeable on the timeline
+- IK target as draggable canvas point, position captured in pose keyframes via ElementPose
 - Per-joint angle constraints (min/max) for 2-bone chains
-- FK/IK mix wired to evaluation pipeline (FK → socket walk → IK → final socket walk)
+- FK/IK mix stored per-pose in `ikMixValues`, wired to evaluation pipeline (pose interpolation → socket walk → IK → final socket walk)
 - Unit tests for IK solver math (law of cosines, FABRIK convergence, angle constraints, bend direction)
 
 ### Phase 7: Constraints & Dynamics
@@ -455,7 +464,7 @@ The right sidebar has two zones:
 - **Squash & stretch**: per-layer volume-preserve toggle, scale_x = 1/scale_y
 - **Procedural modifiers**: per-layer sine/noise oscillation on any property. Amplitude, frequency, phase, blend mode
 - **Look-at constraint**: per-layer aim at target element/vertex, rest angle, angle limits, mix, optional spring smoothing
-- Full evaluation pipeline wired in correct order: FK → IK → constraints → procedural → physics → socket transforms
+- Full evaluation pipeline wired in correct order: pose interpolation → IK → constraints → procedural → physics → socket transforms
 - Constraint parameters exposed in the layer panel and select tool's context-sensitive sidebar panel
 - **Visual debug overlays**: render bone chains, IK targets, constraint gizmos, spring targets as toggleable canvas overlays (for authoring and debugging)
 - Unit tests for spring integrator, angle wrapping, Catmull-Rom conversion, procedural waveforms
@@ -498,17 +507,17 @@ The right sidebar has two zones:
 3. **Layers**: Add layers → draw on different layers → toggle visibility → reorder → combine → duplicate → mirror horizontally → verify rendering order
 4. **Selection**: Click to select → shift-click multi-select → Ctrl+A select all → drag marquee → Ctrl+C/V copy/paste (including cross-sprite paste) → Delete to remove → verify origin point is draggable and grid-snapped
 5. **Fill**: Fill closed path → verify fillColorIndex set → fill empty canvas → verify backgroundColorIndex set → verify background renders in export
-6. **Eraser**: Delete mid-path vertex → verify path splits into two elements → try erasing vertex on animated element → verify confirmation dialog appears → confirm split → verify tracks stay with correct elements
-7. **Animation**: Add keyframes on a property → set different easing presets → play animation → use skip forward/backward → verify interpolation and curve editor → verify color index uses hold-previous → verify rotation/scale pivots around origin → place keyframe past duration → verify duration auto-extends → move playhead to non-zero time → draw new element → verify it has a visibility track (hidden before, visible after)
+6. **Eraser**: Delete mid-path vertex → verify path splits into two elements → verify existing pose keyframes are updated with split element data
+7. **Animation**: Insert pose keyframes at different times → set different easing presets per pose → play animation → use skip forward/backward → verify interpolation between poses → verify color indices snap (step interpolation) → verify rotation/scale pivots around origin → insert pose keyframe past duration → verify duration auto-extends
 8. **Layer sockets**: Draw an arm element → draw a weapon on a separate layer → socket the weapon layer to a vertex on the arm → animate the arm → verify weapon follows → chain a third layer to the weapon → verify full chain works → try creating a circular reference → verify it's rejected → delete the socket vertex → verify warning and child detaches to world-space position
-9. **IK**: Create a 2-bone socket chain (upper arm → forearm → hand) → set up IK constraint → drag IK target → verify joints solve correctly → flip bend direction → verify elbow flips → animate IK target position → play → verify smooth tracking → animate mix from 0→1 → verify FK-to-IK transition → set angle constraints → verify elbow respects limits → create a 4-bone chain → switch to FABRIK → verify it solves
+9. **IK**: Create a 2-bone socket chain (upper arm → forearm → hand) → set up IK chain → drag IK target → verify joints solve correctly → flip bend direction → verify elbow flips → insert pose keyframes with IK target at different positions → play → verify smooth tracking → set IK mix to different values across poses → verify FK-to-IK transition → set angle constraints → verify elbow respects limits → create a 4-bone chain → switch to FABRIK → verify it solves
 10. **Spring physics**: Add physics constraint to a socketed layer → set frequency=2, damping=0.3 → animate parent → play → verify child overshoots and settles → add gravity (270°, moderate strength) → verify element sags downward → add wind → verify sinusoidal sway → restart animation → verify spring state resets
-11. **Squash & stretch**: Enable volume-preserve on an element → keyframe scale.y squash → verify scale.x automatically compensates → verify it works during animation playback
-12. **Procedural modifiers**: Add sine modifier on position.y (0.5Hz, small amplitude) → play → verify smooth floating motion → add noise modifier on rotation → verify organic wobble → verify modifiers layer additively on top of keyframed values
+11. **Squash & stretch**: Enable volume-preserve on an element → insert pose with scale.y squash → verify scale.x automatically compensates → verify it works during animation playback
+12. **Procedural modifiers**: Add sine modifier on position.y (0.5Hz, small amplitude) → play → verify smooth floating motion → add noise modifier on rotation → verify organic wobble → verify modifiers layer additively on top of pose-interpolated values
 13. **Look-at**: Add look-at constraint on an element → set target element → verify rotation follows target → set angle limits → verify clamping → enable spring smoothing → verify smooth tracking instead of snap → move target past angle limits → verify element stops at limit
 14. **Lospec import**: Import a palette → verify it replaces the current one → verify existing elements remap by index → import a shorter palette → verify out-of-range indices fall back to transparent
 15. **Skins**: Create a skin → override strokeColorIndex and fillColorIndex on several elements → switch between default and skin in the dropdown → verify canvas updates to show skin overrides → verify drawing modifies base geometry (shared) while rendering with skin → duplicate a skin → modify the duplicate → verify original is unchanged → delete a skin → verify undo restores it → export → verify separate atlas per skin and shared animation RON with skin manifest
-16. **Export (runtime bone)**: Save sprite → check output directory for texture atlas + RON animation data → verify per-element part PNGs are packed correctly → verify RON contains keyframes, IK chains, physics params, skin manifest → test in a Bevy project with runtime evaluator + hot-reload → verify socketed layers and procedural animation work at 60 FPS → verify skin switching loads correct atlas
+16. **Export (runtime bone)**: Save sprite → check output directory for texture atlas + RON animation data → verify per-element part PNGs are packed correctly → verify RON contains pose keyframes with element states, IK chains, physics params, skin manifest → test in a Bevy project with runtime evaluator + hot-reload → verify socketed layers and procedural animation work at 60 FPS → verify skin switching loads correct atlas
 17. **Export (spritesheet, if implemented)**: Export a simple VFX sprite → verify atlas PNG + TextureAtlasLayout RON → verify configurable FPS → verify physics bakes correctly via sequential evaluation
 18. **Autosave**: Make changes → wait 3 seconds → verify file saved automatically → switch tabs → verify save triggers → verify no "unsaved changes" dialogs
 19. **Navigation**: Double-click sprite card → verify editor tab opens → open multiple sprites → verify tabs work → verify project overview stays as first tab → on project overview, verify sprites render animations live → switch animation sequence and skin via dropdowns → verify preview updates → drag sprites to compose them together
