@@ -65,13 +65,27 @@ fn render_dots(
 
     let dot_radius = (1.0_f32).max(viewport.zoom * 0.5).min(2.0);
 
-    for gx in start_x..=end_x {
-        for gy in start_y..=end_y {
+    // Dots at isometric diamond lattice points (staggered grid).
+    // Even rows: x = 0, ±4gs, ±8gs, ...
+    // Odd rows:  x = ±2gs, ±6gs, ±10gs, ...
+    for gy in start_y..=end_y {
+        let row_even = gy.rem_euclid(2) == 0;
+        let gx_start = if row_even {
+            // Nearest multiple of 4 at or below start_x
+            start_x - start_x.rem_euclid(4)
+        } else {
+            // Nearest (4k+2) at or below start_x
+            let k = (start_x - 2).div_euclid(4);
+            k * 4 + 2
+        };
+        let mut gx = gx_start;
+        while gx <= end_x {
             let world = Vec2::new(gx as f32 * gs, gy as f32 * gs);
             let screen = viewport.world_to_screen(world, canvas_center);
             if canvas_rect.contains(screen) {
                 painter.circle_filled(screen, dot_radius, dot_color);
             }
+            gx += 4;
         }
     }
 }
