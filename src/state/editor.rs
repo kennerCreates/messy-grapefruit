@@ -89,6 +89,7 @@ pub struct EditorState {
     pub line_tool: LineToolState,
     pub active_stroke_width: f32,
     pub active_color_index: u8,
+    pub active_layer_idx: usize,
     pub hover_element_id: Option<String>,
     pub zoom_to_fit_requested: bool,
 }
@@ -105,6 +106,7 @@ impl Default for EditorState {
             },
             active_stroke_width: 2.0,
             active_color_index: 1, // black
+            active_layer_idx: 0,
             hover_element_id: None,
             zoom_to_fit_requested: true,
         }

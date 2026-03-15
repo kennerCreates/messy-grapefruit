@@ -1,3 +1,4 @@
+mod action;
 mod engine;
 mod io;
 mod math;
@@ -32,7 +33,6 @@ pub struct App {
     pub editor: EditorState,
     pub history: History,
     pub sprite_path: Option<std::path::PathBuf>,
-    pub active_layer_idx: usize,
 }
 
 impl App {
@@ -71,22 +71,21 @@ impl App {
             editor: EditorState::default(),
             history: History::new(200),
             sprite_path: None,
-            active_layer_idx: 0,
         }
     }
 }
 
 impl App {
-    fn dispatch_action(&mut self, action: ui::canvas::CanvasAction) {
+    fn dispatch_action(&mut self, action: action::AppAction) {
         let before = self.sprite.clone();
-        let layer_idx = self.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
+        let layer_idx = self.editor.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
 
         match action {
-            ui::canvas::CanvasAction::CommitStroke(element) => {
+            action::AppAction::CommitStroke(element) => {
                 self.sprite.layers[layer_idx].elements.push(element);
                 self.history.push("Draw stroke".into(), before, self.sprite.clone());
             }
-            ui::canvas::CanvasAction::MergeStroke { merged_element, replace_element_id } => {
+            action::AppAction::MergeStroke { merged_element, replace_element_id } => {
                 let layer = &mut self.sprite.layers[layer_idx];
                 layer.elements.retain(|e| e.id != replace_element_id);
                 layer.elements.push(merged_element);
@@ -128,9 +127,7 @@ impl eframe::App for App {
                     &mut self.editor,
                     &self.sprite,
                     &self.project,
-                    self.active_layer_idx,
                 );
-
                 for action in actions {
                     self.dispatch_action(action);
                 }
@@ -152,7 +149,6 @@ impl eframe::App for App {
                     &mut self.sprite,
                     &mut self.history,
                     &mut self.sprite_path,
-                    &mut self.active_layer_idx,
                 );
             });
 
@@ -172,7 +168,6 @@ impl eframe::App for App {
                     &mut self.editor,
                     &mut self.sprite,
                     &mut self.project,
-                    &mut self.active_layer_idx,
                 );
             });
 

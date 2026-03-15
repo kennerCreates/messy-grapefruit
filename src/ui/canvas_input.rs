@@ -1,3 +1,4 @@
+use crate::action::AppAction;
 use crate::engine::merge;
 use crate::engine::snap;
 use crate::math;
@@ -5,8 +6,6 @@ use crate::model::project::Project;
 use crate::model::sprite::{PathVertex, Sprite, StrokeElement};
 use crate::model::vec2::Vec2;
 use crate::state::editor::EditorState;
-
-use super::canvas::CanvasAction;
 
 /// Handle viewport input (pan, zoom, flip, zoom-to-fit).
 pub fn handle_viewport_input(
@@ -55,8 +54,7 @@ pub fn handle_line_tool_input(
     sprite: &Sprite,
     project: &Project,
     canvas_rect: egui::Rect,
-    active_layer_idx: usize,
-) -> (Option<CanvasAction>, Option<Vec2>) {
+) -> (Option<AppAction>, Option<Vec2>) {
     let canvas_center = canvas_rect.center();
     let mut merge_target_pos: Option<Vec2> = None;
 
@@ -70,7 +68,7 @@ pub fn handle_line_tool_input(
     );
 
     // Check for merge target
-    let layer = sprite.layers.get(active_layer_idx);
+    let layer = sprite.layers.get(editor.active_layer_idx);
     if let Some(layer) = layer {
         let threshold = project.editor_preferences.grid_size as f32;
         if let Some(target) = merge::find_merge_target(snap_pos, layer, None, threshold) {
@@ -88,7 +86,7 @@ pub fn handle_line_tool_input(
     // Right-click = commit stroke (if enough vertices)
     if response.secondary_clicked() {
         if editor.line_tool.vertices.len() >= 2 {
-            let action = commit_stroke(editor, sprite, project, active_layer_idx);
+            let action = commit_stroke(editor, sprite, project);
             return (Some(action), merge_target_pos);
         } else {
             editor.line_tool.clear();
@@ -97,7 +95,7 @@ pub fn handle_line_tool_input(
     }
 
     // Check if active layer is locked — prevent drawing
-    if let Some(layer) = sprite.layers.get(active_layer_idx)
+    if let Some(layer) = sprite.layers.get(editor.active_layer_idx)
         && layer.locked
     {
         return (None, merge_target_pos);
@@ -109,7 +107,7 @@ pub fn handle_line_tool_input(
 
         if is_double_click && editor.line_tool.vertices.len() >= 2 {
             // Double-click finishes the stroke
-            let action = commit_stroke(editor, sprite, project, active_layer_idx);
+            let action = commit_stroke(editor, sprite, project);
             return (Some(action), merge_target_pos);
         }
 
@@ -130,7 +128,7 @@ pub fn handle_line_tool_input(
     // Enter key also finishes the stroke
     let enter_pressed = response.ctx.input(|i| i.key_pressed(egui::Key::Enter));
     if enter_pressed && editor.line_tool.vertices.len() >= 2 {
-        let action = commit_stroke(editor, sprite, project, active_layer_idx);
+        let action = commit_stroke(editor, sprite, project);
         return (Some(action), merge_target_pos);
     }
 
@@ -142,8 +140,7 @@ fn commit_stroke(
     editor: &mut EditorState,
     sprite: &Sprite,
     project: &Project,
-    active_layer_idx: usize,
-) -> CanvasAction {
+) -> AppAction {
     let mut vertices = std::mem::take(&mut editor.line_tool.vertices);
     editor.line_tool.is_drawing = false;
 
@@ -162,11 +159,11 @@ fn commit_stroke(
         let mut element =
             StrokeElement::new(vertices, editor.active_stroke_width, editor.active_color_index, editor.line_tool.curve_mode);
         element.closed = true;
-        return CanvasAction::CommitStroke(element);
+        return AppAction::CommitStroke(element);
     }
 
     // Check for merge at start and end
-    let layer = sprite.layers.get(active_layer_idx);
+    let layer = sprite.layers.get(editor.active_layer_idx);
 
     if let Some(layer) = layer {
         // Check if start vertex merges with an existing element
@@ -186,7 +183,7 @@ fn commit_stroke(
                     editor.line_tool.curve_mode,
                     project.min_corner_radius,
                 );
-                return CanvasAction::MergeStroke {
+                return AppAction::MergeStroke {
                     merged_element: merged,
                     replace_element_id: target.element_id,
                 };
@@ -206,7 +203,7 @@ fn commit_stroke(
                 editor.line_tool.curve_mode,
                 project.min_corner_radius,
             );
-            return CanvasAction::MergeStroke {
+            return AppAction::MergeStroke {
                 merged_element: merged,
                 replace_element_id: target.element_id,
             };
@@ -215,7 +212,7 @@ fn commit_stroke(
 
     // No merge — create new element
     let element = StrokeElement::new(vertices, editor.active_stroke_width, editor.active_color_index, editor.line_tool.curve_mode);
-    CanvasAction::CommitStroke(element)
+    AppAction::CommitStroke(element)
 }
 
 /// Get the current snap position for the cursor.

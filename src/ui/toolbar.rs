@@ -12,7 +12,6 @@ pub fn show_toolbar(
     sprite: &mut Sprite,
     history: &mut History,
     sprite_path: &mut Option<std::path::PathBuf>,
-    active_layer_idx: &mut usize,
 ) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
@@ -26,7 +25,7 @@ pub fn show_toolbar(
             *sprite = Sprite::new("Untitled", 256, 256);
             *history = History::new(200);
             *sprite_path = None;
-            *active_layer_idx = 0;
+            editor.active_layer_idx = 0;
             editor.line_tool.clear();
             editor.zoom_to_fit_requested = true;
         }
@@ -44,7 +43,7 @@ pub fn show_toolbar(
                     *sprite = loaded;
                     *history = History::new(200);
                     *sprite_path = Some(path);
-                    *active_layer_idx = 0;
+                    editor.active_layer_idx = 0;
                     editor.line_tool.clear();
                     editor.zoom_to_fit_requested = true;
                 }

@@ -9,7 +9,6 @@ pub fn show_sidebar(
     editor: &mut EditorState,
     sprite: &mut Sprite,
     project: &mut Project,
-    active_layer_idx: &mut usize,
 ) {
     // Top zone: tool options
     ui.heading("Tool Options");
@@ -28,7 +27,7 @@ pub fn show_sidebar(
     ui.heading("Layers");
     ui.separator();
 
-    show_layer_list(ui, sprite, active_layer_idx);
+    show_layer_list(ui, sprite, &mut editor.active_layer_idx);
 }
 
 fn show_line_tool_options(ui: &mut egui::Ui, editor: &mut EditorState, sprite: &mut Sprite, project: &mut Project) {

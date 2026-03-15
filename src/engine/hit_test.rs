@@ -1,5 +1,5 @@
 use crate::math;
-use crate::model::sprite::Sprite;
+use crate::model::sprite::{PathVertex, Sprite};
 use crate::model::vec2::Vec2;
 
 /// Find the topmost visible, unlocked element under the cursor.
@@ -9,7 +9,7 @@ pub fn hit_test_elements(
     sprite: &Sprite,
     threshold: f32,
 ) -> Option<String> {
-    let mut polyline = Vec::new(); // reused across all segments
+    let mut polyline = Vec::new(); // reused buffer
 
     // Iterate layers top-to-bottom (last = topmost)
     for layer in sprite.layers.iter().rev() {
@@ -22,33 +22,82 @@ pub fn hit_test_elements(
                 continue;
             }
             let hit_threshold = threshold + element.stroke_width / 2.0;
-            for i in 0..element.vertices.len() - 1 {
-                let (p0, cp1, cp2, p3) =
-                    math::segment_bezier_points(&element.vertices[i], &element.vertices[i + 1]);
-                if point_to_bezier_distance(world_pos, p0, cp1, cp2, p3, &mut polyline)
-                    <= hit_threshold
-                {
-                    return Some(element.id.clone());
-                }
-            }
-            // For closed paths, also check the closing segment
-            if element.closed && element.vertices.len() >= 2 {
-                let last = element.vertices.len() - 1;
-                let (p0, cp1, cp2, p3) =
-                    math::segment_bezier_points(&element.vertices[last], &element.vertices[0]);
-                if point_to_bezier_distance(world_pos, p0, cp1, cp2, p3, &mut polyline)
-                    <= hit_threshold
-                {
-                    return Some(element.id.clone());
-                }
+
+            let dist = if element.curve_mode {
+                hit_test_curve_path(world_pos, &element.vertices, element.closed, &mut polyline)
+            } else {
+                hit_test_rounded_path(world_pos, &element.vertices, element.closed, &mut polyline)
+            };
+
+            if dist <= hit_threshold {
+                return Some(element.id.clone());
             }
         }
     }
     None
 }
 
+/// Hit test a curve-mode path (bezier segments through vertex positions).
+fn hit_test_curve_path(
+    point: Vec2,
+    verts: &[PathVertex],
+    closed: bool,
+    polyline: &mut Vec<Vec2>,
+) -> f32 {
+    let mut min_dist = f32::MAX;
+
+    for i in 0..verts.len().saturating_sub(1) {
+        let (p0, cp1, cp2, p3) = math::segment_bezier_points(&verts[i], &verts[i + 1]);
+        let dist = point_to_bezier_distance(point, p0, cp1, cp2, p3, polyline);
+        if dist < min_dist {
+            min_dist = dist;
+        }
+    }
+    if closed && verts.len() >= 2 {
+        let last = verts.len() - 1;
+        let (p0, cp1, cp2, p3) = math::segment_bezier_points(&verts[last], &verts[0]);
+        let dist = point_to_bezier_distance(point, p0, cp1, cp2, p3, polyline);
+        if dist < min_dist {
+            min_dist = dist;
+        }
+    }
+    min_dist
+}
+
+/// Hit test a straight-mode path (straight edges with fillet arcs at corners).
+/// Mirrors the geometry built by `render_rounded_path` in canvas_render.rs.
+fn hit_test_rounded_path(
+    point: Vec2,
+    verts: &[PathVertex],
+    closed: bool,
+    polyline: &mut Vec<Vec2>,
+) -> f32 {
+    // Build the same polyline that render_rounded_path uses
+    polyline.clear();
+    let tolerance = 1.0; // world-space tolerance for hit testing
+
+    for v in verts {
+        if let (Some(t1), Some(t2)) = (v.cp1, v.cp2) {
+            let (arc_cp1, arc_cp2) = math::fillet_arc_control_points(t1, t2, v.pos);
+            let mut arc = Vec::new();
+            math::flatten_cubic_bezier(t1, arc_cp1, arc_cp2, t2, tolerance, &mut arc);
+            polyline.extend_from_slice(&arc);
+        } else {
+            polyline.push(v.pos);
+        }
+    }
+
+    if closed {
+        // Close the polyline by adding the first point at the end
+        if let Some(&first) = polyline.first() {
+            polyline.push(first);
+        }
+    }
+
+    point_to_polyline_distance(point, polyline)
+}
+
 /// Approximate distance from a point to a cubic bezier curve.
-/// Reuses the provided buffer to avoid per-call allocation.
 fn point_to_bezier_distance(
     point: Vec2,
     p0: Vec2,
@@ -59,7 +108,11 @@ fn point_to_bezier_distance(
 ) -> f32 {
     polyline.clear();
     math::flatten_cubic_bezier(p0, cp1, cp2, p3, 1.0, polyline);
+    point_to_polyline_distance(point, polyline)
+}
 
+/// Distance from a point to a polyline (series of connected line segments).
+fn point_to_polyline_distance(point: Vec2, polyline: &[Vec2]) -> f32 {
     let mut min_dist = f32::MAX;
     for i in 0..polyline.len().saturating_sub(1) {
         let dist = point_to_segment_distance(point, polyline[i], polyline[i + 1]);

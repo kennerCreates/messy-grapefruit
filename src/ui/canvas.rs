@@ -1,27 +1,19 @@
+use crate::action::AppAction;
 use crate::engine::hit_test;
 use crate::model::project::Project;
-use crate::model::sprite::{Sprite, StrokeElement};
+use crate::model::sprite::Sprite;
 use crate::model::vec2::Vec2;
-use crate::state::editor::EditorState;
+use crate::state::editor::{EditorState, ToolKind};
 use crate::theme;
 
 use super::{canvas_input, canvas_render, grid};
-
-pub enum CanvasAction {
-    CommitStroke(StrokeElement),
-    MergeStroke {
-        merged_element: StrokeElement,
-        replace_element_id: String,
-    },
-}
 
 pub fn show_canvas(
     ui: &mut egui::Ui,
     editor: &mut EditorState,
     sprite: &Sprite,
     project: &Project,
-    active_layer_idx: usize,
-) -> Vec<CanvasAction> {
+) -> Vec<AppAction> {
     let mut actions = Vec::new();
     let theme_mode = project.editor_preferences.theme;
 
@@ -39,7 +31,7 @@ pub fn show_canvas(
     // Clip to canvas
     painter.set_clip_rect(canvas_rect);
 
-    // Handle viewport input (pan, zoom, flip)
+    // --- Shared: viewport input (pan, zoom, flip) ---
     canvas_input::handle_viewport_input(editor, canvas_rect, ui);
 
     // Handle F key or toolbar button = zoom to fit
@@ -50,7 +42,7 @@ pub fn show_canvas(
         zoom_to_fit(editor, sprite, canvas_rect);
     }
 
-    // Render grid
+    // --- Shared: render grid, boundary, elements ---
     grid::render_grid(
         &painter,
         &editor.viewport,
@@ -59,7 +51,6 @@ pub fn show_canvas(
         theme_mode,
     );
 
-    // Render canvas boundary
     canvas_render::render_canvas_boundary(
         &painter,
         &editor.viewport,
@@ -69,7 +60,6 @@ pub fn show_canvas(
         theme_mode,
     );
 
-    // Render all sprite elements
     canvas_render::render_elements(
         &painter,
         &editor.viewport,
@@ -78,7 +68,38 @@ pub fn show_canvas(
         canvas_rect,
     );
 
-    // Hit testing for hover highlight
+    // --- Tool-specific: input, hit testing, preview ---
+    match editor.tool {
+        ToolKind::Line => {
+            handle_line_tool(
+                &response,
+                &painter,
+                editor,
+                sprite,
+                project,
+                canvas_rect,
+                theme_mode,
+                &mut actions,
+            );
+        }
+    }
+
+    actions
+}
+
+/// Line tool: hit testing (when not drawing), hover highlight, input, preview.
+#[allow(clippy::too_many_arguments)]
+fn handle_line_tool(
+    response: &egui::Response,
+    painter: &egui::Painter,
+    editor: &mut EditorState,
+    sprite: &Sprite,
+    project: &Project,
+    canvas_rect: egui::Rect,
+    theme_mode: crate::model::project::Theme,
+    actions: &mut Vec<AppAction>,
+) {
+    // Hit testing for hover highlight (only when not mid-draw)
     if !editor.line_tool.is_drawing {
         if let Some(hover_pos) = response.hover_pos() {
             let world_pos = editor.viewport.screen_to_world(hover_pos, canvas_rect.center());
@@ -94,7 +115,7 @@ pub fn show_canvas(
         && !editor.line_tool.is_drawing
     {
         canvas_render::render_hover_highlight(
-            &painter,
+            painter,
             sprite,
             hover_id,
             &editor.viewport,
@@ -105,12 +126,11 @@ pub fn show_canvas(
 
     // Handle line tool input
     let (line_action, merge_target) = canvas_input::handle_line_tool_input(
-        &response,
+        response,
         editor,
         sprite,
         project,
         canvas_rect,
-        active_layer_idx,
     );
     if let Some(action) = line_action {
         actions.push(action);
@@ -126,7 +146,7 @@ pub fn show_canvas(
         );
 
         canvas_render::render_line_tool_preview(
-            &painter,
+            painter,
             &editor.line_tool.vertices,
             snap_pos,
             &project.palette,
@@ -139,8 +159,6 @@ pub fn show_canvas(
             editor.line_tool.curve_mode,
         );
     }
-
-    actions
 }
 
 fn zoom_to_fit(editor: &mut EditorState, sprite: &Sprite, canvas_rect: egui::Rect) {
