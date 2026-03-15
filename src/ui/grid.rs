@@ -66,15 +66,11 @@ fn render_dots(
     let dot_radius = (1.0_f32).max(viewport.zoom * 0.5).min(2.0);
 
     // Dots at isometric diamond lattice points (staggered grid).
-    // Even rows: x = 0, ±4gs, ±8gs, ...
-    // Odd rows:  x = ±2gs, ±6gs, ±10gs, ...
     for gy in start_y..=end_y {
         let row_even = gy.rem_euclid(2) == 0;
         let gx_start = if row_even {
-            // Nearest multiple of 4 at or below start_x
             start_x - start_x.rem_euclid(4)
         } else {
-            // Nearest (4k+2) at or below start_x
             let k = (start_x - 2).div_euclid(4);
             k * 4 + 2
         };
@@ -90,6 +86,27 @@ fn render_dots(
     }
 }
 
+/// Draw a dashed line between two screen-space points.
+fn draw_dashed_line(painter: &Painter, p1: Pos2, p2: Pos2, stroke: egui::Stroke, dash: f32, gap: f32) {
+    let dx = p2.x - p1.x;
+    let dy = p2.y - p1.y;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 1.0 {
+        return;
+    }
+    let nx = dx / len;
+    let ny = dy / len;
+    let cycle = dash + gap;
+    let mut t = 0.0;
+    while t < len {
+        let t_end = (t + dash).min(len);
+        let a = Pos2::new(p1.x + nx * t, p1.y + ny * t);
+        let b = Pos2::new(p1.x + nx * t_end, p1.y + ny * t_end);
+        painter.line_segment([a, b], stroke);
+        t += cycle;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_lines(
     painter: &Painter,
@@ -102,7 +119,9 @@ fn render_lines(
     start_y: i32, end_y: i32,
 ) {
     let line_color = theme::grid_line_color(theme);
-    let stroke = egui::Stroke::new(1.0, line_color);
+    let stroke = egui::Stroke::new(0.5, line_color);
+    let dash = 4.0;
+    let gap = 4.0;
 
     match prefs.grid_mode {
         GridMode::Off => {}
@@ -112,25 +131,20 @@ fn render_lines(
                 let x = gx as f32 * gs;
                 let top = viewport.world_to_screen(Vec2::new(x, start_y as f32 * gs), canvas_center);
                 let bot = viewport.world_to_screen(Vec2::new(x, end_y as f32 * gs), canvas_center);
-                painter.line_segment([top, bot], stroke);
+                draw_dashed_line(painter, top, bot, stroke, dash, gap);
             }
             // Horizontal lines
             for gy in start_y..=end_y {
                 let y = gy as f32 * gs;
                 let left = viewport.world_to_screen(Vec2::new(start_x as f32 * gs, y), canvas_center);
                 let right = viewport.world_to_screen(Vec2::new(end_x as f32 * gs, y), canvas_center);
-                painter.line_segment([left, right], stroke);
+                draw_dashed_line(painter, left, right, stroke, dash, gap);
             }
         }
         GridMode::Isometric => {
-            // 2:1 isometric diamond grid. Lines at slopes ±0.5 through grid dots.
-            //
-            // k = 2*gy - gx indexes the +0.5 family; k = 2*gy + gx indexes the -0.5 family.
-            // Stepping k by 4 ensures all crossings between the two families land exactly
-            // on grid dot positions (diamonds are 4gs wide × 2gs tall).
             let step = 4i32;
 
-            // Slope +0.5 lines: y = 0.5*x + k*gs/2
+            // Slope +0.5 lines
             let k_min_pos = 2 * start_y - end_x;
             let k_max_pos = 2 * end_y - start_x;
             let k_start = k_min_pos - k_min_pos.rem_euclid(step);
@@ -142,11 +156,11 @@ fn render_lines(
                 let y2 = 0.5 * x2 + k as f32 * gs / 2.0;
                 let s1 = viewport.world_to_screen(Vec2::new(x1, y1), canvas_center);
                 let s2 = viewport.world_to_screen(Vec2::new(x2, y2), canvas_center);
-                painter.line_segment([s1, s2], stroke);
+                draw_dashed_line(painter, s1, s2, stroke, dash, gap);
                 k += step;
             }
 
-            // Slope -0.5 lines: y = -0.5*x + k*gs/2
+            // Slope -0.5 lines
             let k_min_neg = 2 * start_y + start_x;
             let k_max_neg = 2 * end_y + end_x;
             let k_start = k_min_neg - k_min_neg.rem_euclid(step);
@@ -158,7 +172,7 @@ fn render_lines(
                 let y2 = -0.5 * x2 + k as f32 * gs / 2.0;
                 let s1 = viewport.world_to_screen(Vec2::new(x1, y1), canvas_center);
                 let s2 = viewport.world_to_screen(Vec2::new(x2, y2), canvas_center);
-                painter.line_segment([s1, s2], stroke);
+                draw_dashed_line(painter, s1, s2, stroke, dash, gap);
                 k += step;
             }
         }

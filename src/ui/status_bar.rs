@@ -42,24 +42,24 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &Sprite,
 
         ui.separator();
 
-        // Sprite metrics (right-aligned)
+        // Sprite metrics (right-aligned; RTL reverses visual order, so label before icon)
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(format!(
                 "{}x{} px",
                 sprite.canvas_width, sprite.canvas_height
             ));
             ui.separator();
-            ui.add(icons::small_icon(icons::metric_animation(), ui));
             ui.label("0");
+            ui.add(icons::small_icon(icons::metric_animation(), ui));
             ui.separator();
-            ui.add(icons::small_icon(icons::metric_layer(), ui));
             ui.label(format!("{}", sprite.layer_count()));
+            ui.add(icons::small_icon(icons::metric_layer(), ui));
             ui.separator();
-            ui.add(icons::small_icon(icons::metric_vertex(), ui));
             ui.label(format!("{}", sprite.vertex_count()));
+            ui.add(icons::small_icon(icons::metric_vertex(), ui));
             ui.separator();
-            ui.add(icons::small_icon(icons::metric_element(), ui));
             ui.label(format!("{}", sprite.element_count()));
+            ui.add(icons::small_icon(icons::metric_element(), ui));
         });
     });
 }

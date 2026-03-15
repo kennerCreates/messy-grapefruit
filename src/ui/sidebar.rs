@@ -1,4 +1,4 @@
-use crate::model::project::{GridMode, Project, Theme};
+use crate::model::project::{Project, Theme};
 use crate::model::sprite::Sprite;
 use crate::state::editor::EditorState;
 use crate::theme;
@@ -27,27 +27,27 @@ fn show_collapsed(
 ) {
     ui.spacing_mut().item_spacing.y = 6.0;
 
-    // Expand toggle (kept small)
-    if ui
-        .add(icons::sidebar_toggle_button(icons::sidebar_expand(), ui))
-        .on_hover_text("Expand Sidebar")
-        .clicked()
-    {
-        editor.sidebar_expanded = true;
-    }
+    ui.horizontal(|ui| {
+        // Expand toggle (kept small)
+        if ui
+            .add(icons::sidebar_toggle_button(icons::sidebar_expand(), ui))
+            .on_hover_text("Expand Sidebar")
+            .clicked()
+        {
+            editor.sidebar_expanded = true;
+        }
 
-    ui.add_space(6.0);
-
-    // Theme toggle (flip-flop)
-    let is_dark = project.editor_preferences.theme == Theme::Dark;
-    let theme_icon = if is_dark { icons::theme_dark() } else { icons::theme_light() };
-    if ui
-        .add(icons::icon_button(theme_icon, ui))
-        .on_hover_text(if is_dark { "Switch to Light" } else { "Switch to Dark" })
-        .clicked()
-    {
-        project.editor_preferences.theme = if is_dark { Theme::Light } else { Theme::Dark };
-    }
+        // Theme toggle (flip-flop, small)
+        let is_dark = project.editor_preferences.theme == Theme::Dark;
+        let theme_icon = if is_dark { icons::theme_dark() } else { icons::theme_light() };
+        if ui
+            .add(icons::sidebar_toggle_button(theme_icon, ui))
+            .on_hover_text(if is_dark { "Switch to Light" } else { "Switch to Dark" })
+            .clicked()
+        {
+            project.editor_preferences.theme = if is_dark { Theme::Light } else { Theme::Dark };
+        }
+    });
 
     ui.add_space(4.0);
 
@@ -131,43 +131,6 @@ fn show_collapsed(
 
     ui.add_space(4.0);
 
-    // Grid icons (vertical, no size dropdown)
-    if ui
-        .add(icons::icon_button(icons::grid_dots(), ui).selected(project.editor_preferences.show_dots))
-        .on_hover_text("Grid Dots")
-        .clicked()
-    {
-        project.editor_preferences.show_dots = !project.editor_preferences.show_dots;
-    }
-
-    let is_straight = project.editor_preferences.grid_mode == GridMode::Straight;
-    if ui
-        .add(icons::icon_button(icons::grid_lines(), ui).selected(is_straight))
-        .on_hover_text("Straight Grid")
-        .clicked()
-    {
-        project.editor_preferences.grid_mode = if is_straight {
-            GridMode::Off
-        } else {
-            GridMode::Straight
-        };
-    }
-
-    let is_iso = project.editor_preferences.grid_mode == GridMode::Isometric;
-    if ui
-        .add(icons::icon_button(icons::grid_iso(), ui).selected(is_iso))
-        .on_hover_text("Isometric Grid")
-        .clicked()
-    {
-        project.editor_preferences.grid_mode = if is_iso {
-            GridMode::Off
-        } else {
-            GridMode::Isometric
-        };
-    }
-
-    ui.add_space(4.0);
-
     // Layer list (select only, no lock/visible toggles)
     let layer_count = sprite.layers.len();
     for display_idx in 0..layer_count {
@@ -198,29 +161,27 @@ fn show_expanded(
 ) {
     ui.spacing_mut().item_spacing.y = 6.0;
 
-    // Collapse toggle (kept small)
-    if ui
-        .add(icons::sidebar_toggle_button(icons::sidebar_collapse(), ui))
-        .on_hover_text("Collapse Sidebar")
-        .clicked()
-    {
-        editor.sidebar_expanded = false;
-    }
-
-    ui.add_space(8.0);
-
-    // Theme toggle
     ui.horizontal(|ui| {
+        // Collapse toggle (kept small)
+        if ui
+            .add(icons::sidebar_toggle_button(icons::sidebar_collapse(), ui))
+            .on_hover_text("Collapse Sidebar")
+            .clicked()
+        {
+            editor.sidebar_expanded = false;
+        }
+
+        // Theme toggle (small, same line)
         let is_dark = project.editor_preferences.theme == Theme::Dark;
         if ui
-            .add(icons::icon_button(icons::theme_dark(), ui).selected(is_dark))
+            .add(icons::sidebar_toggle_button(icons::theme_dark(), ui).selected(is_dark))
             .on_hover_text("Dark Theme")
             .clicked()
         {
             project.editor_preferences.theme = Theme::Dark;
         }
         if ui
-            .add(icons::icon_button(icons::theme_light(), ui).selected(!is_dark))
+            .add(icons::sidebar_toggle_button(icons::theme_light(), ui).selected(!is_dark))
             .on_hover_text("Light Theme")
             .clicked()
         {
@@ -234,69 +195,6 @@ fn show_expanded(
 
     // Tool options
     show_line_tool_options(ui, editor, sprite, project);
-
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(10.0);
-
-    // Grid controls
-    ui.label("Grid");
-    ui.add_space(4.0);
-
-    ui.horizontal(|ui| {
-        if ui
-            .add(icons::icon_button(icons::grid_dots(), ui).selected(project.editor_preferences.show_dots))
-            .on_hover_text("Grid Dots")
-            .clicked()
-        {
-            project.editor_preferences.show_dots = !project.editor_preferences.show_dots;
-        }
-    });
-
-    ui.horizontal(|ui| {
-        let is_straight = project.editor_preferences.grid_mode == GridMode::Straight;
-        if ui
-            .add(icons::icon_button(icons::grid_lines(), ui).selected(is_straight))
-            .on_hover_text("Straight Grid")
-            .clicked()
-        {
-            project.editor_preferences.grid_mode = if is_straight {
-                GridMode::Off
-            } else {
-                GridMode::Straight
-            };
-        }
-
-        let is_iso = project.editor_preferences.grid_mode == GridMode::Isometric;
-        if ui
-            .add(icons::icon_button(icons::grid_iso(), ui).selected(is_iso))
-            .on_hover_text("Isometric Grid")
-            .clicked()
-        {
-            project.editor_preferences.grid_mode = if is_iso {
-                GridMode::Off
-            } else {
-                GridMode::Isometric
-            };
-        }
-    });
-
-    ui.horizontal(|ui| {
-        ui.label("Size");
-        let grid_sizes: &[u32] = &[1, 2, 4, 8, 16, 32, 64];
-        egui::ComboBox::from_id_salt("grid_size_sb")
-            .selected_text(format!("{}", project.editor_preferences.grid_size))
-            .width(50.0)
-            .show_ui(ui, |ui| {
-                for &size in grid_sizes {
-                    ui.selectable_value(
-                        &mut project.editor_preferences.grid_size,
-                        size,
-                        format!("{size}"),
-                    );
-                }
-            });
-    });
 
     ui.add_space(10.0);
     ui.separator();

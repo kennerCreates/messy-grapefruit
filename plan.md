@@ -762,6 +762,7 @@ All planned features implemented except stroke taper rendering (math functions e
 - Layer panel: add (plus), remove (trash), duplicate (copy), mirror (flip), combine (merge), visibility (eye), lock (padlock), solo (eye variant), clear solo, group collapse/expand, create group
 
 - Layer panel (fixed tab): add, remove, duplicate, mirror, combine, drag reorder
+- Layer renaming: double-click layer name to edit inline (TextEdit swap)
 - Visibility toggle, lock toggle, solo mode (dim others to ~15%)
 - Layer groups: collapsible folders, visibility/lock cascade, drag in/out, single-level nesting
 

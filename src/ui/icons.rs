@@ -20,9 +20,6 @@ pub fn grid_dots() -> ImageSource<'static> { egui::include_image!("../../assets/
 pub fn grid_lines() -> ImageSource<'static> { egui::include_image!("../../assets/icons/grid_lines.svg") }
 pub fn grid_iso() -> ImageSource<'static> { egui::include_image!("../../assets/icons/grid_iso.svg") }
 
-// Stroke icons
-pub fn stroke_taper() -> ImageSource<'static> { egui::include_image!("../../assets/icons/stroke_taper.svg") }
-
 // Theme icons
 pub fn theme_dark() -> ImageSource<'static> { egui::include_image!("../../assets/icons/theme_dark.svg") }
 pub fn theme_light() -> ImageSource<'static> { egui::include_image!("../../assets/icons/theme_light.svg") }

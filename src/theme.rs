@@ -47,14 +47,14 @@ pub fn apply_theme(ctx: &egui::Context, theme: Theme) {
         Theme::Light => egui::Visuals::light(),
     };
 
-    // Panel/window backgrounds = darkest (panel_bg)
-    visuals.panel_fill = tc.panel_bg;
-    visuals.window_fill = tc.panel_bg;
-    visuals.extreme_bg_color = tc.panel_bg;
-    visuals.faint_bg_color = tc.panel_bg;
+    // Panel/window backgrounds = 2nd darkest (canvas_bg) for toolbar panels
+    visuals.panel_fill = tc.canvas_bg;
+    visuals.window_fill = tc.canvas_bg;
+    visuals.extreme_bg_color = tc.canvas_bg;
+    visuals.faint_bg_color = tc.canvas_bg;
 
-    // Window border/stroke uses panel_bg for seamless look
-    visuals.window_stroke = egui::Stroke::new(1.0, tc.canvas_bg);
+    // Window border/stroke subtle
+    visuals.window_stroke = egui::Stroke::new(1.0, tc.panel_bg);
 
     // Text/icons = lightest (icon_text)
     visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, tc.icon_text);
@@ -62,13 +62,13 @@ pub fn apply_theme(ctx: &egui::Context, theme: Theme) {
     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, tc.icon_text);
     visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, tc.icon_text);
 
-    // Icon background seamless to panel when not toggled/selected
-    visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+    // Icon button background seamless to panel; slider rail uses bg_fill
+    visuals.widgets.inactive.bg_fill = tc.canvas_bg;
     visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
 
-    // Non-interactive widget bg = panel_bg (seamless)
-    visuals.widgets.noninteractive.bg_fill = tc.panel_bg;
-    visuals.widgets.noninteractive.weak_bg_fill = tc.panel_bg;
+    // Non-interactive widget bg = canvas_bg (seamless with panels)
+    visuals.widgets.noninteractive.bg_fill = tc.canvas_bg;
+    visuals.widgets.noninteractive.weak_bg_fill = tc.canvas_bg;
 
     // Hover = selected (2nd lightest / 2nd darkest)
     visuals.widgets.hovered.bg_fill = tc.selected;
@@ -80,35 +80,38 @@ pub fn apply_theme(ctx: &egui::Context, theme: Theme) {
 
     // Selection/toggle highlight = middle color
     visuals.selection.bg_fill = tc.mid;
-    visuals.selection.stroke = egui::Stroke::new(1.0, tc.mid);
+    visuals.selection.stroke = egui::Stroke::new(1.0, tc.icon_text);
 
     visuals.hyperlink_color = tc.mid;
 
-    // Separator color = subtle
-    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5, tc.canvas_bg);
+    // Remove button border strokes
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+    visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
 
-    // Slider rail = mid color so it's visible against panel_bg
-    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, tc.mid);
+    // Separator color = darkest, subtle against panel bg
+    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5, tc.panel_bg);
 
     ctx.set_visuals(visuals);
 }
 
 // --- Canvas colors ---
 
+/// Canvas background = darkest (panel_bg)
 pub fn canvas_bg_color(theme: Theme) -> Color32 {
-    theme_colors(theme).canvas_bg
+    theme_colors(theme).panel_bg
 }
 
 // --- Grid colors ---
 
-/// Grid dots = middle color (solid, no alpha)
+/// Grid dots = 2nd darkest (canvas_bg)
 pub fn grid_dot_color(theme: Theme) -> Color32 {
-    theme_colors(theme).mid
+    theme_colors(theme).canvas_bg
 }
 
-/// Grid lines = darkest/panel_bg color (solid, no alpha)
+/// Grid lines = 2nd darkest (canvas_bg)
 pub fn grid_line_color(theme: Theme) -> Color32 {
-    theme_colors(theme).panel_bg
+    theme_colors(theme).canvas_bg
 }
 
 // --- Canvas overlay colors ---
@@ -135,9 +138,10 @@ pub fn rubber_band_color(theme: Theme) -> Color32 {
     Color32::from_rgba_unmultiplied(tc.icon_text.r(), tc.icon_text.g(), tc.icon_text.b(), 100)
 }
 
+/// Floating panels (toolbar, sidebar, status bar) = 2nd darkest (canvas_bg)
 pub fn floating_panel_color(theme: Theme) -> Color32 {
     let tc = theme_colors(theme);
-    Color32::from_rgba_unmultiplied(tc.panel_bg.r(), tc.panel_bg.g(), tc.panel_bg.b(), 240)
+    Color32::from_rgba_unmultiplied(tc.canvas_bg.r(), tc.canvas_bg.g(), tc.canvas_bg.b(), 240)
 }
 
 /// The selected/active highlight color (for toggled buttons, active tools).
