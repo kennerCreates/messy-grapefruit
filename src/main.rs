@@ -2004,8 +2004,7 @@ fn process_timeline_action(
                 open.editor_state.animation.current_time = 0.0;
                 open.editor_state.animation.playing = false;
                 open.editor_state.animation.playback_start_instant = None;
-                open.editor_state.animation.selected_track_index = None;
-                open.editor_state.animation.selected_keyframe_id = None;
+                open.editor_state.animation.selected_pose_id = None;
             }
         }
         timeline::TimelineAction::CreateSequence => {
@@ -2102,7 +2101,7 @@ fn process_timeline_action(
                 let current_time = open.editor_state.animation.current_time;
                 if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
                     && let Some(seq) = open.sprite.animations.iter().find(|a| a.id == *seq_id) {
-                        if let Some(prev_t) = engine::animation::prev_keyframe_time(seq, current_time) {
+                        if let Some(prev_t) = engine::animation::prev_pose_time(seq, current_time) {
                             open.editor_state.animation.current_time = prev_t;
                         } else {
                             open.editor_state.animation.current_time = 0.0;
@@ -2121,7 +2120,7 @@ fn process_timeline_action(
                 let current_time = open.editor_state.animation.current_time;
                 if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
                     && let Some(seq) = open.sprite.animations.iter().find(|a| a.id == *seq_id)
-                        && let Some(next_t) = engine::animation::next_keyframe_time(seq, current_time) {
+                        && let Some(next_t) = engine::animation::next_pose_time(seq, current_time) {
                             open.editor_state.animation.current_time = next_t;
                         }
                 if open.editor_state.animation.playing {
@@ -2153,22 +2152,30 @@ fn process_timeline_action(
                 open.editor_state.animation.onion_after = count;
             }
         }
-        timeline::TimelineAction::AddKeyframe {
-            track_index,
-            time,
-            value,
-            easing,
-        } => {
+        timeline::TimelineAction::InsertPose { time, easing } => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
-                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
-                        && track_index < seq.tracks.len() {
-                            seq.tracks[track_index].set_keyframe(time, value, easing);
-                            seq.auto_extend_duration();
-                        }
+                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
+                    let ik_chains: Vec<model::sprite::IKChain> = open.sprite.animations.iter()
+                        .find(|a| a.id == *seq_id)
+                        .map(|s| s.ik_chains.clone())
+                        .unwrap_or_default();
+
+                    let pose = model::sprite::snapshot_sprite_to_pose(
+                        &open.sprite, time, easing, &ik_chains,
+                    );
+                    let pose_id = pose.id.clone();
+
+                    if let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
+                        seq.pose_keyframes.push(pose);
+                        seq.pose_keyframes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+                        seq.auto_extend_duration_poses();
+                    }
+
+                    open.editor_state.animation.selected_pose_id = Some(pose_id);
+                }
                 history.push(SnapshotCommand {
-                    description: "Add keyframe".to_string(),
+                    description: "Insert pose".to_string(),
                     sprite_index,
                     before,
                     after: open.sprite.clone(),
@@ -2176,19 +2183,18 @@ fn process_timeline_action(
                 project_state.mark_changed();
             }
         }
-        timeline::TimelineAction::RemoveKeyframe {
-            track_index,
-            keyframe_id,
-        } => {
+        timeline::TimelineAction::DeletePose(pose_id) => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
                 if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
-                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
-                        && track_index < seq.tracks.len() {
-                            seq.tracks[track_index].remove_keyframe(&keyframe_id);
-                        }
+                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
+                        seq.pose_keyframes.retain(|p| p.id != pose_id);
+                    }
+                if open.editor_state.animation.selected_pose_id.as_ref() == Some(&pose_id) {
+                    open.editor_state.animation.selected_pose_id = None;
+                }
                 history.push(SnapshotCommand {
-                    description: "Remove keyframe".to_string(),
+                    description: "Delete pose".to_string(),
                     sprite_index,
                     before,
                     after: open.sprite.clone(),
@@ -2196,35 +2202,21 @@ fn process_timeline_action(
                 project_state.mark_changed();
             }
         }
-        timeline::TimelineAction::SelectTrack(idx) => {
+        timeline::TimelineAction::SelectPose(id) => {
             if let Some(open) = project_state.active_sprite_mut() {
-                open.editor_state.animation.selected_track_index = idx;
+                open.editor_state.animation.selected_pose_id = id;
             }
         }
-        timeline::TimelineAction::SelectKeyframe(id) => {
-            if let Some(open) = project_state.active_sprite_mut() {
-                open.editor_state.animation.selected_keyframe_id = id;
-            }
-        }
-        timeline::TimelineAction::UpdateKeyframeEasing {
-            track_index,
-            keyframe_id,
-            easing,
-        } => {
+        timeline::TimelineAction::UpdatePoseEasing { pose_id, easing } => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
                 if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
                     && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
-                        && track_index < seq.tracks.len()
-                            && let Some(kf) = seq.tracks[track_index]
-                                .keyframes
-                                .iter_mut()
-                                .find(|k| k.id == keyframe_id)
-                            {
-                                kf.easing = easing;
-                            }
+                        && let Some(pose) = seq.pose_keyframes.iter_mut().find(|p| p.id == pose_id) {
+                            pose.easing = easing;
+                        }
                 history.push(SnapshotCommand {
-                    description: "Update easing".to_string(),
+                    description: "Update pose easing".to_string(),
                     sprite_index,
                     before,
                     after: open.sprite.clone(),
@@ -2237,12 +2229,6 @@ fn process_timeline_action(
                 open.editor_state.animation.current_easing = preset;
             }
         }
-        timeline::TimelineAction::ToggleCurveEditor => {
-            if let Some(open) = project_state.active_sprite_mut() {
-                open.editor_state.animation.curve_editor_open =
-                    !open.editor_state.animation.curve_editor_open;
-            }
-        }
         timeline::TimelineAction::SetDuration(dur) => {
             if let Some(open) = project_state.active_sprite_mut() {
                 let before = open.sprite.clone();
@@ -2252,113 +2238,6 @@ fn process_timeline_action(
                     }
                 history.push(SnapshotCommand {
                     description: "Set duration".to_string(),
-                    sprite_index,
-                    before,
-                    after: open.sprite.clone(),
-                });
-                project_state.mark_changed();
-            }
-        }
-        timeline::TimelineAction::AddTrack {
-            property,
-            element_id,
-            layer_id,
-        } => {
-            if let Some(open) = project_state.active_sprite_mut() {
-                // Resolve element and layer IDs from selection if empty
-                let (resolved_element_id, resolved_layer_id) = if element_id.is_empty() {
-                    match &property {
-                        model::sprite::AnimatableProperty::IKTargetX
-                        | model::sprite::AnimatableProperty::IKTargetY => {
-                            let mut found = None;
-                            for layer in &open.sprite.layers {
-                                if let Some(target) = layer.ik_targets.first() {
-                                    found = Some((target.id.clone(), layer.id.clone()));
-                                    break;
-                                }
-                            }
-                            if let Some((target_id, layer_id)) = found {
-                                (target_id, layer_id)
-                            } else {
-                                open.editor_state.toast = Some(ToastMessage {
-                                    text: "No IK targets found. Create an IK chain first.".to_string(),
-                                    created: std::time::Instant::now(),
-                                });
-                                return;
-                            }
-                        }
-                        model::sprite::AnimatableProperty::IKMix => {
-                            if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone() {
-                                let chain_id = open.sprite.animations.iter()
-                                    .find(|a| a.id == *seq_id)
-                                    .and_then(|seq| seq.ik_chains.first())
-                                    .map(|c| c.id.clone());
-                                if let Some(chain_id) = chain_id {
-                                    (chain_id, String::new())
-                                } else {
-                                    open.editor_state.toast = Some(ToastMessage {
-                                        text: "No IK chains found. Create an IK chain first.".to_string(),
-                                        created: std::time::Instant::now(),
-                                    });
-                                    return;
-                                }
-                            } else {
-                                return;
-                            }
-                        }
-                        _ => {
-                            if let Some(selected_id) =
-                                open.editor_state.selection.selected_element_ids.first()
-                            {
-                                let mut found_layer_id = String::new();
-                                for layer in &open.sprite.layers {
-                                    if layer.elements.iter().any(|e| e.id == *selected_id) {
-                                        found_layer_id = layer.id.clone();
-                                        break;
-                                    }
-                                }
-                                (selected_id.clone(), found_layer_id)
-                            } else {
-                                open.editor_state.toast = Some(ToastMessage {
-                                    text: "Select an element first to add a track".to_string(),
-                                    created: std::time::Instant::now(),
-                                });
-                                return;
-                            }
-                        }
-                    }
-                } else {
-                    (element_id, layer_id)
-                };
-
-                let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
-                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id) {
-                        seq.find_or_create_track(property, &resolved_element_id, &resolved_layer_id);
-                    }
-                history.push(SnapshotCommand {
-                    description: "Add track".to_string(),
-                    sprite_index,
-                    before,
-                    after: open.sprite.clone(),
-                });
-                project_state.mark_changed();
-            }
-        }
-        timeline::TimelineAction::RemoveTrack(track_index) => {
-            if let Some(open) = project_state.active_sprite_mut() {
-                let before = open.sprite.clone();
-                if let Some(ref seq_id) = open.editor_state.animation.selected_sequence_id.clone()
-                    && let Some(seq) = open.sprite.animations.iter_mut().find(|a| a.id == *seq_id)
-                        && track_index < seq.tracks.len() {
-                            seq.tracks.remove(track_index);
-                        }
-                if open.editor_state.animation.selected_track_index == Some(track_index) {
-                    open.editor_state.animation.selected_track_index = None;
-                    open.editor_state.animation.selected_keyframe_id = None;
-                }
-                history.push(SnapshotCommand {
-                    description: "Remove track".to_string(),
                     sprite_index,
                     before,
                     after: open.sprite.clone(),

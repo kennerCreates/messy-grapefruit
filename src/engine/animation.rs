@@ -1,5 +1,5 @@
 use crate::model::sprite::{
-    AnimatableProperty, AnimationSequence, EasingCurve, EasingPreset, PropertyTrack, Sprite,
+    AnimationSequence, EasingCurve, EasingPreset, ElementPose, Sprite,
 };
 use crate::model::Vec2;
 
@@ -81,234 +81,14 @@ fn elastic_ease_out(t: f32) -> f32 {
     (2.0f32.powf(-10.0 * t)) * ((t - s) * std::f32::consts::TAU / p).sin() + 1.0
 }
 
-/// Interpolate a property track at the given time.
-/// Returns None if the track has no keyframes.
-pub fn interpolate_track(track: &PropertyTrack, time: f32) -> Option<f64> {
-    if track.keyframes.is_empty() {
-        return None;
-    }
-
-    // If before or at first keyframe
-    if time <= track.keyframes[0].time {
-        return Some(track.keyframes[0].value);
-    }
-
-    // If after or at last keyframe
-    let last = track.keyframes.last().unwrap();
-    if time >= last.time {
-        return Some(last.value);
-    }
-
-    // Find the two surrounding keyframes
-    let mut prev_idx = 0;
-    for (i, kf) in track.keyframes.iter().enumerate() {
-        if kf.time <= time {
-            prev_idx = i;
-        } else {
-            break;
-        }
-    }
-    let next_idx = prev_idx + 1;
-    if next_idx >= track.keyframes.len() {
-        return Some(track.keyframes[prev_idx].value);
-    }
-
-    let prev_kf = &track.keyframes[prev_idx];
-    let next_kf = &track.keyframes[next_idx];
-
-    // Check for step interpolation (color index, visibility)
-    if track.property.uses_step_interpolation() || prev_kf.easing.preset == EasingPreset::Step {
-        // Hold-previous: keep the previous keyframe value until the next keyframe
-        return Some(prev_kf.value);
-    }
-
-    // Compute linear t
-    let duration = next_kf.time - prev_kf.time;
-    if duration <= 0.0 {
-        return Some(prev_kf.value);
-    }
-    let linear_t = (time - prev_kf.time) / duration;
-
-    // Apply easing
-    let eased_t = apply_easing(linear_t, &prev_kf.easing);
-
-    // Interpolate value
-    let result = prev_kf.value + (next_kf.value - prev_kf.value) * eased_t as f64;
-    Some(result)
-}
-
-/// Evaluate all tracks of an animation sequence at the given time.
-/// Returns a list of (property, element_id, layer_id, value) tuples.
-pub fn evaluate_animation(
-    sequence: &AnimationSequence,
-    time: f32,
-) -> Vec<(AnimatableProperty, String, String, f64)> {
-    let mut results = Vec::new();
-
-    // Handle looping
-    let effective_time = if sequence.looping && sequence.duration > 0.0 {
-        time.rem_euclid(sequence.duration)
-    } else {
-        time.min(sequence.duration)
-    };
-
-    for track in &sequence.tracks {
-        if let Some(value) = interpolate_track(track, effective_time) {
-            results.push((
-                track.property.clone(),
-                track.element_id.clone(),
-                track.layer_id.clone(),
-                value,
-            ));
-        }
-    }
-
-    results
-}
-
-/// Apply evaluated animation values to a sprite (modifying it in place).
-/// This creates a temporary modified copy of the sprite for rendering.
-pub fn apply_animation_to_sprite(sprite: &mut Sprite, sequence: &AnimationSequence, time: f32) {
-    let values = evaluate_animation(sequence, time);
-
-    for (property, element_id, _layer_id, value) in &values {
-        match property {
-            AnimatableProperty::IKTargetX => {
-                // Find IK target element across all layers
-                for layer in &mut sprite.layers {
-                    if let Some(ik_target) = layer.ik_targets.iter_mut().find(|t| t.id == *element_id) {
-                        ik_target.position.x = *value as f32;
-                    }
-                }
-            }
-            AnimatableProperty::IKTargetY => {
-                for layer in &mut sprite.layers {
-                    if let Some(ik_target) = layer.ik_targets.iter_mut().find(|t| t.id == *element_id) {
-                        ik_target.position.y = *value as f32;
-                    }
-                }
-            }
-            AnimatableProperty::IKMix => {
-                // IK mix is handled during IK solving, not applied to sprite elements directly
-                // The value is read from the animation tracks when solving IK chains
-            }
-            _ => {
-                // Find the element across all layers
-                for layer in &mut sprite.layers {
-                    if let Some(element) = layer.elements.iter_mut().find(|e| e.id == *element_id) {
-                        match property {
-                            AnimatableProperty::PositionX => {
-                                element.position.x = *value as f32;
-                            }
-                            AnimatableProperty::PositionY => {
-                                element.position.y = *value as f32;
-                            }
-                            AnimatableProperty::Rotation => {
-                                element.rotation = *value as f32;
-                            }
-                            AnimatableProperty::ScaleX => {
-                                element.scale.x = *value as f32;
-                            }
-                            AnimatableProperty::ScaleY => {
-                                element.scale.y = *value as f32;
-                            }
-                            AnimatableProperty::StrokeColorIndex => {
-                                element.stroke_color_index = *value as usize;
-                            }
-                            AnimatableProperty::FillColorIndex => {
-                                element.fill_color_index = *value as usize;
-                            }
-                            AnimatableProperty::VertexX(vertex_id) => {
-                                if let Some(vertex) =
-                                    element.vertices.iter_mut().find(|v| v.id == *vertex_id)
-                                {
-                                    vertex.pos.x = *value as f32;
-                                }
-                            }
-                            AnimatableProperty::VertexY(vertex_id) => {
-                                if let Some(vertex) =
-                                    element.vertices.iter_mut().find(|v| v.id == *vertex_id)
-                                {
-                                    vertex.pos.y = *value as f32;
-                                }
-                            }
-                            AnimatableProperty::Visible => {
-                                // value > 0.5 = visible, else hidden
-                                // Handled by the renderer checking the animation state.
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Check if an element is visible at the given time according to animation.
-/// Returns true if visible (default if no visibility track exists).
+/// Returns true if visible (default if no pose keyframes exist).
 pub fn is_element_visible(
     sequence: &AnimationSequence,
     element_id: &str,
     time: f32,
 ) -> bool {
-    // Handle looping
-    let effective_time = if sequence.looping && sequence.duration > 0.0 {
-        time.rem_euclid(sequence.duration)
-    } else {
-        time.min(sequence.duration)
-    };
-
-    for track in &sequence.tracks {
-        if track.element_id == element_id && track.property == AnimatableProperty::Visible
-            && let Some(value) = interpolate_track(track, effective_time) {
-                return value > 0.5;
-            }
-    }
-    // Default: visible
-    true
-}
-
-/// Get the previous keyframe time across all tracks in a sequence.
-pub fn prev_keyframe_time(sequence: &AnimationSequence, current_time: f32) -> Option<f32> {
-    let effective_time = if sequence.looping && sequence.duration > 0.0 {
-        current_time % sequence.duration
-    } else {
-        current_time
-    };
-
-    let epsilon = 0.001;
-    let mut best: Option<f32> = None;
-    for track in &sequence.tracks {
-        for kf in &track.keyframes {
-            if kf.time < effective_time - epsilon
-                && (best.is_none() || kf.time > best.unwrap()) {
-                    best = Some(kf.time);
-                }
-        }
-    }
-    best
-}
-
-/// Get the next keyframe time across all tracks in a sequence.
-pub fn next_keyframe_time(sequence: &AnimationSequence, current_time: f32) -> Option<f32> {
-    let effective_time = if sequence.looping && sequence.duration > 0.0 {
-        current_time % sequence.duration
-    } else {
-        current_time
-    };
-
-    let epsilon = 0.001;
-    let mut best: Option<f32> = None;
-    for track in &sequence.tracks {
-        for kf in &track.keyframes {
-            if kf.time > effective_time + epsilon
-                && (best.is_none() || kf.time < best.unwrap()) {
-                    best = Some(kf.time);
-                }
-        }
-    }
-    best
+    is_element_visible_pose(sequence, element_id, time)
 }
 
 /// Collect IK target positions from a sprite (after FK animation has been applied).
@@ -321,31 +101,6 @@ pub fn collect_ik_target_positions(sprite: &Sprite) -> Vec<(String, crate::model
         }
     }
     targets
-}
-
-/// Collect IK mix values from animation tracks at a given time.
-/// Returns a list of (ik_chain_id, mix_value) tuples.
-pub fn collect_ik_mix_values(
-    sequence: &AnimationSequence,
-    time: f32,
-) -> Vec<(String, f32)> {
-    let effective_time = if sequence.looping && sequence.duration > 0.0 {
-        time.rem_euclid(sequence.duration)
-    } else {
-        time.min(sequence.duration)
-    };
-
-    let mut mix_values = Vec::new();
-
-    for track in &sequence.tracks {
-        if track.property == AnimatableProperty::IKMix
-            && let Some(value) = interpolate_track(track, effective_time) {
-                // For IKMix tracks, element_id stores the IK chain ID
-                mix_values.push((track.element_id.clone(), value as f32));
-            }
-    }
-
-    mix_values
 }
 
 /// Create an animated sprite copy for rendering at a given time.
@@ -379,8 +134,10 @@ pub fn create_animated_sprite_with_physics(
 ) -> Sprite {
     let mut animated = sprite.clone();
 
-    // Step 1: Evaluate FK from keyframes
-    apply_animation_to_sprite(&mut animated, sequence, time);
+    // Step 1: Evaluate FK from pose keyframes
+    if let Some(element_poses) = evaluate_pose_animation(sequence, time) {
+        apply_pose_to_sprite(&mut animated, &element_poses);
+    }
 
     // Step 2: Initial socket chain walk is done implicitly by resolve_socket_transform
     // which is called during rendering and IK solving.
@@ -388,7 +145,7 @@ pub fn create_animated_sprite_with_physics(
     // Step 3: Solve IK chains (blended with FK via per-chain mix)
     if !sequence.ik_chains.is_empty() {
         let ik_targets = collect_ik_target_positions(&animated);
-        let ik_mix = collect_ik_mix_values(sequence, time);
+        let ik_mix = collect_ik_mix_values_pose(sequence, time);
         let ik_results = crate::engine::ik::solve_ik_chains(
             &animated,
             &sequence.ik_chains,
@@ -647,6 +404,298 @@ fn apply_physics(
             elem.position.y += delta.y * mix;
         }
     }
+}
+
+// === Pose-based animation functions ===
+
+/// Evaluate pose-based animation at a given time.
+/// Finds the surrounding pose keyframes and interpolates between them.
+pub fn evaluate_pose_animation(
+    sequence: &AnimationSequence,
+    time: f32,
+) -> Option<Vec<ElementPose>> {
+    let poses = &sequence.pose_keyframes;
+    if poses.is_empty() {
+        return None;
+    }
+
+    // Handle looping
+    let time = if sequence.looping && sequence.duration > 0.0 {
+        time.rem_euclid(sequence.duration)
+    } else {
+        time
+    };
+
+    // Before first pose: use first pose
+    if time <= poses[0].time || poses.len() == 1 {
+        return Some(poses[0].element_poses.clone());
+    }
+
+    // After last pose: use last pose
+    if time >= poses[poses.len() - 1].time {
+        return Some(poses[poses.len() - 1].element_poses.clone());
+    }
+
+    // Find surrounding poses
+    for i in 0..poses.len() - 1 {
+        if time >= poses[i].time && time <= poses[i + 1].time {
+            let duration = poses[i + 1].time - poses[i].time;
+            if duration < 1e-6 {
+                return Some(poses[i + 1].element_poses.clone());
+            }
+            let t = (time - poses[i].time) / duration;
+            let eased_t = apply_easing(t, &poses[i + 1].easing);
+            return Some(interpolate_poses(&poses[i], &poses[i + 1], eased_t));
+        }
+    }
+
+    Some(poses.last().unwrap().element_poses.clone())
+}
+
+/// Interpolate between two poses at a given t (0..1, already eased).
+fn interpolate_poses(
+    pose_a: &crate::model::sprite::PoseKeyframe,
+    pose_b: &crate::model::sprite::PoseKeyframe,
+    t: f32,
+) -> Vec<ElementPose> {
+    let mut result = Vec::new();
+
+    // Build a lookup for pose_b elements by element_id
+    let b_map: std::collections::HashMap<&str, &ElementPose> = pose_b
+        .element_poses
+        .iter()
+        .map(|ep| (ep.element_id.as_str(), ep))
+        .collect();
+
+    // Interpolate elements present in pose_a
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+    for ep_a in &pose_a.element_poses {
+        seen.insert(ep_a.element_id.as_str());
+        if let Some(ep_b) = b_map.get(ep_a.element_id.as_str()) {
+            result.push(lerp_element_pose(ep_a, ep_b, t));
+        } else {
+            // Element only in pose A — use as-is
+            result.push(ep_a.clone());
+        }
+    }
+
+    // Add elements only in pose B
+    for ep_b in &pose_b.element_poses {
+        if !seen.contains(ep_b.element_id.as_str()) {
+            result.push(ep_b.clone());
+        }
+    }
+
+    result
+}
+
+/// Lerp between two ElementPoses.
+fn lerp_element_pose(a: &ElementPose, b: &ElementPose, t: f32) -> ElementPose {
+    // Vertex positions: match by vertex ID, lerp
+    let mut vertex_positions = Vec::new();
+    let b_verts: std::collections::HashMap<&str, Vec2> = b
+        .vertex_positions
+        .iter()
+        .map(|(id, pos)| (id.as_str(), *pos))
+        .collect();
+    let mut seen_verts: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+    for (id, pos_a) in &a.vertex_positions {
+        seen_verts.insert(id.as_str());
+        if let Some(pos_b) = b_verts.get(id.as_str()) {
+            vertex_positions.push((
+                id.clone(),
+                Vec2::new(
+                    pos_a.x + (pos_b.x - pos_a.x) * t,
+                    pos_a.y + (pos_b.y - pos_a.y) * t,
+                ),
+            ));
+        } else {
+            vertex_positions.push((id.clone(), *pos_a));
+        }
+    }
+    for (id, pos_b) in &b.vertex_positions {
+        if !seen_verts.contains(id.as_str()) {
+            vertex_positions.push((id.clone(), *pos_b));
+        }
+    }
+
+    // Shortest-path angle lerp for rotation
+    let mut angle_diff = b.rotation - a.rotation;
+    while angle_diff > std::f32::consts::PI {
+        angle_diff -= std::f32::consts::TAU;
+    }
+    while angle_diff < -std::f32::consts::PI {
+        angle_diff += std::f32::consts::TAU;
+    }
+
+    ElementPose {
+        element_id: a.element_id.clone(),
+        layer_id: a.layer_id.clone(),
+        position: Vec2::new(
+            a.position.x + (b.position.x - a.position.x) * t,
+            a.position.y + (b.position.y - a.position.y) * t,
+        ),
+        rotation: a.rotation + angle_diff * t,
+        scale: Vec2::new(
+            a.scale.x + (b.scale.x - a.scale.x) * t,
+            a.scale.y + (b.scale.y - a.scale.y) * t,
+        ),
+        // Step interpolation for discrete properties
+        visible: if t < 1.0 { a.visible } else { b.visible },
+        stroke_color_index: if t < 1.0 {
+            a.stroke_color_index
+        } else {
+            b.stroke_color_index
+        },
+        fill_color_index: if t < 1.0 {
+            a.fill_color_index
+        } else {
+            b.fill_color_index
+        },
+        vertex_positions,
+    }
+}
+
+/// Apply interpolated element poses to a sprite.
+pub fn apply_pose_to_sprite(sprite: &mut Sprite, element_poses: &[ElementPose]) {
+    for ep in element_poses {
+        // Find the element in the sprite and apply the pose
+        for layer in &mut sprite.layers {
+            if layer.id != ep.layer_id {
+                continue;
+            }
+
+            // Apply to stroke elements
+            if let Some(elem) = layer.elements.iter_mut().find(|e| e.id == ep.element_id) {
+                elem.position = ep.position;
+                elem.rotation = ep.rotation;
+                elem.scale = ep.scale;
+                elem.stroke_color_index = ep.stroke_color_index;
+                elem.fill_color_index = ep.fill_color_index;
+
+                // Apply vertex positions
+                for (vid, vpos) in &ep.vertex_positions {
+                    if let Some(vertex) = elem.vertices.iter_mut().find(|v| v.id == *vid) {
+                        vertex.pos = *vpos;
+                    }
+                }
+            }
+
+            // Apply to IK targets
+            if let Some(target) = layer.ik_targets.iter_mut().find(|t| t.id == ep.element_id) {
+                target.position = ep.position;
+            }
+
+            break;
+        }
+    }
+}
+
+/// Check element visibility from pose-based keyframes.
+pub fn is_element_visible_pose(
+    sequence: &AnimationSequence,
+    element_id: &str,
+    time: f32,
+) -> bool {
+    if sequence.pose_keyframes.is_empty() {
+        return true;
+    }
+
+    let time = if sequence.looping && sequence.duration > 0.0 {
+        time.rem_euclid(sequence.duration)
+    } else {
+        time
+    };
+
+    // Find the pose at or before this time (step interpolation for visibility)
+    let mut last_visible = true;
+    for pose in &sequence.pose_keyframes {
+        if pose.time > time {
+            break;
+        }
+        if let Some(ep) = pose.element_poses.iter().find(|ep| ep.element_id == element_id) {
+            last_visible = ep.visible;
+        }
+    }
+    last_visible
+}
+
+/// Get previous pose keyframe time.
+pub fn prev_pose_time(sequence: &AnimationSequence, current_time: f32) -> Option<f32> {
+    let epsilon = 0.001;
+    sequence
+        .pose_keyframes
+        .iter()
+        .filter(|p| p.time < current_time - epsilon)
+        .map(|p| p.time)
+        .next_back()
+}
+
+/// Get next pose keyframe time.
+pub fn next_pose_time(sequence: &AnimationSequence, current_time: f32) -> Option<f32> {
+    let epsilon = 0.001;
+    sequence
+        .pose_keyframes
+        .iter()
+        .find(|p| p.time > current_time + epsilon)
+        .map(|p| p.time)
+}
+
+/// Collect IK mix values from pose-based keyframes (interpolated).
+pub fn collect_ik_mix_values_pose(
+    sequence: &AnimationSequence,
+    time: f32,
+) -> Vec<(String, f32)> {
+    let poses = &sequence.pose_keyframes;
+    if poses.is_empty() {
+        return Vec::new();
+    }
+
+    let time = if sequence.looping && sequence.duration > 0.0 {
+        time.rem_euclid(sequence.duration)
+    } else {
+        time
+    };
+
+    // Before first or single pose
+    if time <= poses[0].time || poses.len() == 1 {
+        return poses[0].ik_mix_values.clone();
+    }
+
+    // After last
+    if time >= poses[poses.len() - 1].time {
+        return poses[poses.len() - 1].ik_mix_values.clone();
+    }
+
+    // Find surrounding poses and interpolate
+    for i in 0..poses.len() - 1 {
+        if time >= poses[i].time && time <= poses[i + 1].time {
+            let duration = poses[i + 1].time - poses[i].time;
+            if duration < 1e-6 {
+                return poses[i + 1].ik_mix_values.clone();
+            }
+            let t = (time - poses[i].time) / duration;
+            let eased_t = apply_easing(t, &poses[i + 1].easing);
+
+            // Lerp IK mix values by chain ID
+            let mut result = poses[i].ik_mix_values.clone();
+            let b_map: std::collections::HashMap<&str, f32> = poses[i + 1]
+                .ik_mix_values
+                .iter()
+                .map(|(id, v)| (id.as_str(), *v))
+                .collect();
+            for (chain_id, mix_a) in &mut result {
+                if let Some(&mix_b) = b_map.get(chain_id.as_str()) {
+                    *mix_a += (mix_b - *mix_a) * eased_t;
+                }
+            }
+            return result;
+        }
+    }
+
+    poses.last().unwrap().ik_mix_values.clone()
 }
 
 /// Find the world-space position of an element (or a specific vertex on it).

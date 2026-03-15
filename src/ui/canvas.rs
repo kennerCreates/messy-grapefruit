@@ -319,6 +319,8 @@ fn get_animated_sprite(
 }
 
 /// Create an animated sprite with physics simulation (for playback).
+/// When not playing, skips pose interpolation so the user edits what they see,
+/// but still previews constraints/procedural/IK.
 fn get_animated_sprite_with_physics(
     sprite: &Sprite,
     editor_state: &EditorState,
@@ -327,8 +329,8 @@ fn get_animated_sprite_with_physics(
     let seq_id = editor_state.animation.selected_sequence_id.as_ref()?;
     let seq = sprite.animations.iter().find(|a| a.id == *seq_id)?;
     let time = editor_state.animation.current_time;
-    // Physics only runs during playback
     if editor_state.animation.playing {
+        // During playback: full pipeline including pose interpolation and physics
         Some(anim_engine::create_animated_sprite_with_physics(
             sprite,
             seq,
@@ -336,7 +338,11 @@ fn get_animated_sprite_with_physics(
             Some(physics_state),
         ))
     } else {
-        Some(anim_engine::create_animated_sprite(sprite, seq, time))
+        // When not playing: skip pose interpolation so canvas matches what user edits,
+        // but still run constraints/procedural/IK for preview
+        let mut preview_seq = seq.clone();
+        preview_seq.pose_keyframes.clear();
+        Some(anim_engine::create_animated_sprite(sprite, &preview_seq, time))
     }
 }
 

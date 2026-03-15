@@ -222,10 +222,8 @@ pub struct AnimationState {
     pub onion_after: usize,
     /// Onion skinning time step in seconds (1/fps)
     pub onion_step: f32,
-    /// Currently selected track index in the timeline (for curve editor etc.)
-    pub selected_track_index: Option<usize>,
-    /// Currently selected keyframe ID (for editing in curve editor)
-    pub selected_keyframe_id: Option<String>,
+    /// Currently selected pose keyframe ID
+    pub selected_pose_id: Option<String>,
     /// Whether the timeline panel is expanded/visible
     pub timeline_visible: bool,
     /// Sequence name being edited (for rename)
@@ -233,10 +231,8 @@ pub struct AnimationState {
     pub renaming_sequence_id: Option<String>,
     #[allow(dead_code)]
     pub rename_buffer: String,
-    /// Selected easing preset for new keyframes
+    /// Selected easing preset for new pose transitions
     pub current_easing: crate::model::sprite::EasingPreset,
-    /// Whether the curve editor sub-panel is open
-    pub curve_editor_open: bool,
 }
 
 impl Default for AnimationState {
@@ -252,13 +248,11 @@ impl Default for AnimationState {
             onion_before: 2,
             onion_after: 2,
             onion_step: 1.0 / 12.0,
-            selected_track_index: None,
-            selected_keyframe_id: None,
+            selected_pose_id: None,
             timeline_visible: true,
             renaming_sequence_id: None,
             rename_buffer: String::new(),
             current_easing: crate::model::sprite::EasingPreset::Linear,
-            curve_editor_open: false,
         }
     }
 }

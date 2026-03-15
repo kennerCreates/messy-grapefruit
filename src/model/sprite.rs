@@ -398,7 +398,7 @@ pub struct IKChain {
     pub layer_ids: Vec<String>,
     /// References an IKTargetElement on the tip layer.
     pub target_element_id: String,
-    /// FK/IK mix: 0 = pure FK, 1 = pure IK. Keyframeable via PropertyTrack.
+    /// FK/IK mix: 0 = pure FK, 1 = pure IK. Keyframeable via pose keyframes.
     pub mix: f32,
     /// Bend direction sign for 2-bone solver: +1 or -1.
     pub bend_direction: i8,
@@ -472,7 +472,9 @@ pub struct AnimationSequence {
     /// Duration in seconds
     pub duration: f32,
     pub looping: bool,
-    pub tracks: Vec<PropertyTrack>,
+    /// Pose-based keyframes: each captures the full sprite state at a point in time.
+    #[serde(default)]
+    pub pose_keyframes: Vec<PoseKeyframe>,
     /// IK chain definitions for this animation.
     #[serde(default)]
     pub ik_chains: Vec<IKChain>,
@@ -485,108 +487,113 @@ impl AnimationSequence {
             name: name.to_string(),
             duration: 1.0,
             looping: true,
-            tracks: Vec::new(),
+            pose_keyframes: Vec::new(),
             ik_chains: Vec::new(),
         }
     }
 
-    /// Auto-extend duration if a keyframe is placed past the current end.
-    pub fn auto_extend_duration(&mut self) {
-        for track in &self.tracks {
-            for kf in &track.keyframes {
-                if kf.time > self.duration {
-                    self.duration = kf.time;
-                }
+    /// Auto-extend duration if a pose keyframe is placed past the current end.
+    pub fn auto_extend_duration_poses(&mut self) {
+        for pk in &self.pose_keyframes {
+            if pk.time > self.duration {
+                self.duration = pk.time;
             }
         }
     }
 
-    /// Find or create a track for the given property/element/layer combination.
-    pub fn find_or_create_track(
-        &mut self,
-        property: AnimatableProperty,
-        element_id: &str,
-        layer_id: &str,
-    ) -> usize {
-        if let Some(idx) = self.tracks.iter().position(|t| {
-            t.property == property && t.element_id == element_id && t.layer_id == layer_id
-        }) {
-            idx
-        } else {
-            self.tracks.push(PropertyTrack {
-                property,
-                element_id: element_id.to_string(),
-                layer_id: layer_id.to_string(),
-                keyframes: Vec::new(),
-            });
-            self.tracks.len() - 1
-        }
-    }
 }
 
+/// A pose-based keyframe: captures the full state of all elements at a point in time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PropertyTrack {
-    pub property: AnimatableProperty,
+pub struct PoseKeyframe {
+    pub id: String,
+    /// Time in seconds
+    pub time: f32,
+    /// Easing curve for the transition TO this pose from the previous one
+    pub easing: EasingCurve,
+    /// State of each element at this pose
+    pub element_poses: Vec<ElementPose>,
+    /// Per-IK-chain mix values at this pose (chain_id, mix 0..1)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ik_mix_values: Vec<(String, f32)>,
+}
+
+/// The state of a single element within a pose.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElementPose {
     pub element_id: String,
     pub layer_id: String,
-    pub keyframes: Vec<Keyframe>,
+    pub position: Vec2,
+    pub rotation: f32,
+    pub scale: Vec2,
+    pub visible: bool,
+    pub stroke_color_index: usize,
+    pub fill_color_index: usize,
+    /// Vertex positions captured by stable vertex ID.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vertex_positions: Vec<(String, Vec2)>,
 }
 
-impl PropertyTrack {
-    /// Insert or update a keyframe at the given time.
-    /// If a keyframe already exists within a small epsilon of the given time, update its value.
-    /// Otherwise, insert a new keyframe in sorted order.
-    pub fn set_keyframe(&mut self, time: f32, value: f64, easing: EasingCurve) {
-        let epsilon = 0.001;
-        if let Some(kf) = self.keyframes.iter_mut().find(|k| (k.time - time).abs() < epsilon) {
-            kf.value = value;
-            kf.easing = easing;
-        } else {
-            self.keyframes.push(Keyframe {
-                id: uuid::Uuid::new_v4().to_string(),
-                time,
-                value,
-                easing,
+/// Snapshot the current sprite state into a PoseKeyframe.
+pub fn snapshot_sprite_to_pose(
+    sprite: &Sprite,
+    time: f32,
+    easing: EasingCurve,
+    ik_chains: &[IKChain],
+) -> PoseKeyframe {
+    let mut element_poses = Vec::new();
+
+    for layer in &sprite.layers {
+        for stroke in &layer.elements {
+            let vertex_positions: Vec<(String, Vec2)> = stroke
+                .vertices
+                .iter()
+                .map(|v| (v.id.clone(), v.pos))
+                .collect();
+
+            element_poses.push(ElementPose {
+                element_id: stroke.id.clone(),
+                layer_id: layer.id.clone(),
+                position: stroke.position,
+                rotation: stroke.rotation,
+                scale: stroke.scale,
+                visible: true,
+                stroke_color_index: stroke.stroke_color_index,
+                fill_color_index: stroke.fill_color_index,
+                vertex_positions,
             });
-            self.keyframes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+        }
+
+        for target in &layer.ik_targets {
+            element_poses.push(ElementPose {
+                element_id: target.id.clone(),
+                layer_id: layer.id.clone(),
+                position: target.position,
+                rotation: 0.0,
+                scale: Vec2::new(1.0, 1.0),
+                visible: true,
+                stroke_color_index: 0,
+                fill_color_index: 0,
+                vertex_positions: Vec::new(),
+            });
         }
     }
 
-    /// Remove a keyframe by ID.
-    pub fn remove_keyframe(&mut self, keyframe_id: &str) {
-        self.keyframes.retain(|k| k.id != keyframe_id);
-    }
+    // Collect IK mix values from chain defaults
+    let ik_mix_values: Vec<(String, f32)> = ik_chains
+        .iter()
+        .map(|chain| (chain.id.clone(), chain.mix))
+        .collect();
 
-    /// Find the previous keyframe time relative to the given time.
-    #[allow(dead_code)]
-    pub fn prev_keyframe_time(&self, time: f32) -> Option<f32> {
-        let epsilon = 0.001;
-        self.keyframes
-            .iter()
-            .filter(|k| k.time < time - epsilon)
-            .map(|k| k.time)
-            .next_back()
+    PoseKeyframe {
+        id: uuid::Uuid::new_v4().to_string(),
+        time,
+        easing,
+        element_poses,
+        ik_mix_values,
     }
-
-    /// Find the next keyframe time relative to the given time.
-    #[allow(dead_code)]
-    pub fn next_keyframe_time(&self, time: f32) -> Option<f32> {
-        let epsilon = 0.001;
-        self.keyframes
-            .iter()
-            .find(|k| k.time > time + epsilon)
-            .map(|k| k.time)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Keyframe {
-    pub id: String,
-    pub time: f32,
-    pub value: f64,
-    pub easing: EasingCurve,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -685,75 +692,3 @@ impl EasingPreset {
     }
 }
 
-/// Animatable property identifiers
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AnimatableProperty {
-    PositionX,
-    PositionY,
-    Rotation,
-    ScaleX,
-    ScaleY,
-    StrokeColorIndex,
-    FillColorIndex,
-    /// Vertex position X, identified by stable vertex ID
-    VertexX(String),
-    /// Vertex position Y, identified by stable vertex ID
-    VertexY(String),
-    Visible,
-    /// IK target position X (element_id = IKTargetElement id)
-    IKTargetX,
-    /// IK target position Y (element_id = IKTargetElement id)
-    IKTargetY,
-    /// IK chain mix (0=FK, 1=IK). element_id = IKChain id
-    IKMix,
-}
-
-impl AnimatableProperty {
-    /// Returns a human-readable short name for display in the timeline
-    pub fn display_name(&self) -> String {
-        match self {
-            AnimatableProperty::PositionX => "pos.x".to_string(),
-            AnimatableProperty::PositionY => "pos.y".to_string(),
-            AnimatableProperty::Rotation => "rotation".to_string(),
-            AnimatableProperty::ScaleX => "scale.x".to_string(),
-            AnimatableProperty::ScaleY => "scale.y".to_string(),
-            AnimatableProperty::StrokeColorIndex => "stroke color".to_string(),
-            AnimatableProperty::FillColorIndex => "fill color".to_string(),
-            AnimatableProperty::VertexX(id) => format!("vtx.{}.x", &id[..6.min(id.len())]),
-            AnimatableProperty::VertexY(id) => format!("vtx.{}.y", &id[..6.min(id.len())]),
-            AnimatableProperty::Visible => "visible".to_string(),
-            AnimatableProperty::IKTargetX => "ik.target.x".to_string(),
-            AnimatableProperty::IKTargetY => "ik.target.y".to_string(),
-            AnimatableProperty::IKMix => "ik.mix".to_string(),
-        }
-    }
-
-    /// Whether this property uses hold-previous (step) interpolation
-    pub fn uses_step_interpolation(&self) -> bool {
-        matches!(
-            self,
-            AnimatableProperty::StrokeColorIndex
-                | AnimatableProperty::FillColorIndex
-                | AnimatableProperty::Visible
-        )
-    }
-
-    /// Returns a clean string for RON/export serialization.
-    pub fn export_name(&self) -> String {
-        match self {
-            AnimatableProperty::PositionX => "position.x".to_string(),
-            AnimatableProperty::PositionY => "position.y".to_string(),
-            AnimatableProperty::Rotation => "rotation".to_string(),
-            AnimatableProperty::ScaleX => "scale.x".to_string(),
-            AnimatableProperty::ScaleY => "scale.y".to_string(),
-            AnimatableProperty::StrokeColorIndex => "strokeColorIndex".to_string(),
-            AnimatableProperty::FillColorIndex => "fillColorIndex".to_string(),
-            AnimatableProperty::VertexX(id) => format!("vertex.{}.x", id),
-            AnimatableProperty::VertexY(id) => format!("vertex.{}.y", id),
-            AnimatableProperty::Visible => "visible".to_string(),
-            AnimatableProperty::IKTargetX => "ik.target.x".to_string(),
-            AnimatableProperty::IKTargetY => "ik.target.y".to_string(),
-            AnimatableProperty::IKMix => "ik.mix".to_string(),
-        }
-    }
-}

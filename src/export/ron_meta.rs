@@ -193,32 +193,15 @@ pub fn build_bone_animation_data(
     let animations = sprite
         .animations
         .iter()
-        .map(|seq| AnimationExport {
-            id: seq.id.clone(),
-            name: seq.name.clone(),
-            duration: seq.duration,
-            looping: seq.looping,
-            tracks: seq
-                .tracks
-                .iter()
-                .map(|track| TrackExport {
-                    property: track.property.export_name(),
-                    element_id: track.element_id.clone(),
-                    layer_id: track.layer_id.clone(),
-                    keyframes: track
-                        .keyframes
-                        .iter()
-                        .map(|kf| KeyframeExport {
-                            time: kf.time,
-                            value: kf.value,
-                            easing: EasingExport {
-                                preset: kf.easing.preset.export_name().to_string(),
-                                control_points: kf.easing.control_points,
-                            },
-                        })
-                        .collect(),
-                })
-                .collect(),
+        .map(|seq| {
+            let tracks = poses_to_track_exports(seq);
+            AnimationExport {
+                id: seq.id.clone(),
+                name: seq.name.clone(),
+                duration: seq.duration,
+                looping: seq.looping,
+                tracks,
+            }
         })
         .collect();
 
@@ -315,6 +298,93 @@ pub fn build_bone_animation_data(
         layer_dynamics,
         skins: skin_entries,
     }
+}
+
+/// Convert pose-based keyframes to per-property track exports for Bevy-compatible format.
+fn poses_to_track_exports(seq: &crate::model::sprite::AnimationSequence) -> Vec<TrackExport> {
+    use std::collections::HashMap;
+
+    // For each (element_id, layer_id, property_name), collect keyframes
+    let mut track_map: HashMap<(String, String, String), Vec<KeyframeExport>> = HashMap::new();
+
+    for pose in &seq.pose_keyframes {
+        let easing_export = EasingExport {
+            preset: pose.easing.preset.export_name().to_string(),
+            control_points: pose.easing.control_points,
+        };
+
+        for ep in &pose.element_poses {
+            let key = |prop: &str| (ep.element_id.clone(), ep.layer_id.clone(), prop.to_string());
+
+            // Position
+            track_map.entry(key("position.x")).or_default().push(KeyframeExport {
+                time: pose.time, value: ep.position.x as f64, easing: easing_export.clone(),
+            });
+            track_map.entry(key("position.y")).or_default().push(KeyframeExport {
+                time: pose.time, value: ep.position.y as f64, easing: easing_export.clone(),
+            });
+
+            // Rotation
+            track_map.entry(key("rotation")).or_default().push(KeyframeExport {
+                time: pose.time, value: ep.rotation as f64, easing: easing_export.clone(),
+            });
+
+            // Scale
+            track_map.entry(key("scale.x")).or_default().push(KeyframeExport {
+                time: pose.time, value: ep.scale.x as f64, easing: easing_export.clone(),
+            });
+            track_map.entry(key("scale.y")).or_default().push(KeyframeExport {
+                time: pose.time, value: ep.scale.y as f64, easing: easing_export.clone(),
+            });
+
+            // Visibility
+            track_map.entry(key("visible")).or_default().push(KeyframeExport {
+                time: pose.time,
+                value: if ep.visible { 1.0 } else { 0.0 },
+                easing: EasingExport { preset: "step".to_string(), control_points: [0.0, 0.0, 1.0, 1.0] },
+            });
+
+            // Color indices (step interpolation)
+            track_map.entry(key("strokeColorIndex")).or_default().push(KeyframeExport {
+                time: pose.time, value: ep.stroke_color_index as f64,
+                easing: EasingExport { preset: "step".to_string(), control_points: [0.0, 0.0, 1.0, 1.0] },
+            });
+            track_map.entry(key("fillColorIndex")).or_default().push(KeyframeExport {
+                time: pose.time, value: ep.fill_color_index as f64,
+                easing: EasingExport { preset: "step".to_string(), control_points: [0.0, 0.0, 1.0, 1.0] },
+            });
+
+            // Vertex positions
+            for (vid, vpos) in &ep.vertex_positions {
+                track_map.entry((ep.element_id.clone(), ep.layer_id.clone(), format!("vertex.{}.x", vid)))
+                    .or_default().push(KeyframeExport {
+                        time: pose.time, value: vpos.x as f64, easing: easing_export.clone(),
+                    });
+                track_map.entry((ep.element_id.clone(), ep.layer_id.clone(), format!("vertex.{}.y", vid)))
+                    .or_default().push(KeyframeExport {
+                        time: pose.time, value: vpos.y as f64, easing: easing_export.clone(),
+                    });
+            }
+        }
+
+        // IK mix values
+        for (chain_id, mix) in &pose.ik_mix_values {
+            track_map.entry((chain_id.clone(), String::new(), "ik.mix".to_string()))
+                .or_default().push(KeyframeExport {
+                    time: pose.time, value: *mix as f64, easing: easing_export.clone(),
+                });
+        }
+    }
+
+    track_map
+        .into_iter()
+        .map(|((element_id, layer_id, property), keyframes)| TrackExport {
+            property,
+            element_id,
+            layer_id,
+            keyframes,
+        })
+        .collect()
 }
 
 /// Serialize bone animation data to a RON string.
