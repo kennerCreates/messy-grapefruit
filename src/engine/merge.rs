@@ -60,6 +60,7 @@ pub fn find_merge_target(
 
 /// Merge a new stroke into an existing element by connecting at endpoints.
 /// Returns the merged element.
+#[allow(clippy::too_many_arguments)]
 pub fn merge_elements(
     existing: &StrokeElement,
     existing_end: VertexEnd,
@@ -67,6 +68,8 @@ pub fn merge_elements(
     new_end: VertexEnd,
     stroke_width: f32,
     stroke_color_index: u8,
+    curve_mode: bool,
+    min_corner_radius: f32,
 ) -> StrokeElement {
     let mut merged_verts: Vec<PathVertex> = Vec::new();
 
@@ -95,7 +98,7 @@ pub fn merge_elements(
     }
 
     // Recompute auto-curves for the merged vertices
-    math::recompute_auto_curves(&mut merged_verts, false);
+    math::recompute_auto_curves(&mut merged_verts, false, curve_mode, min_corner_radius);
 
     StrokeElement {
         id: existing.id.clone(),
@@ -109,6 +112,5 @@ pub fn merge_elements(
         rotation: existing.rotation,
         scale: existing.scale,
         origin: existing.origin,
-        taper_override: existing.taper_override,
     }
 }

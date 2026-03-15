@@ -40,7 +40,7 @@ pub fn show_canvas(
     painter.set_clip_rect(canvas_rect);
 
     // Handle viewport input (pan, zoom, flip)
-    canvas_input::handle_viewport_input(&response, editor, canvas_rect, ui);
+    canvas_input::handle_viewport_input(editor, canvas_rect, ui);
 
     // Handle F key or toolbar button = zoom to fit
     if (ui.input(|i| i.key_pressed(egui::Key::F)) && !ui.input(|i| i.modifiers.ctrl))
@@ -76,8 +76,6 @@ pub fn show_canvas(
         sprite,
         &project.palette,
         canvas_rect,
-        project.stroke_taper,
-        theme_mode,
     );
 
     // Hit testing for hover highlight
@@ -126,15 +124,10 @@ pub fn show_canvas(
             canvas_rect,
             response.hover_pos(),
         );
-        let cursor_world = response
-            .hover_pos()
-            .map(|p| editor.viewport.screen_to_world(p, canvas_rect.center()))
-            .unwrap_or(snap_pos);
 
         canvas_render::render_line_tool_preview(
             &painter,
             &editor.line_tool.vertices,
-            cursor_world,
             snap_pos,
             &project.palette,
             &editor.viewport,

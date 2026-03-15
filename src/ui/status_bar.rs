@@ -29,8 +29,11 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &Sprite,
 
         // Grid mode icon
         match project.editor_preferences.grid_mode {
-            crate::model::project::GridMode::Straight => {
+            crate::model::project::GridMode::Off => {
                 ui.add(icons::small_icon(icons::grid_dots()));
+            }
+            crate::model::project::GridMode::Straight => {
+                ui.add(icons::small_icon(icons::grid_lines()));
             }
             crate::model::project::GridMode::Isometric => {
                 ui.add(icons::small_icon(icons::grid_iso()));

@@ -10,7 +10,6 @@ use super::canvas::CanvasAction;
 
 /// Handle viewport input (pan, zoom, flip, zoom-to-fit).
 pub fn handle_viewport_input(
-    response: &egui::Response,
     editor: &mut EditorState,
     canvas_rect: egui::Rect,
     ui: &egui::Ui,
@@ -27,9 +26,6 @@ pub fn handle_viewport_input(
     }
 
     // Middle-click drag = pan
-    if response.middle_clicked() {
-        // Start pan
-    }
     if ui.input(|i| i.pointer.middle_down()) {
         let delta = ui.input(|i| i.pointer.delta());
         if delta.length() > 0.0 {
@@ -44,11 +40,6 @@ pub fn handle_viewport_input(
     // H key = canvas flip
     if ui.input(|i| i.key_pressed(egui::Key::H)) && !ui.input(|i| i.modifiers.ctrl) {
         editor.viewport.flipped = !editor.viewport.flipped;
-    }
-
-    // F key = zoom to fit
-    if ui.input(|i| i.key_pressed(egui::Key::F)) && !ui.input(|i| i.modifiers.ctrl) {
-        // This will be called from canvas.rs where we have access to sprite bounds
     }
 
     // C key = toggle curve/straight mode
@@ -87,9 +78,28 @@ pub fn handle_line_tool_input(
         }
     }
 
-    // Right-click = cancel
-    if response.secondary_clicked() {
+    // Escape = cancel drawing
+    let escape_pressed = response.ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    if escape_pressed && editor.line_tool.is_drawing {
         editor.line_tool.clear();
+        return (None, merge_target_pos);
+    }
+
+    // Right-click = commit stroke (if enough vertices)
+    if response.secondary_clicked() {
+        if editor.line_tool.vertices.len() >= 2 {
+            let action = commit_stroke(editor, sprite, project, active_layer_idx);
+            return (Some(action), merge_target_pos);
+        } else {
+            editor.line_tool.clear();
+            return (None, merge_target_pos);
+        }
+    }
+
+    // Check if active layer is locked — prevent drawing
+    if let Some(layer) = sprite.layers.get(active_layer_idx)
+        && layer.locked
+    {
         return (None, merge_target_pos);
     }
 
@@ -108,10 +118,13 @@ pub fn handle_line_tool_input(
         editor.line_tool.vertices.push(vertex);
         editor.line_tool.is_drawing = true;
 
-        // Recompute auto-curves if in curve mode
-        if editor.line_tool.curve_mode {
-            math::recompute_auto_curves(&mut editor.line_tool.vertices, false);
-        }
+        // Recompute auto-curves (applies curve mode + min corner radius)
+        math::recompute_auto_curves(
+            &mut editor.line_tool.vertices,
+            false,
+            editor.line_tool.curve_mode,
+            project.min_corner_radius,
+        );
     }
 
     // Enter key also finishes the stroke
@@ -153,6 +166,8 @@ fn commit_stroke(
                     merge::VertexEnd::Start,
                     editor.active_stroke_width,
                     editor.active_color_index,
+                    editor.line_tool.curve_mode,
+                    project.min_corner_radius,
                 );
                 return CanvasAction::MergeStroke {
                     merged_element: merged,
@@ -171,6 +186,8 @@ fn commit_stroke(
                 merge::VertexEnd::End,
                 editor.active_stroke_width,
                 editor.active_color_index,
+                editor.line_tool.curve_mode,
+                project.min_corner_radius,
             );
             return CanvasAction::MergeStroke {
                 merged_element: merged,

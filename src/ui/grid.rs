@@ -32,8 +32,11 @@ pub fn render_grid(
     let start_y = ((world_min.y / gs).floor() as i32 - 1).max(-1000);
     let end_y = ((world_max.y / gs).ceil() as i32 + 1).min(1000);
 
-    if prefs.show_lines {
-        render_lines(painter, viewport, prefs, canvas_rect, canvas_center, theme, gs, start_x, end_x, start_y, end_y);
+    match prefs.grid_mode {
+        GridMode::Off => {}
+        GridMode::Straight | GridMode::Isometric => {
+            render_lines(painter, viewport, prefs, canvas_center, theme, gs, start_x, end_x, start_y, end_y);
+        }
     }
 
     if prefs.show_dots {
@@ -78,7 +81,6 @@ fn render_lines(
     painter: &Painter,
     viewport: &ViewportState,
     prefs: &EditorPreferences,
-    _canvas_rect: egui::Rect,
     canvas_center: Pos2,
     theme: Theme,
     gs: f32,
@@ -89,6 +91,7 @@ fn render_lines(
     let stroke = egui::Stroke::new(1.0, line_color);
 
     match prefs.grid_mode {
+        GridMode::Off => {}
         GridMode::Straight => {
             // Vertical lines
             for gx in start_x..=end_x {
@@ -106,29 +109,35 @@ fn render_lines(
             }
         }
         GridMode::Isometric => {
-            // 2:1 isometric: lines at +26.57° and -26.57° passing through dot positions
-            let extend = ((end_x - start_x + end_y - start_y) as f32 * gs).max(500.0);
-
-            // Set of unique lines — draw one line per grid row/column in each diagonal direction
-            // Lines going NE-SW (slope = 0.5, angle = 26.57°)
-            for k in (start_x + start_y)..=(end_x + end_y) {
-                let base_x = k as f32 * gs / 2.0;
-                let base_y = 0.0_f32;
-                // Parametric: (base_x + t*dx, base_y + t*dy)
-                let p1 = Vec2::new(base_x - extend, base_y - extend * 0.5);
-                let p2 = Vec2::new(base_x + extend, base_y + extend * 0.5);
-                let s1 = viewport.world_to_screen(p1, canvas_center);
-                let s2 = viewport.world_to_screen(p2, canvas_center);
+            // 2:1 isometric lines passing through square grid dots.
+            // Each line connects dots 2 apart horizontally for every 1 vertically.
+            //
+            // Slope +0.5 lines: y = 0.5*x + c
+            //   Through dot (gx*gs, gy*gs): c = (gy - gx/2)*gs, so k = 2*gy - gx is the line index.
+            let k_min_pos = 2 * start_y - end_x;
+            let k_max_pos = 2 * end_y - start_x;
+            for k in k_min_pos..=k_max_pos {
+                // y = 0.5*x + k*gs/2
+                let x1 = start_x as f32 * gs;
+                let x2 = end_x as f32 * gs;
+                let y1 = 0.5 * x1 + k as f32 * gs / 2.0;
+                let y2 = 0.5 * x2 + k as f32 * gs / 2.0;
+                let s1 = viewport.world_to_screen(Vec2::new(x1, y1), canvas_center);
+                let s2 = viewport.world_to_screen(Vec2::new(x2, y2), canvas_center);
                 painter.line_segment([s1, s2], stroke);
             }
-            // Lines going NW-SE (slope = -0.5, angle = -26.57°)
-            for k in (start_x - end_y)..=(end_x - start_y) {
-                let base_x = k as f32 * gs / 2.0;
-                let base_y = 0.0_f32;
-                let p1 = Vec2::new(base_x - extend, base_y + extend * 0.5);
-                let p2 = Vec2::new(base_x + extend, base_y - extend * 0.5);
-                let s1 = viewport.world_to_screen(p1, canvas_center);
-                let s2 = viewport.world_to_screen(p2, canvas_center);
+            // Slope -0.5 lines: y = -0.5*x + c
+            //   Through dot (gx*gs, gy*gs): c = (gy + gx/2)*gs, so k = 2*gy + gx is the line index.
+            let k_min_neg = 2 * start_y + start_x;
+            let k_max_neg = 2 * end_y + end_x;
+            for k in k_min_neg..=k_max_neg {
+                // y = -0.5*x + k*gs/2
+                let x1 = start_x as f32 * gs;
+                let x2 = end_x as f32 * gs;
+                let y1 = -0.5 * x1 + k as f32 * gs / 2.0;
+                let y2 = -0.5 * x2 + k as f32 * gs / 2.0;
+                let s1 = viewport.world_to_screen(Vec2::new(x1, y1), canvas_center);
+                let s2 = viewport.world_to_screen(Vec2::new(x2, y2), canvas_center);
                 painter.line_segment([s1, s2], stroke);
             }
         }

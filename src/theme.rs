@@ -101,3 +101,10 @@ pub fn rubber_band_color(theme: Theme) -> Color32 {
         Theme::Light => Color32::from_rgba_unmultiplied(0x25, 0x21, 0x3e, 100),
     }
 }
+
+pub fn floating_panel_color(theme: Theme) -> Color32 {
+    match theme {
+        Theme::Dark => Color32::from_rgba_unmultiplied(0x29, 0x28, 0x31, 220),
+        Theme::Light => Color32::from_rgba_unmultiplied(0xff, 0xec, 0xd6, 220),
+    }
+}

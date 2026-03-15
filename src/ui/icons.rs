@@ -4,6 +4,10 @@ const ICON_SIZE: f32 = 16.0;
 const SMALL_ICON_SIZE: f32 = 12.0;
 
 // Action icons
+pub fn action_new() -> ImageSource<'static> { egui::include_image!("../../assets/icons/action_new.svg") }
+pub fn action_load() -> ImageSource<'static> { egui::include_image!("../../assets/icons/action_load.svg") }
+pub fn action_save() -> ImageSource<'static> { egui::include_image!("../../assets/icons/action_save.svg") }
+pub fn action_save_as() -> ImageSource<'static> { egui::include_image!("../../assets/icons/action_save_as.svg") }
 pub fn undo() -> ImageSource<'static> { egui::include_image!("../../assets/icons/action_undo.svg") }
 pub fn redo() -> ImageSource<'static> { egui::include_image!("../../assets/icons/action_redo.svg") }
 

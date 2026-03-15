@@ -76,78 +76,116 @@ impl App {
     }
 }
 
+impl App {
+    fn dispatch_action(&mut self, action: ui::canvas::CanvasAction) {
+        let before = self.sprite.clone();
+        let layer_idx = self.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
+
+        match action {
+            ui::canvas::CanvasAction::CommitStroke(element) => {
+                self.sprite.layers[layer_idx].elements.push(element);
+                self.history.push("Draw stroke".into(), before, self.sprite.clone());
+            }
+            ui::canvas::CanvasAction::MergeStroke { merged_element, replace_element_id } => {
+                let layer = &mut self.sprite.layers[layer_idx];
+                layer.elements.retain(|e| e.id != replace_element_id);
+                layer.elements.push(merged_element);
+                self.history.push("Merge stroke".into(), before, self.sprite.clone());
+            }
+        }
+    }
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         theme::apply_theme(ctx, self.project.editor_preferences.theme);
 
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            ui::toolbar::show_toolbar(
-                ui,
-                &mut self.editor,
-                &mut self.project,
-                &mut self.sprite,
-                &mut self.history,
-                &mut self.sprite_path,
-                &mut self.active_layer_idx,
-            );
+        // Handle undo/redo globally (works regardless of focused panel)
+        ctx.input(|i| {
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Z) && !i.modifiers.shift {
+                self.history.undo(&mut self.sprite);
+            }
+            if i.modifiers.ctrl
+                && (i.key_pressed(egui::Key::Y)
+                    || (i.key_pressed(egui::Key::Z) && i.modifiers.shift))
+            {
+                self.history.redo(&mut self.sprite);
+            }
         });
 
-        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            ui::status_bar::show_status_bar(ui, &self.editor, &self.sprite, &self.project);
-        });
+        let panel_bg = theme::floating_panel_color(self.project.editor_preferences.theme);
+        let floating_frame = egui::Frame::NONE
+            .fill(panel_bg)
+            .corner_radius(8.0)
+            .inner_margin(6.0);
 
-        egui::SidePanel::right("sidebar")
-            .default_width(220.0)
+        // Canvas fills entire window (no frame)
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                let actions = ui::canvas::show_canvas(
+                    ui,
+                    &mut self.editor,
+                    &self.sprite,
+                    &self.project,
+                    self.active_layer_idx,
+                );
+
+                for action in actions {
+                    self.dispatch_action(action);
+                }
+            });
+
+        // Floating toolbar (centered at top)
+        egui::Window::new("toolbar")
+            .title_bar(false)
+            .resizable(false)
+            .movable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_TOP, [0.0, 8.0])
+            .frame(floating_frame)
+            .show(ctx, |ui| {
+                ui::toolbar::show_toolbar(
+                    ui,
+                    &mut self.editor,
+                    &mut self.project,
+                    &mut self.sprite,
+                    &mut self.history,
+                    &mut self.sprite_path,
+                    &mut self.active_layer_idx,
+                );
+            });
+
+        // Floating sidebar (right side)
+        egui::Window::new("sidebar")
+            .title_bar(false)
+            .resizable(false)
+            .movable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::RIGHT_TOP, [-8.0, 48.0])
+            .frame(floating_frame)
+            .min_width(180.0)
+            .max_width(180.0)
             .show(ctx, |ui| {
                 ui::sidebar::show_sidebar(
                     ui,
                     &mut self.editor,
                     &mut self.sprite,
-                    &self.project,
+                    &mut self.project,
                     &mut self.active_layer_idx,
                 );
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let actions = ui::canvas::show_canvas(
-                ui,
-                &mut self.editor,
-                &self.sprite,
-                &self.project,
-                self.active_layer_idx,
-            );
-
-            for action in actions {
-                match action {
-                    ui::canvas::CanvasAction::CommitStroke(element) => {
-                        let before = self.sprite.clone();
-                        let layer_idx = self.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
-                        self.sprite.layers[layer_idx].elements.push(element);
-                        self.history.push("Draw stroke".into(), before, self.sprite.clone());
-                    }
-                    ui::canvas::CanvasAction::MergeStroke { merged_element, replace_element_id } => {
-                        let before = self.sprite.clone();
-                        let layer_idx = self.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
-                        let layer = &mut self.sprite.layers[layer_idx];
-                        layer.elements.retain(|e| e.id != replace_element_id);
-                        layer.elements.push(merged_element);
-                        self.history.push("Merge stroke".into(), before, self.sprite.clone());
-                    }
-                }
-            }
-
-            // Handle undo/redo
-            ui.input(|i| {
-                if i.modifiers.ctrl && i.key_pressed(egui::Key::Z) && !i.modifiers.shift {
-                    self.history.undo(&mut self.sprite);
-                }
-                if i.modifiers.ctrl
-                    && (i.key_pressed(egui::Key::Y)
-                        || (i.key_pressed(egui::Key::Z) && i.modifiers.shift))
-                {
-                    self.history.redo(&mut self.sprite);
-                }
+        // Floating status bar (bottom center)
+        egui::Window::new("status_bar")
+            .title_bar(false)
+            .resizable(false)
+            .movable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -8.0])
+            .frame(floating_frame)
+            .show(ctx, |ui| {
+                ui::status_bar::show_status_bar(ui, &self.editor, &self.sprite, &self.project);
             });
-        });
     }
 }

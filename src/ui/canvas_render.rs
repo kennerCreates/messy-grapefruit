@@ -14,8 +14,6 @@ pub fn render_elements(
     sprite: &Sprite,
     palette: &Palette,
     canvas_rect: egui::Rect,
-    taper_enabled: bool,
-    _theme_mode: Theme,
 ) {
     let canvas_center = canvas_rect.center();
 
@@ -25,16 +23,7 @@ pub fn render_elements(
         }
         for element in &layer.elements {
             let color = palette.get_color(element.stroke_color_index).to_color32();
-            let should_taper = match element.taper_override {
-                Some(v) => v,
-                None => taper_enabled,
-            };
-
-            if should_taper && !element.closed && element.vertices.len() >= 2 {
-                render_tapered_stroke(painter, element, color, viewport, canvas_center);
-            } else {
-                render_uniform_stroke(painter, element, color, viewport, canvas_center);
-            }
+            render_uniform_stroke(painter, element, color, viewport, canvas_center);
         }
     }
 }
@@ -82,54 +71,6 @@ fn render_bezier_segment(
     }));
 }
 
-/// Render a stroke with parabolic taper (zero width at endpoints, full at center).
-fn render_tapered_stroke(
-    painter: &Painter,
-    element: &StrokeElement,
-    color: Color32,
-    viewport: &ViewportState,
-    canvas_center: Pos2,
-) {
-    // Flatten all segments into a single polyline
-    let mut points = Vec::new();
-    let verts = &element.vertices;
-
-    for i in 0..verts.len().saturating_sub(1) {
-        let (p0, cp1, cp2, p3) = math::segment_bezier_points(&verts[i], &verts[i + 1]);
-        let start_idx = points.len();
-        math::flatten_cubic_bezier(p0, cp1, cp2, p3, 0.5, &mut points);
-        // Remove duplicate start point for subsequent segments
-        if start_idx > 0 && points.len() > start_idx {
-            points.remove(start_idx);
-        }
-    }
-
-    if points.len() < 2 {
-        return;
-    }
-
-    // Compute cumulative arc lengths
-    let arc_lengths = math::cumulative_arc_lengths(&points);
-    let total_length = *arc_lengths.last().unwrap_or(&0.0);
-    if total_length < 0.001 {
-        return;
-    }
-
-    // Draw each polyline segment with varying width
-    for i in 0..points.len() - 1 {
-        let t = (arc_lengths[i] + arc_lengths[i + 1]) / (2.0 * total_length);
-        let width = element.stroke_width * (1.0 - (2.0 * t - 1.0).powi(2));
-        let screen_width = (width * viewport.zoom).max(0.5);
-
-        let s0 = viewport.world_to_screen(points[i], canvas_center);
-        let s1 = viewport.world_to_screen(points[i + 1], canvas_center);
-
-        if width > 0.01 {
-            painter.line_segment([s0, s1], Stroke::new(screen_width, color));
-        }
-    }
-}
-
 /// Render hover highlight for an element.
 pub fn render_hover_highlight(
     painter: &Painter,
@@ -167,7 +108,6 @@ pub fn render_hover_highlight(
 pub fn render_line_tool_preview(
     painter: &Painter,
     vertices: &[PathVertex],
-    _cursor_world: Vec2,
     snap_pos: Vec2,
     palette: &Palette,
     viewport: &ViewportState,

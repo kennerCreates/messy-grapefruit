@@ -12,6 +12,7 @@ pub enum Theme {
 #[serde(rename_all = "camelCase")]
 pub enum GridMode {
     #[default]
+    Off,
     Straight,
     Isometric,
 }
@@ -88,7 +89,6 @@ pub struct EditorPreferences {
     pub grid_size: u32,
     pub grid_mode: GridMode,
     pub show_dots: bool,
-    pub show_lines: bool,
 }
 
 impl Default for EditorPreferences {
@@ -96,9 +96,8 @@ impl Default for EditorPreferences {
         Self {
             theme: Theme::Dark,
             grid_size: 8,
-            grid_mode: GridMode::Straight,
+            grid_mode: GridMode::Off,
             show_dots: true,
-            show_lines: false,
         }
     }
 }
@@ -109,7 +108,7 @@ pub struct Project {
     pub name: String,
     pub format_version: u32,
     pub palette: Palette,
-    pub stroke_taper: bool,
+    pub min_corner_radius: f32,
     pub editor_preferences: EditorPreferences,
 }
 
@@ -119,7 +118,7 @@ impl Project {
             name: name.into(),
             format_version: 1,
             palette: Palette::default_palette(),
-            stroke_taper: true,
+            min_corner_radius: 8.0,
             editor_preferences: EditorPreferences::default(),
         }
     }
@@ -158,7 +157,6 @@ mod tests {
         let json = serde_json::to_string_pretty(&project).unwrap();
         let project2: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(project2.name, "TestProject");
-        assert!(project2.stroke_taper);
         assert_eq!(project2.palette.colors.len(), 10);
         assert_eq!(project2.editor_preferences.grid_size, 8);
     }

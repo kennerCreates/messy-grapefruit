@@ -8,7 +8,7 @@ pub fn show_sidebar(
     ui: &mut egui::Ui,
     editor: &mut EditorState,
     sprite: &mut Sprite,
-    project: &Project,
+    project: &mut Project,
     active_layer_idx: &mut usize,
 ) {
     // Top zone: tool options
@@ -31,7 +31,7 @@ pub fn show_sidebar(
     show_layer_list(ui, sprite, active_layer_idx);
 }
 
-fn show_line_tool_options(ui: &mut egui::Ui, editor: &mut EditorState, project: &Project) {
+fn show_line_tool_options(ui: &mut egui::Ui, editor: &mut EditorState, project: &mut Project) {
     // Stroke width
     ui.horizontal(|ui| {
         ui.label("Width:");
@@ -90,6 +90,12 @@ fn show_line_tool_options(ui: &mut egui::Ui, editor: &mut EditorState, project: 
                 response.on_hover_text(format!("Color {i}"));
             }
         }
+    });
+
+    // Min corner radius
+    ui.horizontal(|ui| {
+        ui.label("Radius:");
+        ui.add(egui::Slider::new(&mut project.min_corner_radius, 0.0..=32.0).fixed_decimals(1));
     });
 
     // Curve/straight toggle

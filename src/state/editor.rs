@@ -106,7 +106,7 @@ impl Default for EditorState {
             active_stroke_width: 2.0,
             active_color_index: 1, // black
             hover_element_id: None,
-            zoom_to_fit_requested: false,
+            zoom_to_fit_requested: true,
         }
     }
 }

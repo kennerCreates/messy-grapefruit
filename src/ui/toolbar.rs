@@ -17,16 +17,24 @@ pub fn show_toolbar(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
 
-        // File buttons (no icons provided — keep as text)
-        if ui.button("New").clicked() {
+        // File buttons
+        if ui
+            .add(icons::icon_button(icons::action_new()))
+            .on_hover_text("New")
+            .clicked()
+        {
             *sprite = Sprite::new("Untitled", 256, 256);
             *history = History::new(200);
             *sprite_path = None;
             *active_layer_idx = 0;
             editor.line_tool.clear();
+            editor.zoom_to_fit_requested = true;
         }
 
-        if ui.button("Open").clicked()
+        if ui
+            .add(icons::icon_button(icons::action_load()))
+            .on_hover_text("Open")
+            .clicked()
             && let Some(path) = rfd::FileDialog::new()
                 .add_filter("Sprite", &["sprite"])
                 .pick_file()
@@ -38,6 +46,7 @@ pub fn show_toolbar(
                     *sprite_path = Some(path);
                     *active_layer_idx = 0;
                     editor.line_tool.clear();
+                    editor.zoom_to_fit_requested = true;
                 }
                 Err(e) => {
                     eprintln!("Failed to load sprite: {e}");
@@ -45,7 +54,11 @@ pub fn show_toolbar(
             }
         }
 
-        if ui.button("Save").clicked() {
+        if ui
+            .add(icons::icon_button(icons::action_save()))
+            .on_hover_text("Save")
+            .clicked()
+        {
             let path = if let Some(existing) = sprite_path.as_ref() {
                 Some(existing.clone())
             } else {
@@ -55,6 +68,27 @@ pub fn show_toolbar(
                     .save_file()
             };
             if let Some(path) = path {
+                match crate::io::save_sprite(sprite, &path) {
+                    Ok(()) => {
+                        *sprite_path = Some(path);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to save sprite: {e}");
+                    }
+                }
+            }
+        }
+
+        if ui
+            .add(icons::icon_button(icons::action_save_as()))
+            .on_hover_text("Save As")
+            .clicked()
+        {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("Sprite", &["sprite"])
+                .set_file_name(format!("{}.sprite", sprite.name))
+                .save_file()
+            {
                 match crate::io::save_sprite(sprite, &path) {
                     Ok(()) => {
                         *sprite_path = Some(path);
@@ -120,36 +154,32 @@ pub fn show_toolbar(
         {
             project.editor_preferences.show_dots = !project.editor_preferences.show_dots;
         }
+
+        // Three-way grid line mode: Off / Straight / Isometric (mutually exclusive)
+        let is_straight = project.editor_preferences.grid_mode == GridMode::Straight;
         if ui
-            .add(icons::icon_button(icons::grid_lines()).selected(project.editor_preferences.show_lines))
-            .on_hover_text("Grid Lines")
+            .add(icons::icon_button(icons::grid_lines()).selected(is_straight))
+            .on_hover_text("Straight Grid Lines")
             .clicked()
         {
-            project.editor_preferences.show_lines = !project.editor_preferences.show_lines;
+            project.editor_preferences.grid_mode = if is_straight {
+                GridMode::Off
+            } else {
+                GridMode::Straight
+            };
         }
 
         let is_iso = project.editor_preferences.grid_mode == GridMode::Isometric;
         if ui
             .add(icons::icon_button(icons::grid_iso()).selected(is_iso))
-            .on_hover_text("Isometric Grid")
+            .on_hover_text("Isometric Grid Lines")
             .clicked()
         {
             project.editor_preferences.grid_mode = if is_iso {
-                GridMode::Straight
+                GridMode::Off
             } else {
                 GridMode::Isometric
             };
-        }
-
-        ui.separator();
-
-        // Taper toggle
-        if ui
-            .add(icons::icon_button(icons::stroke_taper()).selected(project.stroke_taper))
-            .on_hover_text("Stroke Taper")
-            .clicked()
-        {
-            project.stroke_taper = !project.stroke_taper;
         }
 
         ui.separator();

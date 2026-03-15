@@ -10,36 +10,54 @@ pub fn catmull_rom_to_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> (Vec2, Ve
     (cp1, cp2)
 }
 
-/// Recompute auto-curve control points for a vertex sequence using Catmull-Rom.
-/// For endpoints of open paths, uses duplicated-endpoint phantom points (zero curvature).
-pub fn recompute_auto_curves(vertices: &mut [PathVertex], closed: bool) {
+/// Recompute auto-curve control points for a vertex sequence.
+///
+/// - `curve_mode`: if true, uses full Catmull-Rom tangents; if false, only applies min radius.
+/// - `min_corner_radius`: minimum tangent length at each vertex, ensuring corners are never
+///   sharper than this radius. When 0 and not in curve mode, CPs are cleared (fully sharp).
+pub fn recompute_auto_curves(
+    vertices: &mut [PathVertex],
+    closed: bool,
+    curve_mode: bool,
+    min_corner_radius: f32,
+) {
     let n = vertices.len();
     if n < 2 {
         return;
     }
 
-    // Collect positions first to avoid borrow issues
     let positions: Vec<Vec2> = vertices.iter().map(|v| v.pos).collect();
 
     for i in 0..n {
-        let (p0, p1, p2, p3) = if closed {
-            (
-                positions[(i + n - 1) % n],
-                positions[i],
-                positions[(i + 1) % n],
-                positions[(i + 2) % n],
-            )
+        let (p_prev, p_next) = if closed {
+            (positions[(i + n - 1) % n], positions[(i + 1) % n])
         } else {
-            let p0 = if i == 0 { positions[0] } else { positions[i - 1] };
-            let p1 = positions[i];
-            let p2 = if i + 1 < n { positions[i + 1] } else { positions[n - 1] };
-            let p3 = if i + 2 < n { positions[i + 2] } else { p2 };
-            (p0, p1, p2, p3)
+            let p_prev = if i > 0 { positions[i - 1] } else { positions[0] };
+            let p_next = if i + 1 < n { positions[i + 1] } else { positions[n - 1] };
+            (p_prev, p_next)
         };
 
-        let (cp1, cp2) = catmull_rom_to_cubic(p0, p1, p2, p3);
-        vertices[i].cp1 = Some(cp1);
-        vertices[i].cp2 = Some(cp2);
+        let direction = p_next - p_prev;
+        let dir_len = direction.length();
+
+        if dir_len < 0.001 {
+            vertices[i].cp1 = None;
+            vertices[i].cp2 = None;
+            continue;
+        }
+
+        // In curve mode: auto tangent length (Catmull-Rom); otherwise 0
+        let base_length = if curve_mode { dir_len / 6.0 } else { 0.0 };
+        let tangent_length = base_length.max(min_corner_radius);
+
+        if tangent_length < 0.001 {
+            vertices[i].cp1 = None;
+            vertices[i].cp2 = None;
+        } else {
+            let tangent = direction * (tangent_length / dir_len);
+            vertices[i].cp1 = Some(positions[i] - tangent);
+            vertices[i].cp2 = Some(positions[i] + tangent);
+        }
     }
 }
 
@@ -237,7 +255,7 @@ mod tests {
             PathVertex::new(Vec2::new(10.0, 20.0)),
             PathVertex::new(Vec2::new(20.0, 0.0)),
         ];
-        recompute_auto_curves(&mut vertices, false);
+        recompute_auto_curves(&mut vertices, false, true, 0.0);
         // All vertices should have control points
         for v in &vertices {
             assert!(v.cp1.is_some());
@@ -252,7 +270,7 @@ mod tests {
             PathVertex::new(Vec2::new(10.0, 0.0)),
             PathVertex::new(Vec2::new(5.0, 10.0)),
         ];
-        recompute_auto_curves(&mut vertices, true);
+        recompute_auto_curves(&mut vertices, true, true, 0.0);
         for v in &vertices {
             assert!(v.cp1.is_some());
             assert!(v.cp2.is_some());

@@ -9,7 +9,7 @@ pub fn snap_to_grid(pos: Vec2, grid_size: u32, grid_mode: GridMode) -> Vec2 {
     }
 
     match grid_mode {
-        GridMode::Straight => Vec2::new(
+        GridMode::Off | GridMode::Straight => Vec2::new(
             (pos.x / gs).round() * gs,
             (pos.y / gs).round() * gs,
         ),

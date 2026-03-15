@@ -39,8 +39,6 @@ pub struct StrokeElement {
     pub rotation: f32,
     pub scale: Vec2,
     pub origin: Vec2,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub taper_override: Option<bool>,
 }
 
 impl StrokeElement {
@@ -57,7 +55,6 @@ impl StrokeElement {
             rotation: 0.0,
             scale: Vec2::ONE,
             origin: Vec2::ZERO,
-            taper_override: None,
         }
     }
 
