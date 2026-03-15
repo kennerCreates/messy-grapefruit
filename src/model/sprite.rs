@@ -32,6 +32,8 @@ pub struct StrokeElement {
     pub name: Option<String>,
     pub vertices: Vec<PathVertex>,
     pub closed: bool,
+    #[serde(default)]
+    pub curve_mode: bool,
     pub stroke_width: f32,
     pub stroke_color_index: u8,
     pub fill_color_index: u8,
@@ -42,12 +44,13 @@ pub struct StrokeElement {
 }
 
 impl StrokeElement {
-    pub fn new(vertices: Vec<PathVertex>, stroke_width: f32, stroke_color_index: u8) -> Self {
+    pub fn new(vertices: Vec<PathVertex>, stroke_width: f32, stroke_color_index: u8, curve_mode: bool) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name: None,
             vertices,
             closed: false,
+            curve_mode,
             stroke_width,
             stroke_color_index,
             fill_color_index: 0,
@@ -155,6 +158,7 @@ mod tests {
             ],
             2.0,
             1,
+            false,
         );
         sprite.layers[0].elements.push(elem);
 
@@ -180,6 +184,7 @@ mod tests {
             vec![PathVertex::new(Vec2::ZERO), PathVertex::new(Vec2::ONE)],
             1.0,
             1,
+            false,
         ));
         assert_eq!(sprite.element_count(), 1);
         assert_eq!(sprite.vertex_count(), 2);

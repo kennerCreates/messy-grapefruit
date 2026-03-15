@@ -105,6 +105,7 @@ pub fn merge_elements(
         name: existing.name.clone(),
         vertices: merged_verts,
         closed: false,
+        curve_mode,
         stroke_width,
         stroke_color_index,
         fill_color_index: existing.fill_color_index,

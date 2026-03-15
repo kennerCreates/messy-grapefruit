@@ -109,15 +109,19 @@ fn render_lines(
             }
         }
         GridMode::Isometric => {
-            // 2:1 isometric lines passing through square grid dots.
-            // Each line connects dots 2 apart horizontally for every 1 vertically.
+            // 2:1 isometric diamond grid. Lines at slopes ±0.5 through grid dots.
             //
-            // Slope +0.5 lines: y = 0.5*x + c
-            //   Through dot (gx*gs, gy*gs): c = (gy - gx/2)*gs, so k = 2*gy - gx is the line index.
+            // k = 2*gy - gx indexes the +0.5 family; k = 2*gy + gx indexes the -0.5 family.
+            // Stepping k by 4 ensures all crossings between the two families land exactly
+            // on grid dot positions (diamonds are 4gs wide × 2gs tall).
+            let step = 4i32;
+
+            // Slope +0.5 lines: y = 0.5*x + k*gs/2
             let k_min_pos = 2 * start_y - end_x;
             let k_max_pos = 2 * end_y - start_x;
-            for k in k_min_pos..=k_max_pos {
-                // y = 0.5*x + k*gs/2
+            let k_start = k_min_pos - k_min_pos.rem_euclid(step);
+            let mut k = k_start;
+            while k <= k_max_pos {
                 let x1 = start_x as f32 * gs;
                 let x2 = end_x as f32 * gs;
                 let y1 = 0.5 * x1 + k as f32 * gs / 2.0;
@@ -125,13 +129,15 @@ fn render_lines(
                 let s1 = viewport.world_to_screen(Vec2::new(x1, y1), canvas_center);
                 let s2 = viewport.world_to_screen(Vec2::new(x2, y2), canvas_center);
                 painter.line_segment([s1, s2], stroke);
+                k += step;
             }
-            // Slope -0.5 lines: y = -0.5*x + c
-            //   Through dot (gx*gs, gy*gs): c = (gy + gx/2)*gs, so k = 2*gy + gx is the line index.
+
+            // Slope -0.5 lines: y = -0.5*x + k*gs/2
             let k_min_neg = 2 * start_y + start_x;
             let k_max_neg = 2 * end_y + end_x;
-            for k in k_min_neg..=k_max_neg {
-                // y = -0.5*x + k*gs/2
+            let k_start = k_min_neg - k_min_neg.rem_euclid(step);
+            let mut k = k_start;
+            while k <= k_max_neg {
                 let x1 = start_x as f32 * gs;
                 let x2 = end_x as f32 * gs;
                 let y1 = -0.5 * x1 + k as f32 * gs / 2.0;
@@ -139,6 +145,7 @@ fn render_lines(
                 let s1 = viewport.world_to_screen(Vec2::new(x1, y1), canvas_center);
                 let s2 = viewport.world_to_screen(Vec2::new(x2, y2), canvas_center);
                 painter.line_segment([s1, s2], stroke);
+                k += step;
             }
         }
     }

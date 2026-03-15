@@ -144,12 +144,29 @@ fn commit_stroke(
     project: &Project,
     active_layer_idx: usize,
 ) -> CanvasAction {
-    let vertices = std::mem::take(&mut editor.line_tool.vertices);
+    let mut vertices = std::mem::take(&mut editor.line_tool.vertices);
     editor.line_tool.is_drawing = false;
+
+    let threshold = project.editor_preferences.grid_size as f32;
+
+    // If first and last vertices coincide, close the path instead of overlapping
+    if vertices.len() >= 3 && vertices[0].pos.distance(vertices[vertices.len() - 1].pos) < threshold
+    {
+        vertices.pop();
+        math::recompute_auto_curves(
+            &mut vertices,
+            true,
+            editor.line_tool.curve_mode,
+            project.min_corner_radius,
+        );
+        let mut element =
+            StrokeElement::new(vertices, editor.active_stroke_width, editor.active_color_index, editor.line_tool.curve_mode);
+        element.closed = true;
+        return CanvasAction::CommitStroke(element);
+    }
 
     // Check for merge at start and end
     let layer = sprite.layers.get(active_layer_idx);
-    let threshold = project.editor_preferences.grid_size as f32;
 
     if let Some(layer) = layer {
         // Check if start vertex merges with an existing element
@@ -197,7 +214,7 @@ fn commit_stroke(
     }
 
     // No merge — create new element
-    let element = StrokeElement::new(vertices, editor.active_stroke_width, editor.active_color_index);
+    let element = StrokeElement::new(vertices, editor.active_stroke_width, editor.active_color_index, editor.line_tool.curve_mode);
     CanvasAction::CommitStroke(element)
 }
 

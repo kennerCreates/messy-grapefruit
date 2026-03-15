@@ -28,9 +28,17 @@ pub fn recompute_auto_curves(
 
     let positions: Vec<Vec2> = vertices.iter().map(|v| v.pos).collect();
 
+    // If endpoints coincide on an open path, treat them like a closed path for tangent
+    // computation so both endpoints get the same two-sided corner radius as interior vertices.
+    let endpoints_coincide =
+        !closed && n >= 3 && positions[0].distance(positions[n - 1]) < 0.5;
+
     for i in 0..n {
         let (p_prev, p_next) = if closed {
             (positions[(i + n - 1) % n], positions[(i + 1) % n])
+        } else if endpoints_coincide && (i == 0 || i == n - 1) {
+            // Both endpoints are at the same position — use wrapped neighbors
+            (positions[n - 2], positions[1])
         } else {
             let p_prev = if i > 0 { positions[i - 1] } else { positions[0] };
             let p_next = if i + 1 < n { positions[i + 1] } else { positions[n - 1] };

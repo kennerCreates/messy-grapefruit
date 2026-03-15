@@ -17,7 +17,7 @@ pub fn show_sidebar(
 
     match editor.tool {
         crate::state::editor::ToolKind::Line => {
-            show_line_tool_options(ui, editor, project);
+            show_line_tool_options(ui, editor, sprite, project);
         }
     }
 
@@ -31,7 +31,7 @@ pub fn show_sidebar(
     show_layer_list(ui, sprite, active_layer_idx);
 }
 
-fn show_line_tool_options(ui: &mut egui::Ui, editor: &mut EditorState, project: &mut Project) {
+fn show_line_tool_options(ui: &mut egui::Ui, editor: &mut EditorState, sprite: &mut Sprite, project: &mut Project) {
     // Stroke width
     ui.horizontal(|ui| {
         ui.label("Width:");
@@ -93,10 +93,24 @@ fn show_line_tool_options(ui: &mut egui::Ui, editor: &mut EditorState, project: 
     });
 
     // Min corner radius
-    ui.horizontal(|ui| {
+    let radius_changed = ui.horizontal(|ui| {
         ui.label("Radius:");
-        ui.add(egui::Slider::new(&mut project.min_corner_radius, 0.0..=32.0).fixed_decimals(1));
-    });
+        ui.add(egui::Slider::new(&mut project.min_corner_radius, 0.0..=32.0).fixed_decimals(1))
+            .changed()
+    }).inner;
+
+    if radius_changed {
+        for layer in &mut sprite.layers {
+            for element in &mut layer.elements {
+                crate::math::recompute_auto_curves(
+                    &mut element.vertices,
+                    element.closed,
+                    element.curve_mode,
+                    project.min_corner_radius,
+                );
+            }
+        }
+    }
 
     // Curve/straight toggle
     ui.horizontal(|ui| {
