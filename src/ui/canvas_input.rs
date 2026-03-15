@@ -1,0 +1,202 @@
+use crate::engine::merge;
+use crate::engine::snap;
+use crate::math;
+use crate::model::project::Project;
+use crate::model::sprite::{PathVertex, Sprite, StrokeElement};
+use crate::model::vec2::Vec2;
+use crate::state::editor::EditorState;
+
+use super::canvas::CanvasAction;
+
+/// Handle viewport input (pan, zoom, flip, zoom-to-fit).
+pub fn handle_viewport_input(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    canvas_rect: egui::Rect,
+    ui: &egui::Ui,
+) {
+    let canvas_center = canvas_rect.center();
+
+    // Scroll wheel = zoom centered on cursor
+    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+    if scroll != 0.0 {
+        let factor = if scroll > 0.0 { 1.1 } else { 1.0 / 1.1 };
+        if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
+            editor.viewport.zoom_at(pointer, factor, canvas_center);
+        }
+    }
+
+    // Middle-click drag = pan
+    if response.middle_clicked() {
+        // Start pan
+    }
+    if ui.input(|i| i.pointer.middle_down()) {
+        let delta = ui.input(|i| i.pointer.delta());
+        if delta.length() > 0.0 {
+            let mut world_delta = Vec2::new(delta.x, delta.y) / editor.viewport.zoom;
+            if editor.viewport.flipped {
+                world_delta.x = -world_delta.x;
+            }
+            editor.viewport.offset += world_delta;
+        }
+    }
+
+    // H key = canvas flip
+    if ui.input(|i| i.key_pressed(egui::Key::H)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.viewport.flipped = !editor.viewport.flipped;
+    }
+
+    // F key = zoom to fit
+    if ui.input(|i| i.key_pressed(egui::Key::F)) && !ui.input(|i| i.modifiers.ctrl) {
+        // This will be called from canvas.rs where we have access to sprite bounds
+    }
+
+    // C key = toggle curve/straight mode
+    if ui.input(|i| i.key_pressed(egui::Key::C)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.line_tool.curve_mode = !editor.line_tool.curve_mode;
+    }
+}
+
+/// Handle line tool input. Returns an action if a stroke was committed.
+pub fn handle_line_tool_input(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    sprite: &Sprite,
+    project: &Project,
+    canvas_rect: egui::Rect,
+    active_layer_idx: usize,
+) -> (Option<CanvasAction>, Option<Vec2>) {
+    let canvas_center = canvas_rect.center();
+    let mut merge_target_pos: Option<Vec2> = None;
+
+    // Get cursor world position
+    let cursor_screen = response.hover_pos().unwrap_or(canvas_rect.center());
+    let cursor_world = editor.viewport.screen_to_world(cursor_screen, canvas_center);
+    let snap_pos = snap::snap_to_grid(
+        cursor_world,
+        project.editor_preferences.grid_size,
+        project.editor_preferences.grid_mode,
+    );
+
+    // Check for merge target
+    let layer = sprite.layers.get(active_layer_idx);
+    if let Some(layer) = layer {
+        let threshold = project.editor_preferences.grid_size as f32;
+        if let Some(target) = merge::find_merge_target(snap_pos, layer, None, threshold) {
+            merge_target_pos = Some(target.position);
+        }
+    }
+
+    // Right-click = cancel
+    if response.secondary_clicked() {
+        editor.line_tool.clear();
+        return (None, merge_target_pos);
+    }
+
+    // Left click = place vertex or finish
+    if response.clicked() {
+        let is_double_click = response.double_clicked();
+
+        if is_double_click && editor.line_tool.vertices.len() >= 2 {
+            // Double-click finishes the stroke
+            let action = commit_stroke(editor, sprite, project, active_layer_idx);
+            return (Some(action), merge_target_pos);
+        }
+
+        // Place a vertex
+        let vertex = PathVertex::new(snap_pos);
+        editor.line_tool.vertices.push(vertex);
+        editor.line_tool.is_drawing = true;
+
+        // Recompute auto-curves if in curve mode
+        if editor.line_tool.curve_mode {
+            math::recompute_auto_curves(&mut editor.line_tool.vertices, false);
+        }
+    }
+
+    // Enter key also finishes the stroke
+    let enter_pressed = response.ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    if enter_pressed && editor.line_tool.vertices.len() >= 2 {
+        let action = commit_stroke(editor, sprite, project, active_layer_idx);
+        return (Some(action), merge_target_pos);
+    }
+
+    (None, merge_target_pos)
+}
+
+/// Commit the current line tool stroke as a StrokeElement.
+fn commit_stroke(
+    editor: &mut EditorState,
+    sprite: &Sprite,
+    project: &Project,
+    active_layer_idx: usize,
+) -> CanvasAction {
+    let vertices = std::mem::take(&mut editor.line_tool.vertices);
+    editor.line_tool.is_drawing = false;
+
+    // Check for merge at start and end
+    let layer = sprite.layers.get(active_layer_idx);
+    let threshold = project.editor_preferences.grid_size as f32;
+
+    if let Some(layer) = layer {
+        // Check if start vertex merges with an existing element
+        let start_pos = vertices[0].pos;
+        let end_pos = vertices[vertices.len() - 1].pos;
+
+        if let Some(target) = merge::find_merge_target(start_pos, layer, None, threshold) {
+            // Merge at start
+            if let Some(existing) = layer.elements.iter().find(|e| e.id == target.element_id) {
+                let merged = merge::merge_elements(
+                    existing,
+                    target.end,
+                    &vertices,
+                    merge::VertexEnd::Start,
+                    editor.active_stroke_width,
+                    editor.active_color_index,
+                );
+                return CanvasAction::MergeStroke {
+                    merged_element: merged,
+                    replace_element_id: target.element_id,
+                };
+            }
+        }
+
+        if let Some(target) = merge::find_merge_target(end_pos, layer, None, threshold)
+            && let Some(existing) = layer.elements.iter().find(|e| e.id == target.element_id)
+        {
+            let merged = merge::merge_elements(
+                existing,
+                target.end,
+                &vertices,
+                merge::VertexEnd::End,
+                editor.active_stroke_width,
+                editor.active_color_index,
+            );
+            return CanvasAction::MergeStroke {
+                merged_element: merged,
+                replace_element_id: target.element_id,
+            };
+        }
+    }
+
+    // No merge — create new element
+    let element = StrokeElement::new(vertices, editor.active_stroke_width, editor.active_color_index);
+    CanvasAction::CommitStroke(element)
+}
+
+/// Get the current snap position for the cursor.
+pub fn get_snap_pos(
+    editor: &EditorState,
+    project: &Project,
+    canvas_rect: egui::Rect,
+    hover_pos: Option<egui::Pos2>,
+) -> Vec2 {
+    let canvas_center = canvas_rect.center();
+    let cursor_screen = hover_pos.unwrap_or(canvas_rect.center());
+    let cursor_world = editor.viewport.screen_to_world(cursor_screen, canvas_center);
+    snap::snap_to_grid(
+        cursor_world,
+        project.editor_preferences.grid_size,
+        project.editor_preferences.grid_mode,
+    )
+}
