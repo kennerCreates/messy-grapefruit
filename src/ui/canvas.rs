@@ -136,6 +136,7 @@ pub fn show_canvas(
             editor.active_stroke_width,
             theme_mode,
             merge_target,
+            editor.line_tool.curve_mode,
         );
     }
 

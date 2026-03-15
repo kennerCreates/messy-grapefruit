@@ -288,9 +288,9 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 ### Grid
 - Grid size is **manually set** by the artist (stored in `editorPreferences.gridSize`). Available sizes: 1, 2, 4, 8, 16, 32, 64 px. Changeable via sidebar (Settings mode) or a toolbar dropdown
 - Grid stays at the chosen size regardless of zoom level — zooming in reveals the same grid, just larger on screen. No automatic density changes
-- **Snapping is always active** regardless of visual grid settings — follows the manually set grid size
-- **Grid dots** (`showDots`): toggleable on/off. Always render on a **straight** square grid — dots are never isometric. At extreme zoom-out where dots would overlap, dots are hidden (snapping still works)
-- **Grid lines** (`showLines`): toggleable on/off, independent of dots. Two line modes (`gridMode`): **straight** (square grid lines) and **isometric** (2:1 ratio diagonal lines, 26.57°). Lines use a **lower contrast** color than dots — closer to the canvas background color (e.g., ~10-15% away from background vs ~30-40% for dots). In isometric mode, the diagonal lines pass through the straight dot positions
+- **Snapping is always active** and always uses the **isometric diamond lattice** with basis vectors `u=(2gs, gs)`, `v=(2gs, -gs)` regardless of the `gridMode` setting. This ensures all vertices land on lattice points suitable for isometric art
+- **Grid dots** (`showDots`): toggleable on/off. Dots render on a **staggered isometric diamond lattice** — even rows at `x=0, ±4gs, ±8gs...`, odd rows offset at `x=±2gs, ±6gs...`. At extreme zoom-out where dots would overlap, dots are hidden (snapping still works)
+- **Grid lines** (`showLines`): toggleable on/off, independent of dots. Two line modes (`gridMode`): **straight** (square grid lines) and **isometric** (2:1 ratio diagonal lines at ±0.5 slope). Lines use a **lower contrast** color than dots — closer to the canvas background color. In isometric mode, the diagonal lines pass through the dot positions
 - Dots and lines can be on/off independently — both on, both off, or either one alone. Snapping works in all combinations
 
 ### Indexed color palette (per-project)
@@ -509,52 +509,71 @@ Two modes, determined by what the artist clicks:
 
 ## Workspace Structure
 
+**Current state (Phase 1 complete):**
+
 ```
 messy-grapefruit/
 ├── Cargo.toml
+├── CLAUDE.md
+├── plan.md
+├── assets/icons/           (custom icon PNGs for toolbar/sidebar)
 ├── src/
-│   ├── main.rs              (eframe app entry point)
+│   ├── main.rs              (191 lines — App struct, eframe entry, action dispatch)
 │   ├── model/
 │   │   ├── mod.rs
-│   │   ├── vec2.rs          (Vec2 math type with ops)
-│   │   ├── project.rs       (Project, Palette, EditorPreferences)
-│   │   └── sprite.rs        (Sprite, Layer, StrokeElement, PathVertex, Skin, PoseKeyframe, ElementPose)
+│   │   ├── vec2.rs          (241 lines — Vec2 type + ops + conversions + tests)
+│   │   ├── project.rs       (163 lines — Project, Palette, PaletteColor, EditorPreferences)
+│   │   └── sprite.rs        (192 lines — Sprite, Layer, StrokeElement, PathVertex)
 │   ├── state/
 │   │   ├── mod.rs
-│   │   ├── editor.rs        (EditorState, ViewportState, SelectionState, tools, auto-key mode)
-│   │   ├── project.rs       (ProjectState, OpenSprite, tab management)
-│   │   └── history.rs       (snapshot-based undo/redo)
-│   ├── io.rs                (save/load sprite/project JSON, Lospec fetch)
-│   ├── math.rs              (Catmull-Rom, bezier eval/split/flatten, auto-curves)
-│   ├── theme.rs             (dark/light theme colors for egui)
-│   ├── ui/                  (egui UI modules — panels, toolbar, sidebar, canvas)
-│   │   ├── canvas.rs        (canvas rendering, viewport pan/zoom, drawing)
-│   │   ├── grid.rs          (standard + isometric dot grid, manual sizing)
-│   │   ├── toolbar.rs       (top toolbar with tool buttons)
-│   │   ├── sidebar.rs       (hybrid right sidebar — tool options + layers/palette/skins tabs)
-│   │   ├── timeline.rs      (animation timeline, pose keyframes, playhead)
-│   │   ├── status_bar.rs    (bottom status bar)
-│   │   ├── export_dialog.rs (export preview dialog with atlas image)
-│   │   ├── new_sprite_dialog.rs (new sprite creation dialog)
-│   │   └── project_overview.rs  (project dashboard with live sprite previews)
-│   ├── engine/
-│   │   ├── animation.rs     (pose interpolation, FK evaluation, full animation pipeline)
-│   │   ├── snap.rs          (grid snapping)
-│   │   ├── hit_test.rs      (point-in-stroke/path)
-│   │   ├── merge.rs         (auto-merge coincident vertices)
-│   │   ├── socket.rs        (socket chain transform resolution, cycle detection)
-│   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)
-│   │   ├── physics.rs       (spring simulation, gravity, wind)
-│   │   ├── constraints.rs   (look-at, volume preserve, procedural modifiers)
-│   │   └── hatch.rs         (hatch pattern generation, flow curve warping, path clipping)
-│   └── export/
-│       ├── svg_gen.rs        (Sprite + time → SVG string)
-│       ├── rasterize.rs      (SVG → PNG via resvg)
-│       ├── bone_export.rs    (element → part PNGs + animation RON)
-│       ├── ron_meta.rs       (Bevy-compatible RON metadata)
-│       ├── spritesheet.rs    (frame atlas packing)
-│       └── watcher.rs        (file watcher for auto-export on save)
+│   │   ├── editor.rs        (151 lines — EditorState, ViewportState, LineToolState, ToolKind)
+│   │   └── history.rs       (139 lines — snapshot undo/redo with drag coalescing)
+│   ├── io.rs                (55 lines — save/load sprite JSON via rfd)
+│   ├── math.rs              (433 lines — Catmull-Rom, bezier eval/split/flatten, fillet arcs, auto-curves)
+│   ├── theme.rs             (110 lines — dark/light theme colors + apply)
+│   ├── ui/
+│   │   ├── mod.rs
+│   │   ├── icons.rs         (62 lines — icon asset loaders via include_image!)
+│   │   ├── canvas.rs        (172 lines — top-level show_canvas orchestrator)
+│   │   ├── canvas_input.rs  (236 lines — viewport input, line tool input, hotkeys)
+│   │   ├── canvas_render.rs (269 lines — element rendering, highlights, previews, boundary)
+│   │   ├── grid.rs          (166 lines — dot/line rendering, straight + isometric)
+│   │   ├── toolbar.rs       (214 lines — file ops, tools, grid controls, view, theme)
+│   │   ├── sidebar.rs       (192 lines — line tool options, corner radius, layer list)
+│   │   └── status_bar.rs    (65 lines — sprite metrics, flip indicator, grid mode)
+│   └── engine/
+│       ├── mod.rs
+│       ├── snap.rs           (55 lines — grid snapping to isometric diamond lattice)
+│       ├── hit_test.rs       (84 lines — point-to-stroke distance via bezier flattening)
+│       └── merge.rs          (117 lines — auto-merge coincident vertices at endpoints)
 └── .gitignore
+```
+
+**Total: ~3,700 lines (Phase 1). Target workspace for all phases:**
+
+```
+src/
+│   ├── state/
+│   │   └── project.rs       (ProjectState, OpenSprite, tab management)    [Phase 15]
+│   ├── ui/
+│   │   ├── timeline.rs      (animation timeline, pose keyframes, playhead) [Phase 8]
+│   │   ├── export_dialog.rs (export preview dialog with atlas image)       [Phase 14]
+│   │   ├── new_sprite_dialog.rs (new sprite creation dialog)               [Phase 15]
+│   │   └── project_overview.rs  (project dashboard with previews)          [Phase 15]
+│   ├── engine/
+│   │   ├── animation.rs     (pose interpolation, FK evaluation)            [Phase 8]
+│   │   ├── socket.rs        (socket chain transforms, cycle detection)     [Phase 10]
+│   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)           [Phase 12]
+│   │   ├── physics.rs       (spring simulation, gravity, wind)             [Phase 13]
+│   │   ├── constraints.rs   (look-at, volume preserve, procedural)         [Phase 13]
+│   │   └── hatch.rs         (hatch pattern generation, flow curves)        [Phase 6]
+│   └── export/
+│       ├── svg_gen.rs        (Sprite + time → SVG string)                  [Phase 7]
+│       ├── rasterize.rs      (SVG → PNG via resvg)                         [Phase 7]
+│       ├── bone_export.rs    (element → part PNGs + animation RON)         [Phase 14]
+│       ├── ron_meta.rs       (Bevy-compatible RON metadata)                [Phase 14]
+│       ├── spritesheet.rs    (frame atlas packing)                         [Phase 14]
+│       └── watcher.rs        (file watcher for auto-export on save)        [Phase 14]
 ```
 
 ---
@@ -666,7 +685,7 @@ The right sidebar has two zones:
 
 Each phase after Foundation adds one testable feature increment. The artist should be able to sit down at the end of each phase and test the new capability.
 
-### Phase 1: Foundation — "I can draw lines on a canvas"
+### Phase 1: Foundation — "I can draw lines on a canvas" ✅
 
 **Icons needed:**
 - Line tool, Undo, Redo
@@ -677,6 +696,7 @@ Each phase after Foundation adds one testable feature increment. The artist shou
 - Sprite metrics: element, vertex, layer, animation, atlas size (5 small status bar icons)
 - Dark/light theme toggle
 
+**Planned features:**
 - Init eframe/egui project, Cargo dependencies, Rust data models with serde
 - Save/open/new sprite via `rfd` file dialogs and `serde_json`
 - AppShell layout: canvas + top toolbar + hybrid right sidebar (context-sensitive top zone + fixed-tab bottom zone) + status bar
@@ -691,6 +711,36 @@ Each phase after Foundation adds one testable feature increment. The artist shou
 - Dark/light theme toggle
 
 **Artist test:** Open app → see gridded canvas → draw tapered strokes → pan/zoom/flip → undo/redo → save and reopen.
+
+**Implementation notes (completed 2026-03-15):**
+
+All planned features implemented except stroke taper rendering (math functions exist, rendering not yet wired up). Key deviations and additions from the original plan:
+
+- **Per-element `curve_mode`**: Added `curve_mode: bool` to `StrokeElement` (with `#[serde(default)]`). Toggled via `C` key during line tool drawing. Curve mode uses Catmull-Rom auto-curves through vertex positions; straight mode uses direct vertex-to-vertex edges with corner fillets.
+
+- **Figma-style corner radius (straight mode)**: Instead of simple straight lines, straight-mode paths use render-time fillet arcs at corners. Tangent distance `d = R / tan(θ/2)` where R = corner radius and θ = angle between edges. Fillet arc approximated by cubic bezier with `ratio = (4/3) * tan(θ/2) * tan(α/4)`. The `min_corner_radius` is a project-level setting (sidebar slider, 0-32).
+
+- **Polyline rendering for straight mode**: Fillet arcs are flattened to polyline points via `flatten_cubic_bezier` and combined with straight-edge segments into a single `PathShape`. This produces proper line joins at arc-edge junctions. Adaptive tolerance `(0.5 / viewport.zoom).max(0.01)` ensures consistent screen-space quality.
+
+- **Isometric diamond lattice snapping**: Grid snap always uses the isometric diamond lattice with basis vectors `u=(2gs, gs)`, `v=(2gs, -gs)` regardless of the `grid_mode` setting. This is intentional — the isometric art workflow requires lattice-aligned snapping for all grid modes.
+
+- **Grid dots on isometric lattice**: Dots render on a staggered diamond grid (even rows at `x=0,±4gs,±8gs...`, odd rows at `x=±2gs,±6gs...`). Grid lines switch between straight (square) and isometric (±0.5 slope diagonals). Both are independently toggleable.
+
+- **Canvas actions architecture**: Canvas returns `CanvasAction` enums (`CommitStroke`, `MergeStroke`); `App::dispatch_action()` handles sprite mutation, undo snapshots, and curve recomputation. No direct sprite mutation from UI code.
+
+- **Auto-close paths**: Double-click near the first vertex closes the path (`closed = true`). Close threshold uses grid snapping distance.
+
+- **Custom icon assets**: Icons loaded via `egui::include_image!` from `assets/icons/`. Icon helper functions in `ui/icons.rs`.
+
+- **File structure**: Canvas code split into three focused files: `canvas.rs` (orchestrator), `canvas_input.rs` (input handling), `canvas_render.rs` (rendering). This avoided the previous implementation's 2,300-line monolithic canvas file.
+
+**Remaining warnings to resolve in future phases:**
+- `math.rs: cubic_bezier_eval, approximate_bezier_length, cumulative_arc_lengths` — wire up in stroke taper rendering (Phase 1 polish or Phase 6)
+- `math.rs: catmull_rom_to_cubic` — used by curve mode tests; either use in recompute_auto_curves or inline and remove
+- `icons.rs: stroke_taper` — wire up taper toggle button in toolbar (Phase 1 polish)
+- `merge.rs: vertex_id` — use in auto-merge target identification or remove field
+- `io.rs: save_project, load_project` — use in Phase 15 (project management)
+- `theme.rs: secondary` — use in Phase 4+ (palette panel, themed accents)
 
 ### Phase 2: Select & Edit — "I can move and arrange what I drew"
 

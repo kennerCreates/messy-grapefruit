@@ -37,16 +37,78 @@ fn render_uniform_stroke(
     canvas_center: Pos2,
 ) {
     let stroke = Stroke::new(element.stroke_width * viewport.zoom, color);
-    let verts = &element.vertices;
 
+    if element.curve_mode {
+        render_curve_path(painter, &element.vertices, element.closed, stroke, viewport, canvas_center);
+    } else {
+        render_rounded_path(painter, &element.vertices, element.closed, stroke, viewport, canvas_center);
+    }
+}
+
+/// Render a path using cubic bezier segments through vertex positions (curve mode).
+fn render_curve_path(
+    painter: &Painter,
+    verts: &[PathVertex],
+    closed: bool,
+    stroke: Stroke,
+    viewport: &ViewportState,
+    canvas_center: Pos2,
+) {
     for i in 0..verts.len().saturating_sub(1) {
         render_bezier_segment(painter, &verts[i], &verts[i + 1], stroke, viewport, canvas_center);
     }
-
-    if element.closed && verts.len() >= 2 {
+    if closed && verts.len() >= 2 {
         let last = verts.len() - 1;
         render_bezier_segment(painter, &verts[last], &verts[0], stroke, viewport, canvas_center);
     }
+}
+
+/// Render a path with Figma-style corner fillets (straight mode with radius).
+/// Flattens fillet arcs into a single continuous polyline for proper line joins.
+fn render_rounded_path(
+    painter: &Painter,
+    verts: &[PathVertex],
+    closed: bool,
+    stroke: Stroke,
+    viewport: &ViewportState,
+    canvas_center: Pos2,
+) {
+    let n = verts.len();
+    if n < 2 {
+        return;
+    }
+
+    // Adaptive tolerance: ~0.5 screen pixels regardless of zoom
+    let tolerance = (0.5 / viewport.zoom).max(0.01);
+    let mut world_points: Vec<Vec2> = Vec::new();
+
+    for v in verts {
+        if let (Some(t1), Some(t2)) = (v.cp1, v.cp2) {
+            // Flatten the fillet arc into polyline points
+            let (arc_cp1, arc_cp2) = math::fillet_arc_control_points(t1, t2, v.pos);
+            let mut arc = Vec::new();
+            math::flatten_cubic_bezier(t1, arc_cp1, arc_cp2, t2, tolerance, &mut arc);
+            world_points.extend_from_slice(&arc);
+        } else {
+            world_points.push(v.pos);
+        }
+    }
+
+    if world_points.len() < 2 {
+        return;
+    }
+
+    let screen_points: Vec<Pos2> = world_points
+        .iter()
+        .map(|p| viewport.world_to_screen(*p, canvas_center))
+        .collect();
+
+    painter.add(egui::Shape::Path(egui::epaint::PathShape {
+        points: screen_points,
+        closed,
+        fill: Color32::TRANSPARENT,
+        stroke: stroke.into(),
+    }));
 }
 
 fn render_bezier_segment(
@@ -87,15 +149,10 @@ pub fn render_hover_highlight(
         for element in &layer.elements {
             if element.id == element_id {
                 let stroke = Stroke::new((element.stroke_width + 4.0) * viewport.zoom, highlight_color);
-                for i in 0..element.vertices.len().saturating_sub(1) {
-                    render_bezier_segment(
-                        painter,
-                        &element.vertices[i],
-                        &element.vertices[i + 1],
-                        stroke,
-                        viewport,
-                        canvas_center,
-                    );
+                if element.curve_mode {
+                    render_curve_path(painter, &element.vertices, element.closed, stroke, viewport, canvas_center);
+                } else {
+                    render_rounded_path(painter, &element.vertices, element.closed, stroke, viewport, canvas_center);
                 }
                 return;
             }
@@ -116,14 +173,17 @@ pub fn render_line_tool_preview(
     stroke_width: f32,
     theme_mode: Theme,
     merge_target: Option<Vec2>,
+    curve_mode: bool,
 ) {
     let canvas_center = canvas_rect.center();
     let color = palette.get_color(color_index).to_color32();
     let stroke = Stroke::new(stroke_width * viewport.zoom, color);
 
-    // Draw committed segments
-    for i in 0..vertices.len().saturating_sub(1) {
-        render_bezier_segment(painter, &vertices[i], &vertices[i + 1], stroke, viewport, canvas_center);
+    // Draw committed segments using the appropriate rendering path
+    if curve_mode {
+        render_curve_path(painter, vertices, false, stroke, viewport, canvas_center);
+    } else {
+        render_rounded_path(painter, vertices, false, stroke, viewport, canvas_center);
     }
 
     // Draw rubber band preview to cursor

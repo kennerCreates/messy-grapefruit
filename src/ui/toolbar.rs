@@ -83,19 +83,17 @@ pub fn show_toolbar(
             .add(icons::icon_button(icons::action_save_as()))
             .on_hover_text("Save As")
             .clicked()
-        {
-            if let Some(path) = rfd::FileDialog::new()
+            && let Some(path) = rfd::FileDialog::new()
                 .add_filter("Sprite", &["sprite"])
                 .set_file_name(format!("{}.sprite", sprite.name))
                 .save_file()
-            {
-                match crate::io::save_sprite(sprite, &path) {
-                    Ok(()) => {
-                        *sprite_path = Some(path);
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to save sprite: {e}");
-                    }
+        {
+            match crate::io::save_sprite(sprite, &path) {
+                Ok(()) => {
+                    *sprite_path = Some(path);
+                }
+                Err(e) => {
+                    eprintln!("Failed to save sprite: {e}");
                 }
             }
         }

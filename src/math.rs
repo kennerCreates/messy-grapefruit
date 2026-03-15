@@ -45,28 +45,97 @@ pub fn recompute_auto_curves(
             (p_prev, p_next)
         };
 
-        let direction = p_next - p_prev;
-        let dir_len = direction.length();
+        if curve_mode {
+            // Catmull-Rom: tangent along bisector direction (p_next - p_prev)
+            let direction = p_next - p_prev;
+            let dir_len = direction.length();
 
-        if dir_len < 0.001 {
-            vertices[i].cp1 = None;
-            vertices[i].cp2 = None;
-            continue;
-        }
+            if dir_len < 0.001 {
+                vertices[i].cp1 = None;
+                vertices[i].cp2 = None;
+                continue;
+            }
 
-        // In curve mode: auto tangent length (Catmull-Rom); otherwise 0
-        let base_length = if curve_mode { dir_len / 6.0 } else { 0.0 };
-        let tangent_length = base_length.max(min_corner_radius);
-
-        if tangent_length < 0.001 {
-            vertices[i].cp1 = None;
-            vertices[i].cp2 = None;
-        } else {
+            let tangent_length = (dir_len / 6.0).max(min_corner_radius);
             let tangent = direction * (tangent_length / dir_len);
             vertices[i].cp1 = Some(positions[i] - tangent);
             vertices[i].cp2 = Some(positions[i] + tangent);
+        } else {
+            // Figma-style corner rounding.
+            // cp1 = tangent point on incoming edge, cp2 = tangent point on outgoing edge.
+            // R is the arc radius; tangent distance d = R / tan(θ/2).
+            let to_prev = p_prev - positions[i];
+            let to_next = p_next - positions[i];
+            let dist_prev = to_prev.length();
+            let dist_next = to_next.length();
+
+            // No corner to round at open-path endpoints or if radius is zero
+            if dist_prev < 0.001 || dist_next < 0.001 || min_corner_radius < 0.001 {
+                vertices[i].cp1 = None;
+                vertices[i].cp2 = None;
+                continue;
+            }
+
+            // Angle between edges at this vertex
+            let cos_theta = to_prev.dot(to_next) / (dist_prev * dist_next);
+            let cos_theta = cos_theta.clamp(-1.0, 1.0);
+            let theta = cos_theta.acos();
+
+            // For nearly straight angles (θ → π), no visible rounding needed
+            let half_theta_tan = (theta / 2.0).tan();
+            if half_theta_tan < 0.001 {
+                vertices[i].cp1 = None;
+                vertices[i].cp2 = None;
+                continue;
+            }
+
+            // Tangent distance: d = R / tan(θ/2), clamped to half of shortest edge
+            let d = (min_corner_radius / half_theta_tan)
+                .min(dist_prev / 2.0)
+                .min(dist_next / 2.0);
+
+            vertices[i].cp1 = Some(positions[i] + to_prev * (d / dist_prev));
+            vertices[i].cp2 = Some(positions[i] + to_next * (d / dist_next));
         }
     }
+}
+
+/// Compute cubic bezier control points for a fillet arc at a rounded corner.
+/// `t1` = tangent point on incoming edge (vertex.cp1)
+/// `t2` = tangent point on outgoing edge (vertex.cp2)
+/// `v` = vertex position (the sharp corner)
+/// Returns (arc_cp1, arc_cp2) for a bezier from t1 to t2 that approximates a circular arc.
+pub fn fillet_arc_control_points(t1: Vec2, t2: Vec2, v: Vec2) -> (Vec2, Vec2) {
+    let d1 = t1 - v;
+    let d2 = t2 - v;
+    let len1 = d1.length();
+    let len2 = d2.length();
+
+    if len1 < 0.001 || len2 < 0.001 {
+        return (t1, t2);
+    }
+
+    // Angle between edges at V
+    let cos_theta = d1.dot(d2) / (len1 * len2);
+    let cos_theta = cos_theta.clamp(-1.0, 1.0);
+    let theta = cos_theta.acos();
+
+    // Arc sweep angle (how much the path turns at this corner)
+    let alpha = std::f32::consts::PI - theta;
+
+    if alpha.abs() < 0.001 {
+        // Nearly straight — trivial arc
+        return (t1, t2);
+    }
+
+    // Bezier approximation factor: ratio = (4/3) * tan(θ/2) * tan(α/4)
+    // This places control points on the edge lines between T and V.
+    let ratio = (4.0 / 3.0) * (theta / 2.0).tan() * (alpha / 4.0).tan();
+
+    let arc_cp1 = t1 + (v - t1) * ratio;
+    let arc_cp2 = t2 + (v - t2) * ratio;
+
+    (arc_cp1, arc_cp2)
 }
 
 /// Get the four bezier points for the segment between two adjacent vertices.
@@ -283,6 +352,72 @@ mod tests {
             assert!(v.cp1.is_some());
             assert!(v.cp2.is_some());
         }
+    }
+
+    #[test]
+    fn test_fillet_arc_right_angle() {
+        // 90° corner at origin, edges along +x and +y
+        let v = Vec2::new(0.0, 0.0);
+        let t1 = Vec2::new(5.0, 0.0); // tangent point on +x edge
+        let t2 = Vec2::new(0.0, 5.0); // tangent point on +y edge
+        let (cp1, cp2) = fillet_arc_control_points(t1, t2, v);
+        // For 90° corner, kappa ≈ 0.5523. Control points should be ~55% from T toward V.
+        // cp1 = t1 + 0.5523 * (v - t1) = (5,0) + 0.5523 * (-5,0) = (5-2.76, 0) = (2.24, 0)
+        let expected_kappa = 0.5523;
+        assert!((cp1.x - (5.0 * (1.0 - expected_kappa))).abs() < 0.02);
+        assert!(cp1.y.abs() < 0.01);
+        assert!(cp2.x.abs() < 0.01);
+        assert!((cp2.y - (5.0 * (1.0 - expected_kappa))).abs() < 0.02);
+    }
+
+    #[test]
+    fn test_fillet_arc_straight_line() {
+        // Nearly straight (θ ≈ π): fillet should be trivial
+        let v = Vec2::new(0.0, 0.0);
+        let t1 = Vec2::new(-5.0, 0.0);
+        let t2 = Vec2::new(5.0, 0.0);
+        let (cp1, cp2) = fillet_arc_control_points(t1, t2, v);
+        // Nearly no arc needed — control points should be very close to tangent points
+        assert!((cp1.x - t1.x).abs() < 0.1);
+        assert!((cp2.x - t2.x).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_recompute_straight_radius_zero_gives_sharp() {
+        // With radius 0, all vertices should have no control points (sharp corners)
+        let mut vertices = vec![
+            PathVertex::new(Vec2::new(0.0, 0.0)),
+            PathVertex::new(Vec2::new(10.0, 0.0)),
+            PathVertex::new(Vec2::new(10.0, 10.0)),
+            PathVertex::new(Vec2::new(0.0, 10.0)),
+        ];
+        recompute_auto_curves(&mut vertices, true, false, 0.0);
+        for v in &vertices {
+            assert!(v.cp1.is_none(), "cp1 should be None with radius 0");
+            assert!(v.cp2.is_none(), "cp2 should be None with radius 0");
+        }
+    }
+
+    #[test]
+    fn test_recompute_straight_radius_produces_tangent_points() {
+        // Square with radius 3 — each 90° corner should get tangent points
+        let mut vertices = vec![
+            PathVertex::new(Vec2::new(0.0, 0.0)),
+            PathVertex::new(Vec2::new(10.0, 0.0)),
+            PathVertex::new(Vec2::new(10.0, 10.0)),
+            PathVertex::new(Vec2::new(0.0, 10.0)),
+        ];
+        recompute_auto_curves(&mut vertices, true, false, 3.0);
+        // For 90° corner, tan(45°) = 1, so d = R/1 = R = 3
+        // Vertex at (10,0): cp1 should be 3 units toward (0,0) → (7,0)
+        //                   cp2 should be 3 units toward (10,10) → (10,3)
+        let v1 = &vertices[1]; // (10, 0)
+        let cp1 = v1.cp1.unwrap();
+        let cp2 = v1.cp2.unwrap();
+        assert!((cp1.x - 7.0).abs() < 0.01, "cp1.x = {} expected 7.0", cp1.x);
+        assert!(cp1.y.abs() < 0.01, "cp1.y = {} expected 0.0", cp1.y);
+        assert!((cp2.x - 10.0).abs() < 0.01, "cp2.x = {} expected 10.0", cp2.x);
+        assert!((cp2.y - 3.0).abs() < 0.01, "cp2.y = {} expected 3.0", cp2.y);
     }
 
     #[test]
