@@ -43,6 +43,13 @@ impl SelectionState {
     }
 }
 
+/// Hover target for vertex editing sub-mode.
+#[derive(Debug, Clone)]
+pub enum VertexHover {
+    Vertex { vertex_id: String },
+    Handle { vertex_id: String, is_cp1: bool },
+}
+
 /// Which handle on the selection bounding box is being manipulated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleKind {
@@ -87,6 +94,21 @@ pub enum SelectDragKind {
         initial_rotations: Vec<(String, f32)>,
         /// Element positions at drag start.
         initial_positions: Vec<(String, Vec2)>,
+    },
+    /// Dragging a vertex to move it.
+    VertexMove {
+        element_id: String,
+        vertex_id: String,
+        start_world: Vec2,
+        initial_local_pos: Vec2,
+    },
+    /// Dragging a control point handle.
+    HandleMove {
+        element_id: String,
+        vertex_id: String,
+        is_cp1: bool,
+        start_world: Vec2,
+        initial_local_pos: Vec2,
     },
 }
 
@@ -193,6 +215,8 @@ pub struct EditorState {
     pub active_color_index: u8,
     pub active_layer_idx: usize,
     pub hover_element_id: Option<String>,
+    pub selected_vertex_id: Option<String>,
+    pub hover_vertex: Option<VertexHover>,
     pub zoom_to_fit_requested: bool,
     pub sidebar_expanded: bool,
 }
@@ -214,9 +238,18 @@ impl Default for EditorState {
             active_color_index: 1, // black
             active_layer_idx: 0,
             hover_element_id: None,
+            selected_vertex_id: None,
+            hover_vertex: None,
             zoom_to_fit_requested: true,
             sidebar_expanded: false,
         }
+    }
+}
+
+impl EditorState {
+    pub fn clear_vertex_selection(&mut self) {
+        self.selected_vertex_id = None;
+        self.hover_vertex = None;
     }
 }
 

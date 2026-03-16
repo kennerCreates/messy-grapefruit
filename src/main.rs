@@ -1,4 +1,5 @@
 mod action;
+mod clipboard;
 mod engine;
 mod io;
 mod math;
@@ -10,7 +11,6 @@ mod ui;
 use eframe::egui;
 use model::project::Project;
 use model::sprite::{Sprite, StrokeElement};
-use model::vec2::Vec2;
 use state::editor::EditorState;
 use state::history::History;
 
@@ -99,82 +99,6 @@ impl App {
     }
 }
 
-/// Clipboard JSON wrapper for cross-sprite copy/paste.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct ClipboardData {
-    messy_grapefruit_clipboard: bool,
-    elements: Vec<StrokeElement>,
-}
-
-impl App {
-    fn copy_selected(&mut self) {
-        if self.editor.selection.is_empty() {
-            return;
-        }
-        let mut elements = Vec::new();
-        for layer in &self.sprite.layers {
-            for element in &layer.elements {
-                if self.editor.selection.is_selected(&element.id) {
-                    elements.push(element.clone());
-                }
-            }
-        }
-        if elements.is_empty() {
-            return;
-        }
-
-        // Always store in internal clipboard
-        self.internal_clipboard = Some(elements.clone());
-
-        // Also try system clipboard
-        let data = ClipboardData {
-            messy_grapefruit_clipboard: true,
-            elements,
-        };
-        if let Ok(json) = serde_json::to_string(&data)
-            && let Ok(mut clipboard) = arboard::Clipboard::new()
-        {
-            let _ = clipboard.set_text(json);
-        }
-    }
-
-    fn paste_from_clipboard(&mut self) {
-        // Try system clipboard first
-        let elements = if let Ok(mut clipboard) = arboard::Clipboard::new()
-            && let Ok(json) = clipboard.get_text()
-            && let Ok(data) = serde_json::from_str::<ClipboardData>(&json)
-            && data.messy_grapefruit_clipboard
-            && !data.elements.is_empty()
-        {
-            data.elements
-        } else if let Some(elements) = &self.internal_clipboard {
-            // Fall back to internal clipboard
-            elements.clone()
-        } else {
-            return;
-        };
-
-        let before = self.sprite.clone();
-        let layer_idx = self.editor.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
-        let mut new_ids = Vec::new();
-
-        for mut element in elements {
-            // Assign new UUIDs
-            element.id = uuid::Uuid::new_v4().to_string();
-            for v in &mut element.vertices {
-                v.id = uuid::Uuid::new_v4().to_string();
-            }
-            // Offset position
-            element.position += Vec2::new(10.0, 10.0);
-            new_ids.push(element.id.clone());
-            self.sprite.layers[layer_idx].elements.push(element);
-        }
-
-        self.history.push("Paste elements".into(), before, self.sprite.clone());
-        self.editor.selection.select_all(new_ids);
-    }
-}
-
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         theme::apply_theme(ctx, self.project.editor_preferences.theme);
@@ -193,25 +117,20 @@ impl eframe::App for App {
         });
 
         if undo {
+            self.editor.clear_vertex_selection();
             self.history.undo(&mut self.sprite);
         }
         if redo {
+            self.editor.clear_vertex_selection();
             self.history.redo(&mut self.sprite);
         }
-        if copy || cut {
-            self.copy_selected();
-        }
-        if cut && !self.editor.selection.is_empty() {
-            let before = self.sprite.clone();
-            let selected = self.editor.selection.selected_ids.clone();
-            for layer in self.sprite.layers.iter_mut() {
-                layer.elements.retain(|e| !selected.iter().any(|id| id == &e.id));
-            }
-            self.history.push("Cut elements".into(), before, self.sprite.clone());
-            self.editor.selection.clear();
+        if cut {
+            clipboard::cut(&mut self.editor, &mut self.sprite, &mut self.history, &mut self.internal_clipboard);
+        } else if copy {
+            clipboard::copy_selected(&self.editor, &self.sprite, &mut self.internal_clipboard);
         }
         if paste {
-            self.paste_from_clipboard();
+            clipboard::paste(&mut self.editor, &mut self.sprite, &mut self.history, &self.internal_clipboard);
         }
 
         let panel_bg = theme::floating_panel_color(self.project.editor_preferences.theme);

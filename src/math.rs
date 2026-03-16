@@ -34,6 +34,10 @@ pub fn recompute_auto_curves(
         !closed && n >= 3 && positions[0].distance(positions[n - 1]) < 0.5;
 
     for i in 0..n {
+        if vertices[i].manual_handles {
+            continue;
+        }
+
         let (p_prev, p_next) = if closed {
             (positions[(i + n - 1) % n], positions[(i + 1) % n])
         } else if endpoints_coincide && (i == 0 || i == n - 1) {

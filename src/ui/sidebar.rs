@@ -103,20 +103,7 @@ fn show_collapsed(
 
         // Active color swatch only (no palette)
         let color = project.palette.get_color(editor.active_color_index);
-        let (rect, _response) = ui.allocate_exact_size(egui::Vec2::splat(20.0), egui::Sense::click());
-        let c32 = color.to_color32();
-        if c32.a() == 0 {
-            draw_checkerboard(ui, rect);
-        } else {
-            ui.painter().rect_filled(rect, 2.0, c32);
-        }
-        let sel_color = theme::selected_color(project.editor_preferences.theme);
-        ui.painter().rect_stroke(
-            rect,
-            2.0,
-            egui::Stroke::new(1.0, sel_color),
-            egui::StrokeKind::Outside,
-        );
+        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
 
         ui.add_space(4.0);
     } else if matches!(editor.tool, ToolKind::Select) && !editor.selection.is_empty() {
@@ -152,15 +139,7 @@ fn show_collapsed(
 
             // Color swatch
             let color = project.palette.get_color(elem.stroke_color_index);
-            let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(20.0), egui::Sense::hover());
-            let c32 = color.to_color32();
-            if c32.a() == 0 {
-                draw_checkerboard(ui, rect);
-            } else {
-                ui.painter().rect_filled(rect, 2.0, c32);
-            }
-            let sel_color = theme::selected_color(project.editor_preferences.theme);
-            ui.painter().rect_stroke(rect, 2.0, egui::Stroke::new(1.0, sel_color), egui::StrokeKind::Outside);
+            render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
 
             ui.add_space(4.0);
         }
@@ -276,49 +255,14 @@ fn show_line_tool_options(
     ui.horizontal(|ui| {
         ui.label("Color");
         let color = project.palette.get_color(editor.active_color_index);
-        let (rect, response) =
-            ui.allocate_exact_size(egui::Vec2::splat(20.0), egui::Sense::click());
-        ui.painter().rect_filled(rect, 2.0, color.to_color32());
-        ui.painter().rect_stroke(
-            rect,
-            2.0,
-            egui::Stroke::new(1.0, egui::Color32::GRAY),
-            egui::StrokeKind::Outside,
-        );
-        if response.clicked() {
-            // TODO: open palette picker popup
-        }
+        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
         ui.label(format!("idx {}", editor.active_color_index));
     });
 
     // Color palette mini-picker
-    ui.horizontal_wrapped(|ui| {
-        for (i, pc) in project.palette.colors.iter().enumerate() {
-            let size = egui::Vec2::splat(16.0);
-            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-            let c32 = pc.to_color32();
-            if c32.a() == 0 {
-                draw_checkerboard(ui, rect);
-            } else {
-                ui.painter().rect_filled(rect, 1.0, c32);
-            }
-            if editor.active_color_index == i as u8 {
-                let sel_color = theme::selected_color(project.editor_preferences.theme);
-                ui.painter().rect_stroke(
-                    rect,
-                    1.0,
-                    egui::Stroke::new(2.0, sel_color),
-                    egui::StrokeKind::Outside,
-                );
-            }
-            if response.clicked() {
-                editor.active_color_index = i as u8;
-            }
-            if response.hovered() {
-                response.on_hover_text(format!("Color {i}"));
-            }
-        }
-    });
+    if let Some(new_idx) = render_color_palette(ui, &project.palette.colors, editor.active_color_index, project.editor_preferences.theme) {
+        editor.active_color_index = new_idx;
+    }
 
     ui.add_space(4.0);
 
@@ -336,16 +280,7 @@ fn show_line_tool_options(
     });
 
     if radius_changed {
-        for layer in &mut sprite.layers {
-            for element in &mut layer.elements {
-                crate::math::recompute_auto_curves(
-                    &mut element.vertices,
-                    element.closed,
-                    element.curve_mode,
-                    project.min_corner_radius,
-                );
-            }
-        }
+        crate::engine::transform::recompute_all_curves(sprite, project.min_corner_radius);
     }
 
     ui.add_space(4.0);
@@ -473,26 +408,10 @@ fn show_select_tool_options(
     ui.add_space(4.0);
 
     // Color picker (same mini palette as line tool)
-    ui.horizontal_wrapped(|ui| {
-        for (i, pc) in project.palette.colors.iter().enumerate() {
-            let size = egui::Vec2::splat(16.0);
-            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-            let c32 = pc.to_color32();
-            if c32.a() == 0 {
-                draw_checkerboard(ui, rect);
-            } else {
-                ui.painter().rect_filled(rect, 1.0, c32);
-            }
-            if color_idx == i as u8 {
-                let sel_color = theme::selected_color(project.editor_preferences.theme);
-                ui.painter().rect_stroke(rect, 1.0, egui::Stroke::new(2.0, sel_color), egui::StrokeKind::Outside);
-            }
-            if response.clicked() {
-                color_idx = i as u8;
-                change_desc = Some("Edit color");
-            }
-        }
-    });
+    if let Some(new_idx) = render_color_palette(ui, &project.palette.colors, color_idx, project.editor_preferences.theme) {
+        color_idx = new_idx;
+        change_desc = Some("Edit color");
+    }
 
     ui.add_space(4.0);
 
@@ -516,28 +435,25 @@ fn show_select_tool_options(
     if let Some(desc) = change_desc {
         let before = sprite.clone();
         let new_rot = rot_deg.to_radians();
-        for layer in sprite.layers.iter_mut() {
-            for element in layer.elements.iter_mut() {
-                if selected.iter().any(|id| id == &element.id) {
-                    element.position.x = pos_x;
-                    element.position.y = pos_y;
-                    element.rotation = new_rot;
-                    element.scale.x = scale_x;
-                    element.scale.y = scale_y;
-                    element.stroke_width = stroke_w;
-                    element.stroke_color_index = color_idx;
-                    if element.curve_mode != is_curve {
-                        element.curve_mode = is_curve;
-                        crate::math::recompute_auto_curves(
-                            &mut element.vertices,
-                            element.closed,
-                            element.curve_mode,
-                            project.min_corner_radius,
-                        );
-                    }
-                }
+        let min_radius = project.min_corner_radius;
+        crate::engine::transform::for_selected_elements_mut(sprite, &selected, |element| {
+            element.position.x = pos_x;
+            element.position.y = pos_y;
+            element.rotation = new_rot;
+            element.scale.x = scale_x;
+            element.scale.y = scale_y;
+            element.stroke_width = stroke_w;
+            element.stroke_color_index = color_idx;
+            if element.curve_mode != is_curve {
+                element.curve_mode = is_curve;
+                crate::math::recompute_auto_curves(
+                    &mut element.vertices,
+                    element.closed,
+                    element.curve_mode,
+                    min_radius,
+                );
             }
-        }
+        });
         history.push_coalesced(desc.into(), before, sprite.clone());
     }
 }
@@ -624,6 +540,67 @@ fn show_layer_list(
             }
         });
     }
+}
+
+/// Render a color palette mini-picker grid. Returns the newly clicked color index, if any.
+fn render_color_palette(
+    ui: &mut egui::Ui,
+    colors: &[crate::model::project::PaletteColor],
+    selected_index: u8,
+    theme: Theme,
+) -> Option<u8> {
+    let mut clicked = None;
+    ui.horizontal_wrapped(|ui| {
+        for (i, pc) in colors.iter().enumerate() {
+            let size = egui::Vec2::splat(16.0);
+            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+            let c32 = pc.to_color32();
+            if c32.a() == 0 {
+                draw_checkerboard(ui, rect);
+            } else {
+                ui.painter().rect_filled(rect, 1.0, c32);
+            }
+            if selected_index == i as u8 {
+                let sel_color = theme::selected_color(theme);
+                ui.painter().rect_stroke(
+                    rect,
+                    1.0,
+                    egui::Stroke::new(2.0, sel_color),
+                    egui::StrokeKind::Outside,
+                );
+            }
+            if response.clicked() {
+                clicked = Some(i as u8);
+            }
+            if response.hovered() {
+                response.on_hover_text(format!("Color {i}"));
+            }
+        }
+    });
+    clicked
+}
+
+/// Render a single color swatch with selection border.
+fn render_color_swatch(
+    ui: &mut egui::Ui,
+    color: crate::model::project::PaletteColor,
+    size: f32,
+    theme: Theme,
+) {
+    let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+    let c32 = color.to_color32();
+    if c32.a() == 0 {
+        draw_checkerboard(ui, rect);
+    } else {
+        ui.painter().rect_filled(rect, 2.0, c32);
+    }
+    let sel_color = theme::selected_color(theme);
+    ui.painter().rect_stroke(
+        rect,
+        2.0,
+        egui::Stroke::new(1.0, sel_color),
+        egui::StrokeKind::Outside,
+    );
 }
 
 fn draw_checkerboard(ui: &egui::Ui, rect: egui::Rect) {

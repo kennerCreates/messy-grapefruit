@@ -105,6 +105,7 @@ pub fn show_toolbar(
             .on_hover_text("Undo (Ctrl+Z)")
             .clicked()
         {
+            editor.clear_vertex_selection();
             history.undo(sprite);
         }
         if ui
@@ -112,6 +113,7 @@ pub fn show_toolbar(
             .on_hover_text("Redo (Ctrl+Y)")
             .clicked()
         {
+            editor.clear_vertex_selection();
             history.redo(sprite);
         }
 
@@ -124,6 +126,7 @@ pub fn show_toolbar(
             .on_hover_text("Select Tool (V)")
             .clicked()
         {
+            editor.clear_vertex_selection();
             editor.tool = crate::state::editor::ToolKind::Select;
         }
 
@@ -133,6 +136,7 @@ pub fn show_toolbar(
             .on_hover_text("Line Tool (L)")
             .clicked()
         {
+            editor.clear_vertex_selection();
             editor.tool = crate::state::editor::ToolKind::Line;
         }
 

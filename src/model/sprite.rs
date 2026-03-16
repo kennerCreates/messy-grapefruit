@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use super::vec2::Vec2;
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PathVertex {
@@ -11,6 +15,8 @@ pub struct PathVertex {
     pub cp1: Option<Vec2>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cp2: Option<Vec2>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub manual_handles: bool,
 }
 
 impl PathVertex {
@@ -20,6 +26,7 @@ impl PathVertex {
             pos,
             cp1: None,
             cp2: None,
+            manual_handles: false,
         }
     }
 }

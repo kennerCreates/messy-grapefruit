@@ -52,6 +52,7 @@ pub fn transformed_vertices(element: &StrokeElement) -> Vec<PathVertex> {
         pos: vertex_world_pos(v, element),
         cp1: cp_world_pos(v.cp1, element),
         cp2: cp_world_pos(v.cp2, element),
+        manual_handles: v.manual_handles,
     }).collect()
 }
 
@@ -118,6 +119,54 @@ pub fn elements_in_rect(sprite: &Sprite, rect_min: Vec2, rect_max: Vec2) -> Vec<
         }
     }
     result
+}
+
+/// Apply a mutation to all elements whose ID is in `selected_ids`.
+pub fn for_selected_elements_mut(
+    sprite: &mut Sprite,
+    selected_ids: &[String],
+    mut f: impl FnMut(&mut StrokeElement),
+) {
+    for layer in sprite.layers.iter_mut() {
+        for element in layer.elements.iter_mut() {
+            if selected_ids.iter().any(|id| id == &element.id) {
+                f(element);
+            }
+        }
+    }
+}
+
+/// Find a mutable reference to an element and vertex index by their IDs.
+pub fn find_element_vertex_mut<'a>(
+    sprite: &'a mut Sprite,
+    element_id: &str,
+    vertex_id: &str,
+) -> Option<(&'a mut StrokeElement, usize)> {
+    for layer in sprite.layers.iter_mut() {
+        for element in layer.elements.iter_mut() {
+            if element.id == element_id {
+                if let Some(idx) = element.vertices.iter().position(|v| v.id == vertex_id) {
+                    return Some((element, idx));
+                }
+                return None;
+            }
+        }
+    }
+    None
+}
+
+/// Recompute auto-curves for all elements in the sprite.
+pub fn recompute_all_curves(sprite: &mut Sprite, min_corner_radius: f32) {
+    for layer in &mut sprite.layers {
+        for element in &mut layer.elements {
+            crate::math::recompute_auto_curves(
+                &mut element.vertices,
+                element.closed,
+                element.curve_mode,
+                min_corner_radius,
+            );
+        }
+    }
 }
 
 #[cfg(test)]

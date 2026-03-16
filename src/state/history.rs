@@ -2,7 +2,6 @@ use crate::model::sprite::Sprite;
 
 #[derive(Debug, Clone)]
 struct UndoEntry {
-    #[allow(dead_code)]
     description: String,
     sprite_before: Sprite,
     sprite_after: Sprite,

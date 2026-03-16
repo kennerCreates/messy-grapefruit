@@ -5,11 +5,23 @@ use crate::model::sprite::StrokeElement;
 use crate::model::project::Project;
 use crate::model::sprite::Sprite;
 use crate::model::vec2::Vec2;
-use crate::state::editor::{EditorState, HandleKind, SelectDragKind, SelectionStackPopup, StackEntry, ToolKind};
+use crate::state::editor::{EditorState, HandleKind, SelectDragKind, SelectionStackPopup, StackEntry, ToolKind, VertexHover};
 use crate::state::history::History;
 use crate::theme;
 
 use super::{canvas_input, canvas_render, grid};
+
+/// Base hit-test threshold in world units (divided by zoom at use site).
+const HIT_TEST_THRESHOLD: f32 = 8.0;
+/// Screen-pixel hit radius for transform handles.
+const HANDLE_HIT_RADIUS: f32 = 7.0;
+/// Rotation snap increment (15 degrees).
+const ROTATION_SNAP_STEP: f32 = std::f32::consts::PI / 12.0;
+/// Minimum delta to trigger a snapped move (avoids micro-jitter).
+const SNAP_EPSILON: f32 = 0.001;
+/// Marquee dashed line pattern.
+const MARQUEE_DASH: f32 = 4.0;
+const MARQUEE_GAP: f32 = 3.0;
 
 pub fn show_canvas(
     ui: &mut egui::Ui,
@@ -162,7 +174,7 @@ fn render_selection_stack_popup(
     }
 }
 
-/// Select tool: hit testing, hover highlight, click/drag selection, move, scale, rotate, marquee.
+/// Select tool: orchestrates hover, drag, click, keyboard, and rendering.
 #[allow(clippy::too_many_arguments)]
 fn handle_select_tool(
     response: &egui::Response,
@@ -175,227 +187,468 @@ fn handle_select_tool(
     history: &mut History,
 ) {
     let canvas_center = canvas_rect.center();
-    let threshold = 8.0 / editor.viewport.zoom;
-    let handle_radius = 7.0; // screen-pixel hit radius for handles
+    let threshold = HIT_TEST_THRESHOLD / editor.viewport.zoom;
+    let handle_radius = HANDLE_HIT_RADIUS;
 
-    // Hit testing for hover (only when not dragging)
-    if editor.select_drag.is_none() {
-        if let Some(hover_pos) = response.hover_pos() {
-            // Check handle hover first
-            let handle_hit = canvas_render::hit_test_handles(
-                hover_pos, sprite, &editor.selection.selected_ids,
-                &editor.viewport, canvas_rect, handle_radius,
-            );
-            if let Some(handle) = handle_hit {
-                response.ctx.set_cursor_icon(canvas_render::cursor_for_handle(handle));
-                editor.hover_element_id = None;
-            } else {
-                let world_pos = editor.viewport.screen_to_world(hover_pos, canvas_center);
-                editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold);
-                if editor.hover_element_id.is_some() {
+    handle_select_hover(response, editor, sprite, canvas_rect, canvas_center, threshold, handle_radius);
+    handle_select_drag_start(response, editor, sprite, history, canvas_rect, canvas_center, threshold, handle_radius);
+    handle_select_drag_update(response, editor, sprite, project, canvas_center, canvas_rect);
+    handle_select_drag_end(response, editor, sprite, project, history, canvas_center, canvas_rect);
+    handle_select_click(response, editor, sprite, canvas_center, threshold);
+    handle_select_keyboard(response, editor, sprite, project, history);
+    render_select_overlays(response, painter, editor, sprite, canvas_rect, theme_mode);
+}
+
+/// Returns true when exactly one element is selected (vertex-edit sub-mode).
+fn is_vertex_edit_mode(editor: &EditorState) -> bool {
+    editor.selection.selected_ids.len() == 1
+}
+
+/// Find the selected element by ID (immutable).
+fn find_selected_element<'a>(sprite: &'a Sprite, id: &str) -> Option<&'a StrokeElement> {
+    sprite.layers.iter()
+        .flat_map(|l| &l.elements)
+        .find(|e| e.id == id)
+}
+
+/// Hover hit-testing: update cursor and hover_element_id when not dragging.
+fn handle_select_hover(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    sprite: &Sprite,
+    canvas_rect: egui::Rect,
+    canvas_center: egui::Pos2,
+    threshold: f32,
+    handle_radius: f32,
+) {
+    if editor.select_drag.is_some() {
+        return;
+    }
+    editor.hover_vertex = None;
+
+    if let Some(hover_pos) = response.hover_pos() {
+        // In vertex edit mode, check vertex/handle hits first
+        if is_vertex_edit_mode(editor) {
+            let element_id = &editor.selection.selected_ids[0];
+            if let Some(element) = find_selected_element(sprite, element_id) {
+                // Check CP handles first (only if a vertex is selected and element is curve_mode)
+                if let Some(ref sel_vid) = editor.selected_vertex_id
+                    && let Some((vid, is_cp1)) = hit_test::hit_test_handle(
+                        hover_pos, element, sel_vid, &editor.viewport,
+                        canvas_center, canvas_render::VERTEX_HIT_RADIUS,
+                    )
+                {
+                    editor.hover_vertex = Some(VertexHover::Handle { vertex_id: vid, is_cp1 });
                     response.ctx.set_cursor_icon(egui::CursorIcon::Grab);
+                    editor.hover_element_id = None;
+                    return;
+                }
+                // Check vertex dots
+                if let Some(vid) = hit_test::hit_test_vertex(
+                    hover_pos, element, &editor.viewport,
+                    canvas_center, canvas_render::VERTEX_HIT_RADIUS,
+                ) {
+                    editor.hover_vertex = Some(VertexHover::Vertex { vertex_id: vid });
+                    response.ctx.set_cursor_icon(egui::CursorIcon::Grab);
+                    editor.hover_element_id = None;
+                    return;
                 }
             }
-        } else {
+        }
+
+        // Standard transform handle hit test
+        let handle_hit = canvas_render::hit_test_handles(
+            hover_pos, sprite, &editor.selection.selected_ids,
+            &editor.viewport, canvas_rect, handle_radius,
+        );
+        if let Some(handle) = handle_hit {
+            response.ctx.set_cursor_icon(canvas_render::cursor_for_handle(handle));
             editor.hover_element_id = None;
+        } else {
+            let world_pos = editor.viewport.screen_to_world(hover_pos, canvas_center);
+            editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold);
+            if editor.hover_element_id.is_some() {
+                response.ctx.set_cursor_icon(egui::CursorIcon::Grab);
+            }
+        }
+    } else {
+        editor.hover_element_id = None;
+    }
+}
+
+/// Begin a drag operation: handle drag, element move, or marquee.
+#[allow(clippy::too_many_arguments)]
+fn handle_select_drag_start(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    sprite: &mut Sprite,
+    history: &mut History,
+    canvas_rect: egui::Rect,
+    canvas_center: egui::Pos2,
+    threshold: f32,
+    handle_radius: f32,
+) {
+    if !response.drag_started_by(egui::PointerButton::Primary) {
+        return;
+    }
+    let Some(start_screen) = response.interact_pointer_pos() else { return };
+    let start_world = editor.viewport.screen_to_world(start_screen, canvas_center);
+
+    // In vertex edit mode, check for vertex/handle drag first
+    if is_vertex_edit_mode(editor) {
+        let element_id = editor.selection.selected_ids[0].clone();
+        if let Some(element) = find_selected_element(sprite, &element_id) {
+            // Check CP handle drag (only if a vertex is selected)
+            if let Some(ref sel_vid) = editor.selected_vertex_id.clone()
+                && let Some((vid, is_cp1)) = hit_test::hit_test_handle(
+                    start_screen, element, sel_vid, &editor.viewport,
+                    canvas_center, canvas_render::VERTEX_HIT_RADIUS,
+                )
+            {
+                let vertex = element.vertices.iter().find(|v| v.id == vid).unwrap();
+                let initial_local_pos = if is_cp1 {
+                    vertex.cp1.unwrap_or(vertex.pos)
+                } else {
+                    vertex.cp2.unwrap_or(vertex.pos)
+                };
+                history.begin_drag("Move handle".into(), sprite.clone());
+                editor.select_drag = Some(SelectDragKind::HandleMove {
+                    element_id,
+                    vertex_id: vid,
+                    is_cp1,
+                    start_world,
+                    initial_local_pos,
+                });
+                return;
+            }
+            // Check vertex drag
+            if let Some(vid) = hit_test::hit_test_vertex(
+                start_screen, element, &editor.viewport,
+                canvas_center, canvas_render::VERTEX_HIT_RADIUS,
+            ) {
+                let vertex = element.vertices.iter().find(|v| v.id == vid).unwrap();
+                let initial_local_pos = vertex.pos;
+                editor.selected_vertex_id = Some(vid.clone());
+                history.begin_drag("Move vertex".into(), sprite.clone());
+                editor.select_drag = Some(SelectDragKind::VertexMove {
+                    element_id,
+                    vertex_id: vid,
+                    start_world,
+                    initial_local_pos,
+                });
+                return;
+            }
         }
     }
 
-    // --- Drag start ---
-    if response.drag_started_by(egui::PointerButton::Primary)
-        && let Some(start_screen) = response.interact_pointer_pos() {
-            let start_world = editor.viewport.screen_to_world(start_screen, canvas_center);
+    let handle_hit = canvas_render::hit_test_handles(
+        start_screen, sprite, &editor.selection.selected_ids,
+        &editor.viewport, canvas_rect, handle_radius,
+    );
 
-            // Check if we're dragging a handle
-            let handle_hit = canvas_render::hit_test_handles(
-                start_screen, sprite, &editor.selection.selected_ids,
-                &editor.viewport, canvas_rect, handle_radius,
+    if let Some(handle) = handle_hit {
+        history.begin_drag(
+            if handle == HandleKind::Rotate { "Rotate elements" } else { "Scale elements" }.into(),
+            sprite.clone(),
+        );
+
+        if handle == HandleKind::Rotate {
+            if let Some((bmin, bmax)) = transform::selection_bounds(sprite, &editor.selection.selected_ids) {
+                let pivot = (bmin + bmax) * 0.5;
+                let start_angle = (start_world.y - pivot.y).atan2(start_world.x - pivot.x);
+                let initial_rotations: Vec<_> = collect_selected_field(sprite, &editor.selection.selected_ids, |e| (e.id.clone(), e.rotation));
+                let initial_positions: Vec<_> = collect_selected_field(sprite, &editor.selection.selected_ids, |e| (e.id.clone(), e.position));
+                editor.select_drag = Some(SelectDragKind::Rotate {
+                    pivot,
+                    start_angle,
+                    initial_rotations,
+                    initial_positions,
+                });
+            }
+        } else if let Some((bmin, bmax)) = transform::selection_bounds(sprite, &editor.selection.selected_ids) {
+            let anchor = scale_anchor(handle, bmin, bmax);
+            let initial_scales: Vec<_> = collect_selected_field(sprite, &editor.selection.selected_ids, |e| (e.id.clone(), e.scale));
+            let initial_positions: Vec<_> = collect_selected_field(sprite, &editor.selection.selected_ids, |e| (e.id.clone(), e.position));
+            editor.select_drag = Some(SelectDragKind::Scale {
+                handle,
+                initial_bounds: (bmin, bmax),
+                initial_scales,
+                initial_positions,
+                anchor,
+            });
+        }
+    } else {
+        let hit = hit_test::hit_test_elements(start_world, sprite, threshold);
+        if let Some(hit_id) = hit {
+            if !editor.selection.is_selected(&hit_id) {
+                let shift = response.ctx.input(|i| i.modifiers.shift);
+                if shift {
+                    editor.selection.toggle(&hit_id);
+                } else {
+                    editor.selection.select_single(hit_id);
+                }
+            }
+            history.begin_drag("Move elements".into(), sprite.clone());
+            editor.select_drag = Some(SelectDragKind::Move {
+                start_world,
+                last_snapped_delta: Vec2::ZERO,
+            });
+        } else {
+            editor.select_drag = Some(SelectDragKind::Marquee {
+                start_screen,
+                start_world,
+            });
+        }
+    }
+}
+
+/// Update an in-progress drag: apply move/scale/rotate transforms.
+fn handle_select_drag_update(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    sprite: &mut Sprite,
+    project: &Project,
+    canvas_center: egui::Pos2,
+    _canvas_rect: egui::Rect,
+) {
+    if !response.dragged_by(egui::PointerButton::Primary) {
+        return;
+    }
+    let Some(current_screen) = response.interact_pointer_pos() else { return };
+    let current_world = editor.viewport.screen_to_world(current_screen, canvas_center);
+
+    match &mut editor.select_drag {
+        Some(SelectDragKind::Move { start_world, last_snapped_delta }) => {
+            response.ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+            let raw_delta = current_world - *start_world;
+            let snapped_delta = snap::snap_to_grid(
+                raw_delta,
+                project.editor_preferences.grid_size,
+                project.editor_preferences.grid_mode,
             );
 
-            if let Some(handle) = handle_hit {
-                // Start handle drag (scale or rotate)
-                history.begin_drag(
-                    if handle == HandleKind::Rotate { "Rotate elements" } else { "Scale elements" }.into(),
-                    sprite.clone(),
+            if (snapped_delta.x - last_snapped_delta.x).abs() > SNAP_EPSILON
+                || (snapped_delta.y - last_snapped_delta.y).abs() > SNAP_EPSILON
+            {
+                let adjust = snapped_delta - *last_snapped_delta;
+                let selected = editor.selection.selected_ids.clone();
+                for layer in sprite.layers.iter_mut() {
+                    for element in layer.elements.iter_mut() {
+                        if selected.iter().any(|id| id == &element.id) {
+                            element.position += adjust;
+                        }
+                    }
+                }
+                *last_snapped_delta = snapped_delta;
+            }
+        }
+        Some(SelectDragKind::Scale { handle, initial_bounds, initial_scales, initial_positions, anchor }) => {
+            response.ctx.set_cursor_icon(canvas_render::cursor_for_handle(*handle));
+            let (bmin, bmax) = *initial_bounds;
+            let (sx, sy) = compute_scale_factors(*handle, current_world, *anchor, bmin, bmax);
+
+            let selected = editor.selection.selected_ids.clone();
+            for layer in sprite.layers.iter_mut() {
+                for element in layer.elements.iter_mut() {
+                    if let Some(idx) = selected.iter().position(|id| id == &element.id) {
+                        let (_, init_scale) = initial_scales[idx];
+                        let (_, init_pos) = initial_positions[idx];
+                        element.scale = Vec2::new(init_scale.x * sx, init_scale.y * sy);
+                        let offset_from_anchor = init_pos - *anchor;
+                        element.position = *anchor + Vec2::new(offset_from_anchor.x * sx, offset_from_anchor.y * sy);
+                    }
+                }
+            }
+        }
+        Some(SelectDragKind::Rotate { pivot, start_angle, initial_rotations, initial_positions }) => {
+            response.ctx.set_cursor_icon(egui::CursorIcon::Alias);
+            let current_angle = (current_world.y - pivot.y).atan2(current_world.x - pivot.x);
+            let mut delta_angle = current_angle - *start_angle;
+
+            if response.ctx.input(|i| i.modifiers.shift) {
+                delta_angle = (delta_angle / ROTATION_SNAP_STEP).round() * ROTATION_SNAP_STEP;
+            }
+
+            let (sin, cos) = delta_angle.sin_cos();
+            let selected = editor.selection.selected_ids.clone();
+            for layer in sprite.layers.iter_mut() {
+                for element in layer.elements.iter_mut() {
+                    if let Some(idx) = selected.iter().position(|id| id == &element.id) {
+                        let (_, init_rot) = initial_rotations[idx];
+                        let (_, init_pos) = initial_positions[idx];
+                        element.rotation = init_rot + delta_angle;
+                        let offset = init_pos - *pivot;
+                        let rotated = Vec2::new(
+                            offset.x * cos - offset.y * sin,
+                            offset.x * sin + offset.y * cos,
+                        );
+                        element.position = *pivot + rotated;
+                    }
+                }
+            }
+        }
+        Some(SelectDragKind::VertexMove { element_id, vertex_id, start_world, initial_local_pos }) => {
+            response.ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+            let element_id = element_id.clone();
+            let vertex_id = vertex_id.clone();
+            let start_world = *start_world;
+            let initial_local_pos = *initial_local_pos;
+
+            if let Some(element) = find_selected_element(sprite, &element_id) {
+                let initial_world = transform::transform_point(
+                    initial_local_pos, element.origin, element.position, element.rotation, element.scale,
+                );
+                let delta = current_world - start_world;
+                let target_world = initial_world + delta;
+                let snapped = snap::snap_to_grid(
+                    target_world,
+                    project.editor_preferences.grid_size,
+                    project.editor_preferences.grid_mode,
+                );
+                let origin = element.origin;
+                let position = element.position;
+                let rotation = element.rotation;
+                let scale = element.scale;
+                let closed = element.closed;
+                let curve_mode = element.curve_mode;
+                let new_local = transform::inverse_transform_point(
+                    snapped, origin, position, rotation, scale,
                 );
 
-                if handle == HandleKind::Rotate {
-                    // Rotation drag
-                    if let Some((bmin, bmax)) = transform::selection_bounds(sprite, &editor.selection.selected_ids) {
-                        let pivot = (bmin + bmax) * 0.5;
-                        let start_angle = (start_world.y - pivot.y).atan2(start_world.x - pivot.x);
-                        let initial_rotations: Vec<_> = collect_selected_field(sprite, &editor.selection.selected_ids, |e| (e.id.clone(), e.rotation));
-                        let initial_positions: Vec<_> = collect_selected_field(sprite, &editor.selection.selected_ids, |e| (e.id.clone(), e.position));
-                        editor.select_drag = Some(SelectDragKind::Rotate {
-                            pivot,
-                            start_angle,
-                            initial_rotations,
-                            initial_positions,
-                        });
-                    }
-                } else {
-                    // Scale drag
-                    if let Some((bmin, bmax)) = transform::selection_bounds(sprite, &editor.selection.selected_ids) {
-                        let anchor = scale_anchor(handle, bmin, bmax);
-                        let initial_scales: Vec<_> = collect_selected_field(sprite, &editor.selection.selected_ids, |e| (e.id.clone(), e.scale));
-                        let initial_positions: Vec<_> = collect_selected_field(sprite, &editor.selection.selected_ids, |e| (e.id.clone(), e.position));
-                        editor.select_drag = Some(SelectDragKind::Scale {
-                            handle,
-                            initial_bounds: (bmin, bmax),
-                            initial_scales,
-                            initial_positions,
-                            anchor,
-                        });
-                    }
-                }
-            } else {
-                let hit = hit_test::hit_test_elements(start_world, sprite, threshold);
-                if let Some(hit_id) = hit {
-                    if !editor.selection.is_selected(&hit_id) {
-                        let shift = response.ctx.input(|i| i.modifiers.shift);
-                        if shift {
-                            editor.selection.toggle(&hit_id);
-                        } else {
-                            editor.selection.select_single(hit_id);
-                        }
-                    }
-                    history.begin_drag("Move elements".into(), sprite.clone());
-                    editor.select_drag = Some(SelectDragKind::Move {
-                        start_world,
-                        last_snapped_delta: Vec2::ZERO,
-                    });
-                } else {
-                    editor.select_drag = Some(SelectDragKind::Marquee {
-                        start_screen,
-                        start_world,
-                    });
-                }
-            }
-        }
-
-    // --- Drag update ---
-    if response.dragged_by(egui::PointerButton::Primary)
-        && let Some(current_screen) = response.interact_pointer_pos() {
-            let current_world = editor.viewport.screen_to_world(current_screen, canvas_center);
-
-            match &mut editor.select_drag {
-                Some(SelectDragKind::Move { start_world, last_snapped_delta }) => {
-                    response.ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
-                    let raw_delta = current_world - *start_world;
-                    let snapped_delta = snap::snap_to_grid(
-                        raw_delta,
-                        project.editor_preferences.grid_size,
-                        project.editor_preferences.grid_mode,
+                if let Some((elem, idx)) = transform::find_element_vertex_mut(sprite, &element_id, &vertex_id) {
+                    elem.vertices[idx].pos = new_local;
+                    math::recompute_auto_curves(
+                        &mut elem.vertices, closed, curve_mode,
+                        project.min_corner_radius,
                     );
-
-                    if (snapped_delta.x - last_snapped_delta.x).abs() > 0.001
-                        || (snapped_delta.y - last_snapped_delta.y).abs() > 0.001
-                    {
-                        let adjust = snapped_delta - *last_snapped_delta;
-                        let selected = editor.selection.selected_ids.clone();
-                        for layer in sprite.layers.iter_mut() {
-                            for element in layer.elements.iter_mut() {
-                                if selected.iter().any(|id| id == &element.id) {
-                                    element.position += adjust;
-                                }
-                            }
-                        }
-                        *last_snapped_delta = snapped_delta;
-                    }
                 }
-                Some(SelectDragKind::Scale { handle, initial_bounds, initial_scales, initial_positions, anchor }) => {
-                    response.ctx.set_cursor_icon(canvas_render::cursor_for_handle(*handle));
-                    let (bmin, bmax) = *initial_bounds;
-                    let (sx, sy) = compute_scale_factors(*handle, current_world, *anchor, bmin, bmax);
-
-                    let selected = editor.selection.selected_ids.clone();
-                    for layer in sprite.layers.iter_mut() {
-                        for element in layer.elements.iter_mut() {
-                            if let Some(idx) = selected.iter().position(|id| id == &element.id) {
-                                let (_, init_scale) = initial_scales[idx];
-                                let (_, init_pos) = initial_positions[idx];
-                                element.scale = Vec2::new(init_scale.x * sx, init_scale.y * sy);
-                                let offset_from_anchor = init_pos - *anchor;
-                                element.position = *anchor + Vec2::new(offset_from_anchor.x * sx, offset_from_anchor.y * sy);
-                            }
-                        }
-                    }
-                }
-                Some(SelectDragKind::Rotate { pivot, start_angle, initial_rotations, initial_positions }) => {
-                    response.ctx.set_cursor_icon(egui::CursorIcon::Alias);
-                    let current_angle = (current_world.y - pivot.y).atan2(current_world.x - pivot.x);
-                    let mut delta_angle = current_angle - *start_angle;
-
-                    // Shift = 15° snap
-                    if response.ctx.input(|i| i.modifiers.shift) {
-                        let snap_step = std::f32::consts::PI / 12.0; // 15 degrees
-                        delta_angle = (delta_angle / snap_step).round() * snap_step;
-                    }
-
-                    let (sin, cos) = delta_angle.sin_cos();
-                    let selected = editor.selection.selected_ids.clone();
-                    for layer in sprite.layers.iter_mut() {
-                        for element in layer.elements.iter_mut() {
-                            if let Some(idx) = selected.iter().position(|id| id == &element.id) {
-                                let (_, init_rot) = initial_rotations[idx];
-                                let (_, init_pos) = initial_positions[idx];
-                                element.rotation = init_rot + delta_angle;
-                                // Rotate position around pivot
-                                let offset = init_pos - *pivot;
-                                let rotated = Vec2::new(
-                                    offset.x * cos - offset.y * sin,
-                                    offset.x * sin + offset.y * cos,
-                                );
-                                element.position = *pivot + rotated;
-                            }
-                        }
-                    }
-                }
-                _ => {}
             }
         }
+        Some(SelectDragKind::HandleMove { element_id, vertex_id, is_cp1, start_world, initial_local_pos }) => {
+            response.ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+            let element_id = element_id.clone();
+            let vertex_id = vertex_id.clone();
+            let is_cp1 = *is_cp1;
+            let start_world = *start_world;
+            let initial_local_pos = *initial_local_pos;
 
-    // --- Drag end ---
-    if response.drag_stopped_by(egui::PointerButton::Primary) {
-        match editor.select_drag.take() {
-            Some(SelectDragKind::Move { .. }) => {
-                history.end_drag(sprite.clone());
-            }
-            Some(SelectDragKind::Scale { .. })
-            | Some(SelectDragKind::Rotate { .. }) => {
-                // Bake transform into vertices and snap to grid
-                bake_and_snap_selected(sprite, &editor.selection.selected_ids, project);
-                history.end_drag(sprite.clone());
-            }
-            Some(SelectDragKind::Marquee { start_world, .. }) => {
-                if let Some(end_screen) = response.interact_pointer_pos() {
-                    let end_world = editor.viewport.screen_to_world(end_screen, canvas_center);
-                    let rect_min = start_world.min(end_world);
-                    let rect_max = start_world.max(end_world);
-                    let ids = transform::elements_in_rect(sprite, rect_min, rect_max);
-                    let shift = response.ctx.input(|i| i.modifiers.shift);
-                    if shift {
-                        for id in ids {
-                            if !editor.selection.is_selected(&id) {
-                                editor.selection.selected_ids.push(id);
-                            }
-                        }
+            if let Some(element) = find_selected_element(sprite, &element_id) {
+                let initial_world = transform::transform_point(
+                    initial_local_pos, element.origin, element.position, element.rotation, element.scale,
+                );
+                let delta = current_world - start_world;
+                let target_world = initial_world + delta;
+                // No grid snap for handle moves
+                let origin = element.origin;
+                let position = element.position;
+                let rotation = element.rotation;
+                let scale = element.scale;
+                let closed = element.closed;
+                let curve_mode = element.curve_mode;
+                let new_local = transform::inverse_transform_point(
+                    target_world, origin, position, rotation, scale,
+                );
+
+                if let Some((elem, idx)) = transform::find_element_vertex_mut(sprite, &element_id, &vertex_id) {
+                    if is_cp1 {
+                        elem.vertices[idx].cp1 = Some(new_local);
                     } else {
-                        editor.selection.select_all(ids);
+                        elem.vertices[idx].cp2 = Some(new_local);
                     }
+                    elem.vertices[idx].manual_handles = true;
+                    math::recompute_auto_curves(
+                        &mut elem.vertices, closed, curve_mode,
+                        project.min_corner_radius,
+                    );
                 }
             }
-            None => {}
         }
+        _ => {}
     }
+}
 
-    // --- Click-to-select (no drag happened) ---
+/// Finalize a drag: commit undo, resolve marquee selection.
+#[allow(clippy::too_many_arguments)]
+fn handle_select_drag_end(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    sprite: &mut Sprite,
+    project: &Project,
+    history: &mut History,
+    canvas_center: egui::Pos2,
+    _canvas_rect: egui::Rect,
+) {
+    if !response.drag_stopped_by(egui::PointerButton::Primary) {
+        return;
+    }
+    match editor.select_drag.take() {
+        Some(SelectDragKind::Move { .. }) => {
+            history.end_drag(sprite.clone());
+        }
+        Some(SelectDragKind::Scale { .. })
+        | Some(SelectDragKind::Rotate { .. }) => {
+            bake_and_snap_selected(sprite, &editor.selection.selected_ids, project);
+            history.end_drag(sprite.clone());
+        }
+        Some(SelectDragKind::Marquee { start_world, .. }) => {
+            if let Some(end_screen) = response.interact_pointer_pos() {
+                let end_world = editor.viewport.screen_to_world(end_screen, canvas_center);
+                let rect_min = start_world.min(end_world);
+                let rect_max = start_world.max(end_world);
+                let ids = transform::elements_in_rect(sprite, rect_min, rect_max);
+                let shift = response.ctx.input(|i| i.modifiers.shift);
+                if shift {
+                    for id in ids {
+                        if !editor.selection.is_selected(&id) {
+                            editor.selection.selected_ids.push(id);
+                        }
+                    }
+                } else {
+                    editor.selection.select_all(ids);
+                }
+            }
+        }
+        Some(SelectDragKind::VertexMove { .. })
+        | Some(SelectDragKind::HandleMove { .. }) => {
+            history.end_drag(sprite.clone());
+        }
+        None => {}
+    }
+}
+
+/// Click-to-select, alt-click stack popup, right-click clear.
+fn handle_select_click(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    sprite: &Sprite,
+    canvas_center: egui::Pos2,
+    threshold: f32,
+) {
     if response.clicked() && editor.select_drag.is_none() {
         let shift = response.ctx.input(|i| i.modifiers.shift);
         let alt = response.ctx.input(|i| i.modifiers.alt);
 
+        // In vertex edit mode, check vertex click first
+        if is_vertex_edit_mode(editor) && !alt {
+            let mut vertex_hit = false;
+            if let Some(click_pos) = response.interact_pointer_pos()
+                && let Some(element) = find_selected_element(sprite, &editor.selection.selected_ids[0])
+                && let Some(vid) = hit_test::hit_test_vertex(
+                    click_pos, element, &editor.viewport,
+                    canvas_center, canvas_render::VERTEX_HIT_RADIUS,
+                )
+            {
+                editor.selected_vertex_id = Some(vid);
+                vertex_hit = true;
+            }
+            if vertex_hit {
+                return;
+            }
+            // No vertex hit — clear vertex selection, fall through to element handling
+            editor.selected_vertex_id = None;
+        }
+
         if alt {
-            // Alt+click: show selection stack popup if 2+ elements under cursor
             if let Some(click_pos) = response.interact_pointer_pos() {
                 let world_pos = editor.viewport.screen_to_world(click_pos, canvas_center);
                 let all_hits = hit_test::hit_test_all_elements(world_pos, sprite, threshold);
@@ -408,35 +661,49 @@ fn handle_select_tool(
                         entries,
                     });
                 } else if let Some((id, _, _)) = all_hits.into_iter().next() {
+                    editor.clear_vertex_selection();
                     editor.selection.select_single(id);
                 }
             }
-        } else if let Some(ref hover_id) = editor.hover_element_id {
+        } else if let Some(hover_id) = editor.hover_element_id.clone() {
             editor.selection_stack_popup = None;
+            editor.clear_vertex_selection();
             if shift {
-                editor.selection.toggle(hover_id);
+                editor.selection.toggle(&hover_id);
             } else {
-                editor.selection.select_single(hover_id.clone());
+                editor.selection.select_single(hover_id);
             }
         } else if !shift {
+            editor.clear_vertex_selection();
             editor.selection.clear();
             editor.selection_stack_popup = None;
         }
     }
 
-    // --- Right-click clears selection ---
     if response.secondary_clicked() {
         editor.selection.clear();
         editor.selection_stack_popup = None;
     }
+}
 
-    // --- Escape clears selection and popup ---
+/// Keyboard shortcuts: Escape, Ctrl+A, Delete, C toggle curve mode.
+fn handle_select_keyboard(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    sprite: &mut Sprite,
+    project: &Project,
+    history: &mut History,
+) {
     if response.ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        editor.selection.clear();
-        editor.selection_stack_popup = None;
+        if editor.selected_vertex_id.is_some() {
+            // First Escape: just clear vertex selection
+            editor.clear_vertex_selection();
+        } else {
+            editor.selection.clear();
+            editor.selection_stack_popup = None;
+        }
     }
 
-    // --- Ctrl+A select all ---
     if response.ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::A)) {
         let mut ids = Vec::new();
         for layer in &sprite.layers {
@@ -447,25 +714,77 @@ fn handle_select_tool(
                 ids.push(element.id.clone());
             }
         }
+        editor.clear_vertex_selection();
         editor.selection.select_all(ids);
     }
 
-    // --- Delete selected elements ---
     let delete_pressed = response.ctx.input(|i| {
         i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)
     });
-    if delete_pressed && !editor.selection.is_empty() {
-        let before = sprite.clone();
-        let selected = editor.selection.selected_ids.clone();
-        for layer in sprite.layers.iter_mut() {
-            layer.elements.retain(|e| !selected.iter().any(|id| id == &e.id));
+    if delete_pressed {
+        // Vertex delete mode: delete the selected vertex
+        if let Some(ref vid) = editor.selected_vertex_id.clone() {
+            if is_vertex_edit_mode(editor) {
+                let element_id = editor.selection.selected_ids[0].clone();
+                let before = sprite.clone();
+                let mut should_delete_element = false;
+                for layer in sprite.layers.iter_mut() {
+                    for element in layer.elements.iter_mut() {
+                        if element.id == element_id {
+                            element.vertices.retain(|v| v.id != *vid);
+                            if element.vertices.len() < 2 {
+                                should_delete_element = true;
+                            } else {
+                                math::recompute_auto_curves(
+                                    &mut element.vertices,
+                                    element.closed,
+                                    element.curve_mode,
+                                    project.min_corner_radius,
+                                );
+                            }
+                        }
+                    }
+                }
+                if should_delete_element {
+                    for layer in sprite.layers.iter_mut() {
+                        layer.elements.retain(|e| e.id != element_id);
+                    }
+                    editor.selection.clear();
+                }
+                editor.clear_vertex_selection();
+                history.push("Delete vertex".into(), before, sprite.clone());
+            }
+        } else if !editor.selection.is_empty() {
+            let before = sprite.clone();
+            let selected = editor.selection.selected_ids.clone();
+            for layer in sprite.layers.iter_mut() {
+                layer.elements.retain(|e| !selected.iter().any(|id| id == &e.id));
+            }
+            history.push("Delete elements".into(), before, sprite.clone());
+            editor.selection.clear();
         }
-        history.push("Delete elements".into(), before, sprite.clone());
-        editor.selection.clear();
     }
 
-    // --- C key toggles curve/straight mode on selected elements ---
-    // If any selected element is curved → all become straight; otherwise all become curved.
+    // R key: reset manual handles on selected vertex
+    if response.ctx.input(|i| i.key_pressed(egui::Key::R) && !i.modifiers.ctrl) {
+        if let Some(ref vid) = editor.selected_vertex_id.clone() {
+            if is_vertex_edit_mode(editor) {
+                let element_id = editor.selection.selected_ids[0].clone();
+                let before = sprite.clone();
+                if let Some((elem, idx)) = transform::find_element_vertex_mut(sprite, &element_id, vid) {
+                    elem.vertices[idx].manual_handles = false;
+                    let closed = elem.closed;
+                    let curve_mode = elem.curve_mode;
+                    math::recompute_auto_curves(
+                        &mut elem.vertices, closed, curve_mode,
+                        project.min_corner_radius,
+                    );
+                    history.push("Reset handles".into(), before, sprite.clone());
+                }
+            }
+        }
+    }
+
     if response.ctx.input(|i| i.key_pressed(egui::Key::C) && !i.modifiers.ctrl) && !editor.selection.is_empty() {
         let before = sprite.clone();
         let selected = editor.selection.selected_ids.clone();
@@ -489,8 +808,17 @@ fn handle_select_tool(
         }
         history.push("Toggle curve mode".into(), before, sprite.clone());
     }
+}
 
-    // --- Render selection highlights ---
+/// Render selection highlights, handles, hover highlight, and marquee.
+fn render_select_overlays(
+    response: &egui::Response,
+    painter: &egui::Painter,
+    editor: &EditorState,
+    sprite: &Sprite,
+    canvas_rect: egui::Rect,
+    theme_mode: crate::model::project::Theme,
+) {
     canvas_render::render_selection_highlights(
         painter,
         sprite,
@@ -500,8 +828,11 @@ fn handle_select_tool(
         theme_mode,
     );
 
-    // --- Render transform handles (only when not dragging or during handle drag) ---
-    let show_handles = matches!(&editor.select_drag, None | Some(SelectDragKind::Scale { .. }) | Some(SelectDragKind::Rotate { .. }));
+    let in_vertex_mode = is_vertex_edit_mode(editor);
+
+    // Show transform handles only when not in vertex mode or no vertex is selected
+    let show_handles = !in_vertex_mode || editor.selected_vertex_id.is_none();
+    let show_handles = show_handles && matches!(&editor.select_drag, None | Some(SelectDragKind::Scale { .. }) | Some(SelectDragKind::Rotate { .. }));
     if show_handles {
         canvas_render::render_transform_handles(
             painter,
@@ -513,7 +844,36 @@ fn handle_select_tool(
         );
     }
 
-    // --- Render hover highlight (only for non-selected, not during drag) ---
+    // Vertex edit mode overlays
+    if in_vertex_mode {
+        let element_id = &editor.selection.selected_ids[0];
+        if let Some(element) = find_selected_element(sprite, element_id) {
+            let canvas_center = canvas_rect.center();
+            canvas_render::render_vertex_dots(
+                painter,
+                element,
+                editor.selected_vertex_id.as_deref(),
+                editor.hover_vertex.as_ref(),
+                &editor.viewport,
+                canvas_center,
+                theme_mode,
+            );
+            if let Some(ref sel_vid) = editor.selected_vertex_id
+                && element.curve_mode
+            {
+                canvas_render::render_cp_handles(
+                    painter,
+                    element,
+                    sel_vid,
+                    editor.hover_vertex.as_ref(),
+                    &editor.viewport,
+                    canvas_center,
+                    theme_mode,
+                );
+            }
+        }
+    }
+
     if editor.select_drag.is_none()
         && let Some(ref hover_id) = editor.hover_element_id
             && !editor.selection.is_selected(hover_id) {
@@ -527,17 +887,16 @@ fn handle_select_tool(
                 );
             }
 
-    // --- Render marquee rectangle ---
     if let Some(SelectDragKind::Marquee { start_screen, .. }) = &editor.select_drag
         && let Some(current_screen) = response.interact_pointer_pos() {
             let marquee_color = theme::marquee_color(theme_mode);
             let stroke = egui::Stroke::new(1.0, marquee_color);
             let min_p = egui::Pos2::new(start_screen.x.min(current_screen.x), start_screen.y.min(current_screen.y));
             let max_p = egui::Pos2::new(start_screen.x.max(current_screen.x), start_screen.y.max(current_screen.y));
-            canvas_render::draw_dashed_line(painter, min_p, egui::Pos2::new(max_p.x, min_p.y), stroke, 4.0, 3.0);
-            canvas_render::draw_dashed_line(painter, egui::Pos2::new(max_p.x, min_p.y), max_p, stroke, 4.0, 3.0);
-            canvas_render::draw_dashed_line(painter, max_p, egui::Pos2::new(min_p.x, max_p.y), stroke, 4.0, 3.0);
-            canvas_render::draw_dashed_line(painter, egui::Pos2::new(min_p.x, max_p.y), min_p, stroke, 4.0, 3.0);
+            canvas_render::draw_dashed_line(painter, min_p, egui::Pos2::new(max_p.x, min_p.y), stroke, MARQUEE_DASH, MARQUEE_GAP);
+            canvas_render::draw_dashed_line(painter, egui::Pos2::new(max_p.x, min_p.y), max_p, stroke, MARQUEE_DASH, MARQUEE_GAP);
+            canvas_render::draw_dashed_line(painter, max_p, egui::Pos2::new(min_p.x, max_p.y), stroke, MARQUEE_DASH, MARQUEE_GAP);
+            canvas_render::draw_dashed_line(painter, egui::Pos2::new(min_p.x, max_p.y), min_p, stroke, MARQUEE_DASH, MARQUEE_GAP);
         }
 }
 
@@ -664,7 +1023,7 @@ fn handle_line_tool(
     if !editor.line_tool.is_drawing {
         if let Some(hover_pos) = response.hover_pos() {
             let world_pos = editor.viewport.screen_to_world(hover_pos, canvas_rect.center());
-            let threshold = 8.0 / editor.viewport.zoom;
+            let threshold = HIT_TEST_THRESHOLD / editor.viewport.zoom;
             editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold);
         } else {
             editor.hover_element_id = None;

@@ -60,11 +60,13 @@ pub fn handle_viewport_input(
 
     // V key = switch to select tool
     if ui.input(|i| i.key_pressed(egui::Key::V)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.clear_vertex_selection();
         editor.tool = crate::state::editor::ToolKind::Select;
     }
 
     // L key = switch to line tool
     if ui.input(|i| i.key_pressed(egui::Key::L)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.clear_vertex_selection();
         editor.tool = crate::state::editor::ToolKind::Line;
     }
 }

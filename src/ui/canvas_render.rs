@@ -5,8 +5,35 @@ use crate::math;
 use crate::model::project::{Palette, Theme};
 use crate::model::sprite::{PathVertex, StrokeElement, Sprite};
 use crate::model::vec2::Vec2;
-use crate::state::editor::{HandleKind, ViewportState};
+use crate::state::editor::{HandleKind, VertexHover, ViewportState};
 use crate::theme;
+
+/// Curve flattening: target screen-pixel tolerance.
+const FLATTEN_TOLERANCE_PX: f32 = 0.5;
+/// Minimum world-space flattening tolerance (prevents infinite subdivision).
+const FLATTEN_MIN_TOLERANCE: f32 = 0.01;
+/// Extra stroke width added for hover highlight (world units).
+const HOVER_HIGHLIGHT_EXTRA: f32 = 4.0;
+/// Extra stroke width added for selection highlight (world units).
+const SELECTION_HIGHLIGHT_EXTRA: f32 = 6.0;
+/// Screen-pixel offset from top-center to rotation handle.
+const ROTATION_HANDLE_OFFSET: f32 = 24.0;
+/// Half-size of scale handle squares (screen pixels).
+const SCALE_HANDLE_HALF_SIZE: f32 = 3.5;
+/// Radius of the rotation handle circle (screen pixels).
+const ROTATION_HANDLE_RADIUS: f32 = 4.0;
+/// Canvas boundary dashed line pattern.
+const BOUNDARY_DASH: f32 = 6.0;
+const BOUNDARY_GAP: f32 = 4.0;
+/// Selection bounding box dashed line pattern.
+const SELECTION_BOX_DASH: f32 = 4.0;
+const SELECTION_BOX_GAP: f32 = 3.0;
+/// Vertex dot rendering radii (screen pixels).
+const VERTEX_DOT_RADIUS: f32 = 4.0;
+const VERTEX_SELECTED_RADIUS: f32 = 5.5;
+const CP_HANDLE_RADIUS: f32 = 3.5;
+/// Hit radius for vertex/handle picking (screen pixels).
+pub const VERTEX_HIT_RADIUS: f32 = 8.0;
 
 /// Render all visible elements in the sprite.
 pub fn render_elements(
@@ -79,7 +106,7 @@ fn render_curve_path(
     }
 
     // Adaptive tolerance: ~0.5 screen pixels regardless of zoom
-    let tolerance = (0.5 / viewport.zoom).max(0.01);
+    let tolerance = (FLATTEN_TOLERANCE_PX / viewport.zoom).max(FLATTEN_MIN_TOLERANCE);
     let mut world_points: Vec<Vec2> = Vec::new();
 
     let seg_count = if closed { verts.len() } else { verts.len() - 1 };
@@ -123,7 +150,7 @@ fn render_rounded_path(
     }
 
     // Adaptive tolerance: ~0.5 screen pixels regardless of zoom
-    let tolerance = (0.5 / viewport.zoom).max(0.01);
+    let tolerance = (FLATTEN_TOLERANCE_PX / viewport.zoom).max(FLATTEN_MIN_TOLERANCE);
     let mut world_points: Vec<Vec2> = Vec::new();
 
     for v in verts {
@@ -170,7 +197,7 @@ pub fn render_hover_highlight(
     for layer in &sprite.layers {
         for element in &layer.elements {
             if element.id == element_id {
-                let stroke = Stroke::new((element.stroke_width + 4.0) * viewport.zoom, highlight_color);
+                let stroke = Stroke::new((element.stroke_width + HOVER_HIGHLIGHT_EXTRA) * viewport.zoom, highlight_color);
                 render_element_path(painter, element, stroke, viewport, canvas_center);
                 return;
             }
@@ -196,7 +223,7 @@ pub fn render_selection_highlights(
     for layer in &sprite.layers {
         for element in &layer.elements {
             if selected_ids.iter().any(|id| id == &element.id) {
-                let stroke = Stroke::new((element.stroke_width + 6.0) * viewport.zoom, highlight_color);
+                let stroke = Stroke::new((element.stroke_width + SELECTION_HIGHLIGHT_EXTRA) * viewport.zoom, highlight_color);
                 render_element_path(painter, element, stroke, viewport, canvas_center);
             }
         }
@@ -277,10 +304,10 @@ pub fn render_canvas_boundary(
     let bl = viewport.world_to_screen(Vec2::new(0.0, canvas_height as f32), canvas_center);
 
     // Draw dashed lines (series of short segments)
-    draw_dashed_line(painter, tl, tr, stroke, 6.0, 4.0);
-    draw_dashed_line(painter, tr, br, stroke, 6.0, 4.0);
-    draw_dashed_line(painter, br, bl, stroke, 6.0, 4.0);
-    draw_dashed_line(painter, bl, tl, stroke, 6.0, 4.0);
+    draw_dashed_line(painter, tl, tr, stroke, BOUNDARY_DASH, BOUNDARY_GAP);
+    draw_dashed_line(painter, tr, br, stroke, BOUNDARY_DASH, BOUNDARY_GAP);
+    draw_dashed_line(painter, br, bl, stroke, BOUNDARY_DASH, BOUNDARY_GAP);
+    draw_dashed_line(painter, bl, tl, stroke, BOUNDARY_DASH, BOUNDARY_GAP);
 }
 
 pub fn draw_dashed_line(
@@ -340,7 +367,7 @@ pub fn compute_handle_positions(
 
     // Rotation handle: 24px above top-center in screen space
     let top_center = viewport.world_to_screen(Vec2::new(mid_x, bounds_min.y), canvas_center);
-    handles.push((HandleKind::Rotate, Pos2::new(top_center.x, top_center.y - 24.0)));
+    handles.push((HandleKind::Rotate, Pos2::new(top_center.x, top_center.y - ROTATION_HANDLE_OFFSET)));
 
     handles
 }
@@ -373,10 +400,10 @@ pub fn render_transform_handles(
     let box_stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(
         handle_color.r(), handle_color.g(), handle_color.b(), 100,
     ));
-    draw_dashed_line(painter, tl, tr, box_stroke, 4.0, 3.0);
-    draw_dashed_line(painter, tr, br, box_stroke, 4.0, 3.0);
-    draw_dashed_line(painter, br, bl, box_stroke, 4.0, 3.0);
-    draw_dashed_line(painter, bl, tl, box_stroke, 4.0, 3.0);
+    draw_dashed_line(painter, tl, tr, box_stroke, SELECTION_BOX_DASH, SELECTION_BOX_GAP);
+    draw_dashed_line(painter, tr, br, box_stroke, SELECTION_BOX_DASH, SELECTION_BOX_GAP);
+    draw_dashed_line(painter, br, bl, box_stroke, SELECTION_BOX_DASH, SELECTION_BOX_GAP);
+    draw_dashed_line(painter, bl, tl, box_stroke, SELECTION_BOX_DASH, SELECTION_BOX_GAP);
 
     // Draw rotation arm (line from top-center to rotation handle)
     let top_center = viewport.world_to_screen(
@@ -387,17 +414,16 @@ pub fn render_transform_handles(
     if let Some(rot_pos) = rot_handle_pos {
         painter.line_segment([top_center, rot_pos], box_stroke);
         // Rotation handle: circle
-        painter.circle_filled(rot_pos, 4.0, handle_color);
-        painter.circle_stroke(rot_pos, 4.0, Stroke::new(1.0, handle_color));
+        painter.circle_filled(rot_pos, ROTATION_HANDLE_RADIUS, handle_color);
+        painter.circle_stroke(rot_pos, ROTATION_HANDLE_RADIUS, Stroke::new(1.0, handle_color));
     }
 
     // Draw scale handles: small filled squares
-    let half = 3.5;
     for (kind, pos) in &handles {
         if *kind == HandleKind::Rotate {
             continue; // already drawn above
         }
-        let rect = egui::Rect::from_center_size(*pos, egui::Vec2::splat(half * 2.0));
+        let rect = egui::Rect::from_center_size(*pos, egui::Vec2::splat(SCALE_HANDLE_HALF_SIZE * 2.0));
         painter.rect_filled(rect, 0.0, handle_color);
     }
 }
@@ -438,5 +464,77 @@ pub fn cursor_for_handle(handle: HandleKind) -> egui::CursorIcon {
         HandleKind::ScaleNW | HandleKind::ScaleSE => egui::CursorIcon::ResizeNwSe,
         HandleKind::ScaleNE | HandleKind::ScaleSW => egui::CursorIcon::ResizeNeSw,
         HandleKind::Rotate => egui::CursorIcon::Alias,
+    }
+}
+
+/// Render vertex dots for the selected element in vertex-edit mode.
+pub fn render_vertex_dots(
+    painter: &Painter,
+    element: &StrokeElement,
+    selected_vertex_id: Option<&str>,
+    hover_vertex: Option<&VertexHover>,
+    viewport: &ViewportState,
+    canvas_center: Pos2,
+    theme_mode: Theme,
+) {
+    let tc = theme::theme_colors(theme_mode);
+
+    for v in &element.vertices {
+        let world = transform::vertex_world_pos(v, element);
+        let screen = viewport.world_to_screen(world, canvas_center);
+
+        let is_selected = selected_vertex_id == Some(v.id.as_str());
+        let is_hovered = matches!(hover_vertex, Some(VertexHover::Vertex { vertex_id }) if vertex_id == &v.id);
+
+        let (radius, color) = if is_selected {
+            (VERTEX_SELECTED_RADIUS, tc.selected)
+        } else if is_hovered {
+            (VERTEX_DOT_RADIUS + 1.0, tc.icon_text)
+        } else {
+            (VERTEX_DOT_RADIUS, tc.mid)
+        };
+
+        painter.circle_filled(screen, radius, color);
+        // Outline for visibility against any background
+        painter.circle_stroke(screen, radius, Stroke::new(1.0, Color32::BLACK));
+    }
+}
+
+/// Render control point handles (tangent lines + handle dots) for the selected vertex.
+pub fn render_cp_handles(
+    painter: &Painter,
+    element: &StrokeElement,
+    vertex_id: &str,
+    hover_vertex: Option<&VertexHover>,
+    viewport: &ViewportState,
+    canvas_center: Pos2,
+    theme_mode: Theme,
+) {
+    let tc = theme::theme_colors(theme_mode);
+    let Some(vertex) = element.vertices.iter().find(|v| v.id == vertex_id) else { return };
+
+    let v_world = transform::vertex_world_pos(vertex, element);
+    let v_screen = viewport.world_to_screen(v_world, canvas_center);
+
+    let handle_line_stroke = Stroke::new(1.0, tc.mid);
+
+    for (cp_opt, is_cp1) in [(vertex.cp1, true), (vertex.cp2, false)] {
+        if let Some(cp) = cp_opt {
+            let cp_world = transform::transform_point(
+                cp, element.origin, element.position, element.rotation, element.scale,
+            );
+            let cp_screen = viewport.world_to_screen(cp_world, canvas_center);
+
+            // Tangent line from vertex to handle
+            painter.line_segment([v_screen, cp_screen], handle_line_stroke);
+
+            // Handle dot
+            let is_hovered = matches!(hover_vertex, Some(VertexHover::Handle { vertex_id: vid, is_cp1: c }) if vid == vertex_id && *c == is_cp1);
+            let radius = if is_hovered { CP_HANDLE_RADIUS + 1.0 } else { CP_HANDLE_RADIUS };
+            let color = if is_hovered { tc.icon_text } else { tc.mid };
+
+            painter.circle_filled(cp_screen, radius, color);
+            painter.circle_stroke(cp_screen, radius, Stroke::new(1.0, Color32::BLACK));
+        }
     }
 }

@@ -4,11 +4,11 @@ use crate::state::editor::EditorState;
 
 use super::icons;
 
-pub fn show_status_bar(ui: &mut egui::Ui, _editor: &EditorState, sprite: &Sprite, _project: &Project) {
+pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &Sprite, project: &Project) {
     ui.horizontal(|ui| {
         // Flip indicator (always show icon; tint when active)
-        if _editor.viewport.flipped {
-            let tint = crate::theme::theme_colors(_project.editor_preferences.theme).icon_text;
+        if editor.viewport.flipped {
+            let tint = crate::theme::theme_colors(project.editor_preferences.theme).icon_text;
             ui.add(icons::small_icon_tinted(icons::view_flip(), tint, ui));
             ui.separator();
         }
