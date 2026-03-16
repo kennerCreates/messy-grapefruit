@@ -22,20 +22,21 @@ pub struct ThemeColors {
 }
 
 pub fn theme_colors(theme: Theme) -> ThemeColors {
+    // All colors sourced from Downgraded 32 palette
     match theme {
         Theme::Dark => ThemeColors {
-            panel_bg:  Color32::from_rgb(0x29, 0x28, 0x31), // #292831
-            canvas_bg: Color32::from_rgb(0x33, 0x3f, 0x58), // #333f58
-            mid:       Color32::from_rgb(0x4a, 0x7a, 0x96), // #4a7a96
-            selected:  Color32::from_rgb(0xee, 0x86, 0x95), // #ee8695
-            icon_text: Color32::from_rgb(0xfb, 0xbb, 0xad), // #fbbbad
+            panel_bg:  Color32::from_rgb(0x3d, 0x00, 0x3d), // #3d003d
+            canvas_bg: Color32::from_rgb(0x41, 0x20, 0x51), // #412051
+            mid:       Color32::from_rgb(0x5c, 0x8b, 0xa8), // #5c8ba8
+            selected:  Color32::from_rgb(0xe0, 0x6b, 0x51), // #e06b51
+            icon_text: Color32::from_rgb(0xf2, 0xcb, 0x9b), // #f2cb9b
         },
         Theme::Light => ThemeColors {
-            panel_bg:  Color32::from_rgb(0xff, 0xec, 0xd6), // #ffecd6
-            canvas_bg: Color32::from_rgb(0xff, 0xb8, 0x73), // #ffb873
-            mid:       Color32::from_rgb(0xcb, 0x76, 0x5c), // #cb765c
-            selected:  Color32::from_rgb(0x7a, 0x4a, 0x5a), // #7a4a5a
-            icon_text: Color32::from_rgb(0x25, 0x21, 0x3e), // #25213e
+            panel_bg:  Color32::from_rgb(0xff, 0xff, 0xe0), // #ffffe0
+            canvas_bg: Color32::from_rgb(0xf2, 0xcb, 0x9b), // #f2cb9b
+            mid:       Color32::from_rgb(0x80, 0xb8, 0x78), // #80b878
+            selected:  Color32::from_rgb(0x7b, 0x33, 0x4c), // #7b334c
+            icon_text: Color32::from_rgb(0x3d, 0x00, 0x3d), // #3d003d
         },
     }
 }

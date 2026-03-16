@@ -60,19 +60,43 @@ pub struct Palette {
 
 impl Palette {
     pub fn default_palette() -> Self {
+        // Downgraded 32 by Polyphorge — https://lospec.com/palette-list/downgraded-32
         Self {
-            name: "Default".to_string(),
+            name: "Downgraded 32".to_string(),
             colors: vec![
-                PaletteColor::transparent(),       // 0: transparent
-                PaletteColor::new(0, 0, 0),        // 1: black
-                PaletteColor::new(255, 255, 255),   // 2: white
-                PaletteColor::new(255, 0, 0),       // 3: red
-                PaletteColor::new(0, 255, 0),       // 4: green
-                PaletteColor::new(0, 0, 255),       // 5: blue
-                PaletteColor::new(255, 255, 0),     // 6: yellow
-                PaletteColor::new(255, 128, 0),     // 7: orange
-                PaletteColor::new(128, 0, 255),     // 8: purple
-                PaletteColor::new(128, 128, 128),   // 9: gray
+                PaletteColor::transparent(),           //  0: transparent
+                PaletteColor::new(0x7b, 0x33, 0x4c),  //  1: #7b334c
+                PaletteColor::new(0xa1, 0x4d, 0x55),  //  2: #a14d55
+                PaletteColor::new(0xc7, 0x73, 0x69),  //  3: #c77369
+                PaletteColor::new(0xe3, 0xa0, 0x84),  //  4: #e3a084
+                PaletteColor::new(0xf2, 0xcb, 0x9b),  //  5: #f2cb9b
+                PaletteColor::new(0xd3, 0x7b, 0x86),  //  6: #d37b86
+                PaletteColor::new(0xaf, 0x5d, 0x8b),  //  7: #af5d8b
+                PaletteColor::new(0x80, 0x40, 0x85),  //  8: #804085
+                PaletteColor::new(0x5b, 0x33, 0x74),  //  9: #5b3374
+                PaletteColor::new(0x41, 0x20, 0x51),  // 10: #412051
+                PaletteColor::new(0x5c, 0x48, 0x6a),  // 11: #5c486a
+                PaletteColor::new(0x88, 0x7d, 0x8d),  // 12: #887d8d
+                PaletteColor::new(0xb8, 0xb4, 0xb2),  // 13: #b8b4b2
+                PaletteColor::new(0xdc, 0xda, 0xc9),  // 14: #dcdac9
+                PaletteColor::new(0xff, 0xff, 0xe0),  // 15: #ffffe0
+                PaletteColor::new(0xb6, 0xf5, 0xdb),  // 16: #b6f5db
+                PaletteColor::new(0x89, 0xd9, 0xd9),  // 17: #89d9d9
+                PaletteColor::new(0x72, 0xb6, 0xcf),  // 18: #72b6cf
+                PaletteColor::new(0x5c, 0x8b, 0xa8),  // 19: #5c8ba8
+                PaletteColor::new(0x4e, 0x66, 0x79),  // 20: #4e6679
+                PaletteColor::new(0x46, 0x49, 0x69),  // 21: #464969
+                PaletteColor::new(0x44, 0x35, 0x5d),  // 22: #44355d
+                PaletteColor::new(0x3d, 0x00, 0x3d),  // 23: #3d003d
+                PaletteColor::new(0x62, 0x17, 0x48),  // 24: #621748
+                PaletteColor::new(0x94, 0x2c, 0x4b),  // 25: #942c4b
+                PaletteColor::new(0xc7, 0x42, 0x4f),  // 26: #c7424f
+                PaletteColor::new(0xe0, 0x6b, 0x51),  // 27: #e06b51
+                PaletteColor::new(0xf2, 0xa5, 0x61),  // 28: #f2a561
+                PaletteColor::new(0xfc, 0xef, 0x8d),  // 29: #fcef8d
+                PaletteColor::new(0xb1, 0xd4, 0x80),  // 30: #b1d480
+                PaletteColor::new(0x80, 0xb8, 0x78),  // 31: #80b878
+                PaletteColor::new(0x65, 0x8d, 0x78),  // 32: #658d78
             ],
         }
     }
@@ -157,7 +181,7 @@ mod tests {
         let json = serde_json::to_string_pretty(&project).unwrap();
         let project2: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(project2.name, "TestProject");
-        assert_eq!(project2.palette.colors.len(), 10);
+        assert_eq!(project2.palette.colors.len(), 33);
         assert_eq!(project2.editor_preferences.grid_size, 8);
     }
 }
