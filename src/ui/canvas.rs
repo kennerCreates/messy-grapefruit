@@ -7,7 +7,7 @@ use crate::state::editor::{EditorState, ToolKind};
 use crate::state::history::History;
 use crate::theme;
 
-use super::{canvas_input, canvas_render, canvas_select, grid};
+use super::{canvas_eyedropper, canvas_fill, canvas_input, canvas_render, canvas_select, grid};
 
 /// Base hit-test threshold in world units (divided by zoom at use site).
 pub(super) const HIT_TEST_THRESHOLD: f32 = 8.0;
@@ -65,6 +65,14 @@ pub fn show_canvas(
         theme_mode,
     );
 
+    canvas_render::render_background(
+        &painter,
+        &editor.viewport,
+        sprite,
+        &project.palette,
+        canvas_rect,
+    );
+
     canvas_render::render_elements(
         &painter,
         &editor.viewport,
@@ -98,6 +106,28 @@ pub fn show_canvas(
                 canvas_rect,
                 theme_mode,
                 &mut actions,
+            );
+        }
+        ToolKind::Fill => {
+            canvas_fill::handle_fill_tool(
+                &response,
+                &painter,
+                editor,
+                sprite,
+                canvas_rect,
+                theme_mode,
+                &mut actions,
+            );
+        }
+        ToolKind::Eyedropper => {
+            canvas_eyedropper::handle_eyedropper_tool(
+                &response,
+                &painter,
+                editor,
+                sprite,
+                project,
+                canvas_rect,
+                theme_mode,
             );
         }
     }
@@ -248,10 +278,16 @@ fn handle_line_tool(
 }
 
 fn zoom_to_fit(editor: &mut EditorState, sprite: &Sprite, canvas_rect: egui::Rect) {
+    // Shrink effective size to account for floating UI panels overlapping the canvas:
+    // toolbar (~48px top), status bar (~40px bottom), sidebar (right)
+    let sidebar_w = if editor.sidebar_expanded { 220.0 } else { 64.0 };
+    let inset = egui::Vec2::new(sidebar_w + 16.0, 88.0);
+    let effective_size = (canvas_rect.size() - inset).max(egui::Vec2::splat(100.0));
+
     // If elements are selected, frame the selection instead of all content
     if !editor.selection.is_empty()
         && let Some((sel_min, sel_max)) = transform::selection_bounds(sprite, &editor.selection.selected_ids) {
-            editor.viewport.zoom_to_fit(sel_min, sel_max, canvas_rect.size());
+            editor.viewport.zoom_to_fit(sel_min, sel_max, effective_size);
             return;
         }
 
@@ -280,5 +316,5 @@ fn zoom_to_fit(editor: &mut EditorState, sprite: &Sprite, canvas_rect: egui::Rec
         max = Vec2::new(sprite.canvas_width as f32, sprite.canvas_height as f32);
     }
 
-    editor.viewport.zoom_to_fit(min, max, canvas_rect.size());
+    editor.viewport.zoom_to_fit(min, max, effective_size);
 }

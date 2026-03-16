@@ -1,12 +1,13 @@
 use std::path::Path;
 
-use crate::model::project::Project;
+use crate::model::project::{PaletteColor, Project};
 use crate::model::sprite::Sprite;
 
 #[derive(Debug)]
 pub enum IoError {
     Io(std::io::Error),
     Json(serde_json::Error),
+    Network(String),
 }
 
 impl std::fmt::Display for IoError {
@@ -14,6 +15,7 @@ impl std::fmt::Display for IoError {
         match self {
             IoError::Io(e) => write!(f, "IO error: {e}"),
             IoError::Json(e) => write!(f, "JSON error: {e}"),
+            IoError::Network(e) => write!(f, "Network error: {e}"),
         }
     }
 }
@@ -54,4 +56,27 @@ pub fn load_project(path: &Path) -> Result<Project, IoError> {
     let data = std::fs::read_to_string(path)?;
     let project = serde_json::from_str(&data)?;
     Ok(project)
+}
+
+/// Fetch a palette from Lospec by slug (e.g., "endesga-32").
+/// Returns the colors parsed from the API JSON response.
+/// Uses blocking HTTP — UI will freeze briefly during the fetch.
+pub fn fetch_lospec_palette(slug: &str) -> Result<Vec<PaletteColor>, IoError> {
+    #[derive(serde::Deserialize)]
+    struct LospecResponse {
+        colors: Vec<String>,
+    }
+
+    let url = format!("https://lospec.com/palette-list/{slug}.json");
+    let resp = reqwest::blocking::get(&url)
+        .map_err(|e| IoError::Network(e.to_string()))?;
+    let data: LospecResponse = resp
+        .json()
+        .map_err(|e| IoError::Network(e.to_string()))?;
+    let colors: Vec<PaletteColor> = data
+        .colors
+        .iter()
+        .filter_map(|hex| PaletteColor::from_hex(hex))
+        .collect();
+    Ok(colors)
 }

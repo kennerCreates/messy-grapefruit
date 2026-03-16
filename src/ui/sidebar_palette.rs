@@ -1,10 +1,14 @@
-use crate::model::project::Theme;
+use crate::action::AppAction;
+use crate::model::project::{Palette, PaletteColor, Theme};
+use crate::state::editor::EditorState;
 use crate::theme;
+
+use super::icons;
 
 /// Render a color palette mini-picker grid. Returns the newly clicked color index, if any.
 pub(super) fn render_color_palette(
     ui: &mut egui::Ui,
-    colors: &[crate::model::project::PaletteColor],
+    colors: &[PaletteColor],
     selected_index: u8,
     theme: Theme,
 ) -> Option<u8> {
@@ -39,10 +43,223 @@ pub(super) fn render_color_palette(
     clicked
 }
 
+/// Render the full palette management panel (expanded sidebar).
+/// Includes: recent colors, palette grid, add/delete/edit controls.
+pub(super) fn render_palette_panel(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    palette: &Palette,
+    theme: Theme,
+    actions: &mut Vec<AppAction>,
+) {
+    ui.label("Palette");
+    ui.add_space(4.0);
+
+    // Recent colors bar
+    if !editor.recent_colors.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Recent");
+            for &idx in &editor.recent_colors.clone() {
+                let color = palette.get_color(idx);
+                let size = egui::Vec2::splat(14.0);
+                let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+                let c32 = color.to_color32();
+                if c32.a() == 0 {
+                    draw_checkerboard(ui, rect);
+                } else {
+                    ui.painter().rect_filled(rect, 1.0, c32);
+                }
+                if response.clicked() {
+                    editor.brush.color_index = idx;
+                }
+                if response.hovered() {
+                    response.on_hover_text(format!("Color {idx}"));
+                }
+            }
+        });
+        ui.add_space(4.0);
+    }
+
+    // Palette grid (click to select stroke color)
+    if let Some(new_idx) = render_color_palette(
+        ui,
+        &palette.colors,
+        editor.brush.color_index,
+        theme,
+    ) {
+        editor.brush.color_index = new_idx;
+        editor.track_recent_color(new_idx);
+    }
+
+    ui.add_space(4.0);
+
+    // Palette management buttons
+    ui.horizontal(|ui| {
+        // Add color
+        if ui
+            .add(icons::small_icon_button(icons::palette_add(), ui))
+            .on_hover_text("Add Color")
+            .clicked()
+        {
+            if palette.colors.len() >= 256 {
+                // Show toast-like feedback (egui doesn't have native toasts,
+                // but we can use the tooltip mechanism)
+            } else {
+                // Add a default white color
+                actions.push(AppAction::AddPaletteColor(PaletteColor::new(255, 255, 255)));
+            }
+        }
+
+        // Delete selected color
+        if ui
+            .add(icons::small_icon_button(icons::palette_remove(), ui))
+            .on_hover_text("Delete Selected Color")
+            .clicked()
+            && editor.brush.color_index != 0
+            && (editor.brush.color_index as usize) < palette.colors.len()
+        {
+            actions.push(AppAction::DeletePaletteColor(editor.brush.color_index));
+            // Move selection to previous color
+            if editor.brush.color_index > 0 {
+                editor.brush.color_index -= 1;
+            }
+        }
+
+        // Lospec import
+        if ui
+            .add(icons::small_icon_button(icons::palette_import(), ui))
+            .on_hover_text("Import from Lospec")
+            .clicked()
+        {
+            editor.lospec_popup_open = !editor.lospec_popup_open;
+            editor.lospec_error = None;
+        }
+    });
+
+    // Lospec import popup
+    if editor.lospec_popup_open {
+        ui.group(|ui| {
+            ui.label("Lospec Import");
+            ui.horizontal(|ui| {
+                ui.label("Slug:");
+                ui.text_edit_singleline(&mut editor.lospec_slug);
+            });
+            if let Some(err) = &editor.lospec_error {
+                ui.colored_label(egui::Color32::from_rgb(255, 100, 100), err);
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Import").clicked() && !editor.lospec_slug.is_empty() {
+                    match crate::io::fetch_lospec_palette(&editor.lospec_slug) {
+                        Ok(colors) => {
+                            actions.push(AppAction::ImportPalette(colors));
+                            editor.lospec_popup_open = false;
+                            editor.lospec_error = None;
+                            editor.brush.color_index = 1.min((palette.colors.len().saturating_sub(1)) as u8);
+                        }
+                        Err(e) => {
+                            editor.lospec_error = Some(e.to_string());
+                        }
+                    }
+                }
+                if ui.button("Cancel").clicked() {
+                    editor.lospec_popup_open = false;
+                }
+            });
+        });
+    }
+
+    ui.add_space(4.0);
+
+    // Color editor: show RGB sliders for the selected color
+    if editor.brush.color_index != 0
+        && let Some(pc) = palette.colors.get(editor.brush.color_index as usize)
+    {
+        let mut r = pc.r;
+        let mut g = pc.g;
+        let mut b = pc.b;
+        let mut changed = false;
+
+        theme::with_input_style(ui, theme, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("R");
+                if ui.add(egui::DragValue::new(&mut r).range(0..=255).speed(1.0)).changed() {
+                    changed = true;
+                }
+                ui.label("G");
+                if ui.add(egui::DragValue::new(&mut g).range(0..=255).speed(1.0)).changed() {
+                    changed = true;
+                }
+                ui.label("B");
+                if ui.add(egui::DragValue::new(&mut b).range(0..=255).speed(1.0)).changed() {
+                    changed = true;
+                }
+            });
+        });
+
+        if changed {
+            actions.push(AppAction::EditPaletteColor {
+                index: editor.brush.color_index,
+                color: PaletteColor::new(r, g, b),
+            });
+        }
+    }
+
+    ui.add_space(4.0);
+
+    // Color ramp finder
+    ui.horizontal(|ui| {
+        if ui
+            .add(icons::small_icon_button(icons::palette_ramp(), ui))
+            .on_hover_text("Find Color Ramp")
+            .clicked()
+            && editor.brush.color_index != 0
+        {
+            editor.color_ramp = crate::engine::palette::find_color_ramp(
+                palette,
+                editor.brush.color_index,
+                8,
+            );
+        }
+    });
+
+    // Display ramp if available
+    if !editor.color_ramp.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            for &idx in &editor.color_ramp.clone() {
+                let color = palette.get_color(idx);
+                let size = egui::Vec2::splat(16.0);
+                let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+                let c32 = color.to_color32();
+                if c32.a() == 0 {
+                    draw_checkerboard(ui, rect);
+                } else {
+                    ui.painter().rect_filled(rect, 1.0, c32);
+                }
+                if editor.brush.color_index == idx {
+                    let sel_color = theme::selected_color(theme);
+                    ui.painter().rect_stroke(
+                        rect,
+                        1.0,
+                        egui::Stroke::new(2.0, sel_color),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+                if response.clicked() {
+                    editor.brush.color_index = idx;
+                    editor.track_recent_color(idx);
+                }
+                if response.hovered() {
+                    response.on_hover_text(format!("Color {idx}"));
+                }
+            }
+        });
+    }
+}
+
 /// Render a single color swatch with selection border.
 pub(super) fn render_color_swatch(
     ui: &mut egui::Ui,
-    color: crate::model::project::PaletteColor,
+    color: PaletteColor,
     size: f32,
     theme: Theme,
 ) {

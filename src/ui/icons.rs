@@ -15,6 +15,14 @@ pub fn redo() -> ImageSource<'static> { egui::include_image!("../../assets/icons
 // Tool icons
 pub fn tool_select() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_select.svg") }
 pub fn tool_line() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_line.svg") }
+pub fn tool_fill() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_fill.svg") }
+pub fn tool_eyedropper() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_eyedropper.svg") }
+
+// Palette icons
+pub fn palette_add() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_add.svg") }
+pub fn palette_remove() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_remove.svg") }
+pub fn palette_import() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_import.svg") }
+pub fn palette_ramp() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_ramp.svg") }
 
 // Grid icons
 pub fn grid_dots() -> ImageSource<'static> { egui::include_image!("../../assets/icons/grid_dots.svg") }

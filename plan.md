@@ -783,17 +783,39 @@ All planned features implemented. Key additions beyond the original plan:
 **Remaining warnings to resolve in future phases:**
 - Same as Phase 1 (unused math functions for taper rendering, unused catmull_rom_to_cubic, unused merge.rs vertex_id, unused io.rs project save/load, unused theme.rs secondary/origin_color)
 
-### Phase 3: Layers — "I can organize my art"
+### Phase 3: Layers — "I can organize my art" ✅
 
-**Icons needed:**
-- Layer panel: add (plus), remove (trash), duplicate (copy), mirror (flip), combine (merge), visibility (eye), lock (padlock), solo (eye variant), clear solo, group collapse/expand, create group
+**Status:** Complete.
 
-- Layer panel (fixed tab): add, remove, duplicate, mirror, combine, drag reorder
-- Layer renaming: double-click layer name to edit inline (TextEdit swap)
-- Visibility toggle, lock toggle, solo mode (dim others to ~15%)
-- Layer groups: collapsible folders, visibility/lock cascade, drag in/out, single-level nesting
+**Icons added** (`assets/icons/`):
+- `layer_remove`, `layer_duplicate`, `layer_mirror`, `layer_combine` — header action buttons
+- `layer_solo` — shown on soloed layer row only, click to clear
+- `layer_group_collapse`, `layer_group_expand`, `layer_group_create` — group management
+- `layer_move_up`, `layer_move_down` — reorder buttons on layer rows and group headers
 
-**Artist test:** Create multiple layers → draw body parts on separate layers → reorder → solo a layer → create groups → collapse/expand.
+**What was built:**
+- **Layer panel header buttons**: Add, Remove, Duplicate, Mirror (horizontal flip), Combine (merge down), Create Group — all undoable
+- **Layer renaming**: right-click layer name → "Rename" (inline TextEdit, Enter to commit, Escape to cancel)
+- **Visibility/lock toggles**: per-layer eye and padlock icons, per-group cascade toggles
+- **Solo mode**: double-click layer name or canvas element to solo its layer (dims others to ~15% opacity, non-interactive). Solo icon appears only on the soloed layer row. Double-click canvas background or soloed layer name to clear. Solo-aware hit testing, marquee select, and Ctrl+A
+- **Layer groups**: collapsible folder headers with visibility/lock cascade. Right-click group header for Rename/Ungroup. Single-level nesting
+- **Layer reorder**: up/down arrow buttons on each layer row and group header (moves group as a block). Undoable
+- **Group assignment**: right-click layer → "Move to Group >" submenu lists all groups + "None". Also "Remove from Group" shortcut
+- **ID-based active layer tracking**: replaced index-based with `active_layer_id: Option<String>`, validated after undo/redo
+
+**Files modified:**
+- `src/model/sprite.rs` — `LayerGroup` struct, `group_id` on Layer, `layer_groups` on Sprite, helpers
+- `src/state/editor.rs` — Extended `LayerState` (active_layer_id, solo, rename, drag state), resolve/validate helpers
+- `src/ui/sidebar_layers.rs` — Full rewrite: header buttons, layer rows, group headers, context menus, up/down reorder
+- `src/ui/sidebar.rs` — Updated call chain, collapsed sidebar solo dimming
+- `src/ui/icons.rs` — 10 new icon functions
+- `src/ui/canvas_render.rs` — Solo dimming (alpha × 0.15 for non-soloed layers)
+- `src/ui/canvas_select.rs` — Solo-aware hit testing, double-click canvas for solo toggle
+- `src/engine/hit_test.rs` — `solo_layer_id` parameter on hit_test functions
+- `src/engine/transform.rs` — `solo_layer_id` parameter on `elements_in_rect`
+- `src/ui/canvas.rs`, `src/ui/canvas_input.rs`, `src/main.rs`, `src/clipboard.rs`, `src/ui/toolbar.rs` — Updated to ID-based active layer
+
+**Artist test:** Create multiple layers → draw body parts on separate layers → reorder with up/down buttons → solo a layer (double-click name) → create groups → collapse/expand → move layers between groups via right-click menu.
 
 ### Phase 4: Color & Palette — "I can color my line art"
 

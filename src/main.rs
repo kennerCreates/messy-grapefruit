@@ -98,7 +98,76 @@ impl App {
                 layer.elements.push(merged_element);
                 self.history.push("Merge stroke".into(), before, self.sprite.clone());
             }
+            action::AppAction::SetFillColor { element_id, fill_color_index } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.fill_color_index = fill_color_index;
+                        }
+                    }
+                }
+                self.history.push("Set fill color".into(), before, self.sprite.clone());
+            }
+            action::AppAction::SetBackgroundColor { background_color_index } => {
+                self.sprite.background_color_index = background_color_index;
+                self.history.push("Set background color".into(), before, self.sprite.clone());
+            }
+            action::AppAction::AddPaletteColor(color) => {
+                if self.project.palette.colors.len() < 256 {
+                    self.project.palette.colors.push(color);
+                }
+                // Project-level, no sprite undo
+            }
+            action::AppAction::DeletePaletteColor(index) => {
+                if index == 0 || index as usize >= self.project.palette.colors.len() {
+                    return;
+                }
+                self.project.palette.colors.remove(index as usize);
+                // Remap all sprite color indices
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        elem.stroke_color_index = remap_color_index(elem.stroke_color_index, index);
+                        elem.fill_color_index = remap_color_index(elem.fill_color_index, index);
+                    }
+                }
+                self.sprite.background_color_index = remap_color_index(self.sprite.background_color_index, index);
+                self.history.push("Delete palette color".into(), before, self.sprite.clone());
+            }
+            action::AppAction::EditPaletteColor { index, color } => {
+                if let Some(c) = self.project.palette.colors.get_mut(index as usize) {
+                    *c = color;
+                }
+                // Project-level, no sprite undo
+            }
+            action::AppAction::ImportPalette(colors) => {
+                self.project.palette.colors = colors;
+                // Ensure index 0 is transparent
+                if self.project.palette.colors.is_empty()
+                    || self.project.palette.colors[0].a != 0
+                {
+                    self.project.palette.colors.insert(
+                        0,
+                        model::project::PaletteColor::transparent(),
+                    );
+                }
+                // Truncate to 256
+                self.project.palette.colors.truncate(256);
+                // Project-level, no sprite undo
+            }
         }
+    }
+}
+
+/// Remap a color index after a palette color has been deleted.
+/// If the index equals the deleted index, it becomes 0 (transparent).
+/// If the index is above the deleted index, it decrements by 1.
+fn remap_color_index(index: u8, deleted: u8) -> u8 {
+    if index == deleted {
+        0
+    } else if index > deleted {
+        index - 1
+    } else {
+        index
     }
 }
 
@@ -181,7 +250,7 @@ impl eframe::App for App {
 
         // Floating sidebar (right side) — width depends on collapsed/expanded
         let sidebar_width = if self.editor.sidebar_expanded { 220.0 } else { 64.0 };
-        egui::Window::new("sidebar")
+        let sidebar_resp = egui::Window::new("sidebar")
             .title_bar(false)
             .resizable(false)
             .movable(false)
@@ -197,8 +266,15 @@ impl eframe::App for App {
                     &mut self.sprite,
                     &mut self.project,
                     &mut self.history,
-                );
+                )
             });
+        if let Some(resp) = sidebar_resp
+            && let Some(actions) = resp.inner
+        {
+            for action in actions {
+                self.dispatch_action(action);
+            }
+        }
 
         // Floating status bar (bottom center)
         egui::Window::new("status_bar")

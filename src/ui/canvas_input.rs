@@ -69,6 +69,27 @@ pub fn handle_viewport_input(
         editor.clear_vertex_selection();
         editor.tool = crate::state::editor::ToolKind::Line;
     }
+
+    // G key = switch to fill tool
+    if ui.input(|i| i.key_pressed(egui::Key::G)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.clear_vertex_selection();
+        editor.tool = crate::state::editor::ToolKind::Fill;
+    }
+
+    // I key = switch to eyedropper tool
+    if ui.input(|i| i.key_pressed(egui::Key::I)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.clear_vertex_selection();
+        editor.eyedropper_return_tool = None; // explicit switch, not temporary
+        editor.tool = crate::state::editor::ToolKind::Eyedropper;
+    }
+
+    // Alt+click = temporary eyedropper (from Line and Fill tools only)
+    if ui.input(|i| i.modifiers.alt && i.pointer.primary_pressed())
+        && matches!(editor.tool, crate::state::editor::ToolKind::Line | crate::state::editor::ToolKind::Fill)
+    {
+        editor.eyedropper_return_tool = Some(editor.tool);
+        editor.tool = crate::state::editor::ToolKind::Eyedropper;
+    }
 }
 
 /// Handle line tool input. Returns an action if a stroke was committed.

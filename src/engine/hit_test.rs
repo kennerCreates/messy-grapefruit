@@ -197,6 +197,127 @@ fn point_to_segment_distance(point: Vec2, a: Vec2, b: Vec2) -> f32 {
     point.distance(closest)
 }
 
+/// Point-in-polygon test using ray-casting algorithm.
+/// Counts crossings of a horizontal ray from `point` going rightward.
+fn point_in_polygon(point: Vec2, polygon: &[Vec2]) -> bool {
+    let n = polygon.len();
+    if n < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let yi = polygon[i].y;
+        let yj = polygon[j].y;
+        if (yi > point.y) != (yj > point.y) {
+            let x_intersect =
+                polygon[i].x + (point.y - yi) / (yj - yi) * (polygon[j].x - polygon[i].x);
+            if point.x < x_intersect {
+                inside = !inside;
+            }
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Build a flattened polygon for a closed element (for point-in-polygon testing).
+fn build_element_polygon(element: &StrokeElement) -> Vec<Vec2> {
+    let tolerance = 1.0;
+    let mut polygon = Vec::new();
+
+    let verts = if transform::has_transform(element) {
+        transform::transformed_vertices(element)
+    } else {
+        element.vertices.clone()
+    };
+
+    if element.curve_mode {
+        let seg_count = if element.closed { verts.len() } else { verts.len().saturating_sub(1) };
+        for i in 0..seg_count {
+            let v0 = &verts[i];
+            let v1 = &verts[(i + 1) % verts.len()];
+            let (p0, cp1, cp2, p3) = math::segment_bezier_points(v0, v1);
+            math::flatten_cubic_bezier(p0, cp1, cp2, p3, tolerance, &mut polygon);
+        }
+    } else {
+        for v in &verts {
+            if let (Some(t1), Some(t2)) = (v.cp1, v.cp2) {
+                let (arc_cp1, arc_cp2) = math::fillet_arc_control_points(t1, t2, v.pos);
+                let mut arc = Vec::new();
+                math::flatten_cubic_bezier(t1, arc_cp1, arc_cp2, t2, tolerance, &mut arc);
+                polygon.extend_from_slice(&arc);
+            } else {
+                polygon.push(v.pos);
+            }
+        }
+    }
+    polygon
+}
+
+/// Hit test for the fill tool: checks both stroke proximity AND point-in-polygon
+/// for closed elements. Returns (element_id, is_closed) for the topmost hit.
+pub fn hit_test_fill(
+    world_pos: Vec2,
+    sprite: &Sprite,
+    threshold: f32,
+    solo_layer_id: Option<&str>,
+) -> Option<(String, bool)> {
+    let mut polyline = Vec::new();
+
+    for layer in sprite.layers.iter().rev() {
+        if !is_layer_interactive(layer, solo_layer_id) {
+            continue;
+        }
+        for element in layer.elements.iter().rev() {
+            // Check stroke proximity first
+            let hit_threshold = threshold + element.stroke_width / 2.0;
+            if element_hit_distance(world_pos, element, &mut polyline) <= hit_threshold {
+                return Some((element.id.clone(), element.closed));
+            }
+            // For closed elements, also check if the point is inside the fill area
+            if element.closed && element.vertices.len() >= 3 {
+                let polygon = build_element_polygon(element);
+                // For transformed elements, we built the polygon in world space already
+                if point_in_polygon(world_pos, &polygon) {
+                    return Some((element.id.clone(), true));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Hit test for the eyedropper tool: returns (element_id, stroke_color_index, fill_color_index)
+/// for the topmost hit element. Checks stroke proximity and point-in-polygon for closed shapes.
+pub fn hit_test_eyedropper(
+    world_pos: Vec2,
+    sprite: &Sprite,
+    threshold: f32,
+    solo_layer_id: Option<&str>,
+) -> Option<(String, u8, u8)> {
+    let mut polyline = Vec::new();
+
+    for layer in sprite.layers.iter().rev() {
+        if !is_layer_interactive(layer, solo_layer_id) {
+            continue;
+        }
+        for element in layer.elements.iter().rev() {
+            let hit_threshold = threshold + element.stroke_width / 2.0;
+            if element_hit_distance(world_pos, element, &mut polyline) <= hit_threshold {
+                return Some((element.id.clone(), element.stroke_color_index, element.fill_color_index));
+            }
+            if element.closed && element.vertices.len() >= 3 {
+                let polygon = build_element_polygon(element);
+                if point_in_polygon(world_pos, &polygon) {
+                    return Some((element.id.clone(), element.stroke_color_index, element.fill_color_index));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Hit test vertices of an element in screen space.
 /// Returns the vertex ID of the first hit, checking in reverse order (top-most first).
 pub fn hit_test_vertex(

@@ -7,6 +7,66 @@ use crate::theme;
 use super::icons;
 use super::sidebar_palette::{render_color_palette, render_color_swatch};
 
+pub(super) fn show_fill_tool_options(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    project: &mut Project,
+) {
+    ui.label("Fill Tool");
+    ui.add_space(4.0);
+
+    // Active fill color
+    ui.horizontal(|ui| {
+        ui.label("Fill");
+        let color = project.palette.get_color(editor.brush.fill_color_index);
+        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+        ui.label(format!("idx {}", editor.brush.fill_color_index));
+    });
+
+    // Color palette mini-picker for fill color
+    if let Some(new_idx) = render_color_palette(
+        ui,
+        &project.palette.colors,
+        editor.brush.fill_color_index,
+        project.editor_preferences.theme,
+    ) {
+        editor.brush.fill_color_index = new_idx;
+        editor.track_recent_color(new_idx);
+    }
+
+    ui.add_space(8.0);
+    ui.label("Click closed shape to fill");
+    ui.label("Click empty canvas for background");
+}
+
+pub(super) fn show_eyedropper_tool_options(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    project: &mut Project,
+) {
+    ui.label("Eyedropper");
+    ui.add_space(4.0);
+
+    // Show current stroke and fill colors in an aligned grid
+    egui::Grid::new("eyedropper_colors").show(ui, |ui| {
+        ui.label("Stroke");
+        let color = project.palette.get_color(editor.brush.color_index);
+        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+        ui.label(format!("idx {}", editor.brush.color_index));
+        ui.end_row();
+
+        ui.label("Fill");
+        let color = project.palette.get_color(editor.brush.fill_color_index);
+        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+        ui.label(format!("idx {}", editor.brush.fill_color_index));
+        ui.end_row();
+    });
+
+    ui.add_space(8.0);
+    ui.label("Click = stroke color");
+    ui.label("Shift+Click = fill color");
+}
+
 pub(super) fn show_line_tool_options(
     ui: &mut egui::Ui,
     editor: &mut EditorState,
@@ -17,7 +77,7 @@ pub(super) fn show_line_tool_options(
     ui.horizontal(|ui| {
         ui.add(icons::small_icon(icons::prop_width(), ui));
         ui.label("Width");
-        for &w in &[1.0_f32, 2.0, 4.0] {
+        for &w in &[2.0_f32, 4.0, 8.0] {
             let selected = (editor.brush.stroke_width - w).abs() < 0.01;
             if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
                 editor.brush.stroke_width = w;
@@ -172,7 +232,7 @@ pub(super) fn show_select_tool_options(
     ui.horizontal(|ui| {
         ui.add(icons::small_icon(icons::prop_width(), ui));
         ui.label("Width");
-        for &w in &[1.0_f32, 2.0, 4.0] {
+        for &w in &[2.0_f32, 4.0, 8.0] {
             let selected = (stroke_w - w).abs() < 0.01;
             if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
                 stroke_w = w;

@@ -5,6 +5,8 @@ use crate::model::vec2::Vec2;
 pub enum ToolKind {
     Select,
     Line,
+    Fill,
+    Eyedropper,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -164,7 +166,7 @@ impl ViewportState {
         if bounds_size.x < 1.0 && bounds_size.y < 1.0 {
             return;
         }
-        let padding = 0.9; // 90% fill
+        let padding = 0.75; // 75% fill
         let zoom_x = (canvas_size.x * padding) / bounds_size.x;
         let zoom_y = (canvas_size.y * padding) / bounds_size.y;
         self.zoom = zoom_x.min(zoom_y).clamp(0.1, 64.0);
@@ -208,6 +210,7 @@ pub struct SelectionStackPopup {
 pub struct BrushState {
     pub stroke_width: f32,
     pub color_index: u8,
+    pub fill_color_index: u8,
 }
 
 impl Default for BrushState {
@@ -215,6 +218,7 @@ impl Default for BrushState {
         Self {
             stroke_width: 2.0,
             color_index: 1, // black
+            fill_color_index: 0, // transparent
         }
     }
 }
@@ -291,6 +295,19 @@ pub struct EditorState {
     pub hover_vertex: Option<VertexHover>,
     pub zoom_to_fit_requested: bool,
     pub sidebar_expanded: bool,
+    /// Last 8 used color indices (session-only, most recent first).
+    pub recent_colors: Vec<u8>,
+    /// When set, eyedropper was activated temporarily (Alt+click) and should
+    /// return to this tool after sampling.
+    pub eyedropper_return_tool: Option<ToolKind>,
+    /// Lospec import popup state: slug text input.
+    pub lospec_slug: String,
+    /// Lospec import error message, if any.
+    pub lospec_error: Option<String>,
+    /// Whether the Lospec import popup is open.
+    pub lospec_popup_open: bool,
+    /// Cached color ramp results (indices sorted by lightness).
+    pub color_ramp: Vec<u8>,
 }
 
 impl Default for EditorState {
@@ -313,6 +330,12 @@ impl Default for EditorState {
             hover_vertex: None,
             zoom_to_fit_requested: true,
             sidebar_expanded: false,
+            recent_colors: Vec::new(),
+            eyedropper_return_tool: None,
+            lospec_slug: String::new(),
+            lospec_error: None,
+            lospec_popup_open: false,
+            color_ramp: Vec::new(),
         }
     }
 }
@@ -321,6 +344,16 @@ impl EditorState {
     pub fn clear_vertex_selection(&mut self) {
         self.selected_vertex_id = None;
         self.hover_vertex = None;
+    }
+
+    /// Track a color index in the recent colors list (deduplicates, max 8).
+    pub fn track_recent_color(&mut self, index: u8) {
+        if index == 0 {
+            return; // don't track transparent
+        }
+        self.recent_colors.retain(|&i| i != index);
+        self.recent_colors.insert(0, index);
+        self.recent_colors.truncate(8);
     }
 }
 

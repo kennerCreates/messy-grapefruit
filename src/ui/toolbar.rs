@@ -142,6 +142,26 @@ pub fn show_toolbar(
             editor.tool = crate::state::editor::ToolKind::Line;
         }
 
+        let is_fill = matches!(editor.tool, crate::state::editor::ToolKind::Fill);
+        if ui
+            .add(icons::icon_button(icons::tool_fill(), ui).selected(is_fill))
+            .on_hover_text("Fill Tool (G)")
+            .clicked()
+        {
+            editor.clear_vertex_selection();
+            editor.tool = crate::state::editor::ToolKind::Fill;
+        }
+
+        let is_eyedropper = matches!(editor.tool, crate::state::editor::ToolKind::Eyedropper);
+        if ui
+            .add(icons::icon_button(icons::tool_eyedropper(), ui).selected(is_eyedropper))
+            .on_hover_text("Eyedropper (I)")
+            .clicked()
+        {
+            editor.clear_vertex_selection();
+            editor.tool = crate::state::editor::ToolKind::Eyedropper;
+        }
+
         ui.separator();
 
         // Grid controls

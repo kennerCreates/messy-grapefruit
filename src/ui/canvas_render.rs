@@ -35,6 +35,31 @@ const CP_HANDLE_RADIUS: f32 = 3.5;
 /// Hit radius for vertex/handle picking (screen pixels).
 pub const VERTEX_HIT_RADIUS: f32 = 8.0;
 
+/// Render the sprite background color within the canvas boundary area.
+pub fn render_background(
+    painter: &Painter,
+    viewport: &ViewportState,
+    sprite: &Sprite,
+    palette: &Palette,
+    canvas_rect: egui::Rect,
+) {
+    let bg = palette.get_color(sprite.background_color_index);
+    if bg.a == 0 {
+        return; // transparent = no background fill
+    }
+    let canvas_center = canvas_rect.center();
+    let tl = viewport.world_to_screen(Vec2::ZERO, canvas_center);
+    let br = viewport.world_to_screen(
+        Vec2::new(sprite.canvas_width as f32, sprite.canvas_height as f32),
+        canvas_center,
+    );
+    let rect = egui::Rect::from_min_max(
+        Pos2::new(tl.x.min(br.x), tl.y.min(br.y)),
+        Pos2::new(tl.x.max(br.x), tl.y.max(br.y)),
+    );
+    painter.rect_filled(rect, 0.0, bg.to_color32());
+}
+
 /// Render all visible elements in the sprite.
 /// When `solo_layer_id` is set, the soloed layer renders at full opacity,
 /// while other layers are dimmed to ~15%.
@@ -55,13 +80,24 @@ pub fn render_elements(
         let is_dimmed = solo_layer_id.is_some_and(|sid| sid != layer.id);
         for element in &layer.elements {
             let mut color = palette.get_color(element.stroke_color_index).to_color32();
+            let mut fill_color = if element.closed && element.fill_color_index != 0 {
+                palette.get_color(element.fill_color_index).to_color32()
+            } else {
+                Color32::TRANSPARENT
+            };
             if is_dimmed {
                 color = Color32::from_rgba_unmultiplied(
                     color.r(), color.g(), color.b(),
                     (color.a() as f32 * 0.15) as u8,
                 );
+                if fill_color != Color32::TRANSPARENT {
+                    fill_color = Color32::from_rgba_unmultiplied(
+                        fill_color.r(), fill_color.g(), fill_color.b(),
+                        (fill_color.a() as f32 * 0.15) as u8,
+                    );
+                }
             }
-            render_uniform_stroke(painter, element, color, viewport, canvas_center);
+            render_uniform_stroke(painter, element, color, fill_color, viewport, canvas_center);
         }
     }
 }
@@ -71,11 +107,12 @@ fn render_uniform_stroke(
     painter: &Painter,
     element: &StrokeElement,
     color: Color32,
+    fill_color: Color32,
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
     let stroke = Stroke::new(element.stroke_width * viewport.zoom, color);
-    render_element_path(painter, element, stroke, viewport, canvas_center);
+    render_element_path(painter, element, stroke, fill_color, viewport, canvas_center);
 }
 
 /// Render an element's path with a given stroke, applying element transforms.
@@ -83,20 +120,21 @@ fn render_element_path(
     painter: &Painter,
     element: &StrokeElement,
     stroke: Stroke,
+    fill_color: Color32,
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
     if transform::has_transform(element) {
         let verts = transform::transformed_vertices(element);
         if element.curve_mode {
-            render_curve_path(painter, &verts, element.closed, stroke, viewport, canvas_center);
+            render_curve_path(painter, &verts, element.closed, stroke, fill_color, viewport, canvas_center);
         } else {
-            render_rounded_path(painter, &verts, element.closed, stroke, viewport, canvas_center);
+            render_rounded_path(painter, &verts, element.closed, stroke, fill_color, viewport, canvas_center);
         }
     } else if element.curve_mode {
-        render_curve_path(painter, &element.vertices, element.closed, stroke, viewport, canvas_center);
+        render_curve_path(painter, &element.vertices, element.closed, stroke, fill_color, viewport, canvas_center);
     } else {
-        render_rounded_path(painter, &element.vertices, element.closed, stroke, viewport, canvas_center);
+        render_rounded_path(painter, &element.vertices, element.closed, stroke, fill_color, viewport, canvas_center);
     }
 }
 
@@ -108,6 +146,7 @@ fn render_curve_path(
     verts: &[PathVertex],
     closed: bool,
     stroke: Stroke,
+    fill_color: Color32,
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
@@ -139,7 +178,7 @@ fn render_curve_path(
     painter.add(egui::Shape::Path(egui::epaint::PathShape {
         points: screen_points,
         closed,
-        fill: Color32::TRANSPARENT,
+        fill: fill_color,
         stroke: stroke.into(),
     }));
 }
@@ -151,6 +190,7 @@ fn render_rounded_path(
     verts: &[PathVertex],
     closed: bool,
     stroke: Stroke,
+    fill_color: Color32,
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
@@ -187,7 +227,7 @@ fn render_rounded_path(
     painter.add(egui::Shape::Path(egui::epaint::PathShape {
         points: screen_points,
         closed,
-        fill: Color32::TRANSPARENT,
+        fill: fill_color,
         stroke: stroke.into(),
     }));
 }
@@ -208,7 +248,7 @@ pub fn render_hover_highlight(
         for element in &layer.elements {
             if element.id == element_id {
                 let stroke = Stroke::new((element.stroke_width + HOVER_HIGHLIGHT_EXTRA) * viewport.zoom, highlight_color);
-                render_element_path(painter, element, stroke, viewport, canvas_center);
+                render_element_path(painter, element, stroke, Color32::TRANSPARENT, viewport, canvas_center);
                 return;
             }
         }
@@ -234,7 +274,7 @@ pub fn render_selection_highlights(
         for element in &layer.elements {
             if selected_ids.iter().any(|id| id == &element.id) {
                 let stroke = Stroke::new((element.stroke_width + SELECTION_HIGHLIGHT_EXTRA) * viewport.zoom, highlight_color);
-                render_element_path(painter, element, stroke, viewport, canvas_center);
+                render_element_path(painter, element, stroke, Color32::TRANSPARENT, viewport, canvas_center);
             }
         }
     }
@@ -261,9 +301,9 @@ pub fn render_line_tool_preview(
 
     // Draw committed segments using the appropriate rendering path
     if curve_mode {
-        render_curve_path(painter, vertices, false, stroke, viewport, canvas_center);
+        render_curve_path(painter, vertices, false, stroke, Color32::TRANSPARENT, viewport, canvas_center);
     } else {
-        render_rounded_path(painter, vertices, false, stroke, viewport, canvas_center);
+        render_rounded_path(painter, vertices, false, stroke, Color32::TRANSPARENT, viewport, canvas_center);
     }
 
     // Draw rubber band preview to cursor

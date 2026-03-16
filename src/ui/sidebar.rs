@@ -1,3 +1,4 @@
+use crate::action::AppAction;
 use crate::model::project::{Project, Theme};
 use crate::model::sprite::Sprite;
 use crate::state::editor::{EditorState, ToolKind};
@@ -6,7 +7,7 @@ use crate::theme;
 
 use super::icons;
 use super::sidebar_layers;
-use super::sidebar_palette::render_color_swatch;
+use super::sidebar_palette::{render_color_swatch, render_palette_panel};
 use super::sidebar_tools;
 
 pub fn show_sidebar(
@@ -15,12 +16,14 @@ pub fn show_sidebar(
     sprite: &mut Sprite,
     project: &mut Project,
     history: &mut History,
-) {
+) -> Vec<AppAction> {
+    let mut actions = Vec::new();
     if editor.sidebar_expanded {
-        show_expanded(ui, editor, sprite, project, history);
+        show_expanded(ui, editor, sprite, project, history, &mut actions);
     } else {
         show_collapsed(ui, editor, sprite, project);
     }
+    actions
 }
 
 /// Collapsed sidebar — narrow strip with essential controls stacked vertically.
@@ -109,6 +112,16 @@ fn show_collapsed(
         render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
 
         ui.add_space(4.0);
+    } else if matches!(editor.tool, ToolKind::Fill) {
+        // Fill color swatch
+        let color = project.palette.get_color(editor.brush.fill_color_index);
+        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+        ui.add_space(4.0);
+    } else if matches!(editor.tool, ToolKind::Eyedropper) {
+        // Stroke color swatch
+        let color = project.palette.get_color(editor.brush.color_index);
+        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+        ui.add_space(4.0);
     } else if matches!(editor.tool, ToolKind::Select) && !editor.selection.is_empty() {
         // Collapsed select tool: show selected element properties (compact)
         let selected = &editor.selection.selected_ids;
@@ -187,6 +200,7 @@ fn show_expanded(
     sprite: &mut Sprite,
     project: &mut Project,
     history: &mut History,
+    actions: &mut Vec<AppAction>,
 ) {
     ui.spacing_mut().item_spacing.y = 6.0;
     // Force the layout to use full available width
@@ -232,6 +246,27 @@ fn show_expanded(
         ToolKind::Select => {
             sidebar_tools::show_select_tool_options(ui, editor, sprite, project, history);
         }
+        ToolKind::Fill => {
+            sidebar_tools::show_fill_tool_options(ui, editor, project);
+        }
+        ToolKind::Eyedropper => {
+            sidebar_tools::show_eyedropper_tool_options(ui, editor, project);
+        }
+    }
+
+    if matches!(editor.tool, ToolKind::Eyedropper) {
+        ui.add_space(10.0);
+        ui.separator();
+        ui.add_space(10.0);
+
+        // Palette management
+        render_palette_panel(
+            ui,
+            editor,
+            &project.palette,
+            project.editor_preferences.theme,
+            actions,
+        );
     }
 
     ui.add_space(10.0);

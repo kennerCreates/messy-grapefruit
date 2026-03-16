@@ -1,4 +1,6 @@
 pub mod canvas;
+mod canvas_eyedropper;
+mod canvas_fill;
 pub mod canvas_input;
 pub mod canvas_render;
 mod canvas_select;
