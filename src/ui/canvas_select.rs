@@ -114,6 +114,8 @@ fn handle_select_hover(
             editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold);
             if editor.hover_element_id.is_some() {
                 response.ctx.set_cursor_icon(egui::CursorIcon::Grab);
+            } else {
+                response.ctx.set_cursor_icon(egui::CursorIcon::Default);
             }
         }
     } else {
@@ -408,6 +410,9 @@ fn handle_select_drag_update(
                 }
             }
         }
+        Some(SelectDragKind::Marquee { .. }) => {
+            response.ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
         _ => {}
     }
 }
@@ -611,22 +616,21 @@ fn handle_select_keyboard(
     }
 
     // R key: reset manual handles on selected vertex
-    if response.ctx.input(|i| i.key_pressed(egui::Key::R) && !i.modifiers.ctrl) {
-        if let Some(ref vid) = editor.selected_vertex_id.clone() {
-            if is_vertex_edit_mode(editor) {
-                let element_id = editor.selection.selected_ids[0].clone();
-                let before = sprite.clone();
-                if let Some((elem, idx)) = transform::find_element_vertex_mut(sprite, &element_id, vid) {
-                    elem.vertices[idx].manual_handles = false;
-                    let closed = elem.closed;
-                    let curve_mode = elem.curve_mode;
-                    math::recompute_auto_curves(
-                        &mut elem.vertices, closed, curve_mode,
-                        project.min_corner_radius,
-                    );
-                    history.push("Reset handles".into(), before, sprite.clone());
-                }
-            }
+    if response.ctx.input(|i| i.key_pressed(egui::Key::R) && !i.modifiers.ctrl)
+        && let Some(ref vid) = editor.selected_vertex_id.clone()
+        && is_vertex_edit_mode(editor)
+    {
+        let element_id = editor.selection.selected_ids[0].clone();
+        let before = sprite.clone();
+        if let Some((elem, idx)) = transform::find_element_vertex_mut(sprite, &element_id, vid) {
+            elem.vertices[idx].manual_handles = false;
+            let closed = elem.closed;
+            let curve_mode = elem.curve_mode;
+            math::recompute_auto_curves(
+                &mut elem.vertices, closed, curve_mode,
+                project.min_corner_radius,
+            );
+            history.push("Reset handles".into(), before, sprite.clone());
         }
     }
 

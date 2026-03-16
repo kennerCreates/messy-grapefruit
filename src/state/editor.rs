@@ -203,6 +203,28 @@ pub struct SelectionStackPopup {
     pub entries: Vec<StackEntry>,
 }
 
+/// Active brush/drawing properties.
+#[derive(Debug, Clone)]
+pub struct BrushState {
+    pub stroke_width: f32,
+    pub color_index: u8,
+}
+
+impl Default for BrushState {
+    fn default() -> Self {
+        Self {
+            stroke_width: 2.0,
+            color_index: 1, // black
+        }
+    }
+}
+
+/// Layer panel state.
+#[derive(Debug, Clone, Default)]
+pub struct LayerState {
+    pub active_idx: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct EditorState {
     pub tool: ToolKind,
@@ -211,9 +233,8 @@ pub struct EditorState {
     pub selection: SelectionState,
     pub select_drag: Option<SelectDragKind>,
     pub selection_stack_popup: Option<SelectionStackPopup>,
-    pub active_stroke_width: f32,
-    pub active_color_index: u8,
-    pub active_layer_idx: usize,
+    pub brush: BrushState,
+    pub layer: LayerState,
     pub hover_element_id: Option<String>,
     pub selected_vertex_id: Option<String>,
     pub hover_vertex: Option<VertexHover>,
@@ -234,9 +255,8 @@ impl Default for EditorState {
             selection: SelectionState::default(),
             select_drag: None,
             selection_stack_popup: None,
-            active_stroke_width: 2.0,
-            active_color_index: 1, // black
-            active_layer_idx: 0,
+            brush: BrushState::default(),
+            layer: LayerState::default(),
             hover_element_id: None,
             selected_vertex_id: None,
             hover_vertex: None,

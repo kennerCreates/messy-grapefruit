@@ -171,6 +171,7 @@ pub fn handle_color(theme: Theme) -> Color32 {
 }
 
 /// Origin crosshair color.
+#[allow(dead_code)] // Phase 3+: origin point handle rendering
 pub fn origin_color(theme: Theme) -> Color32 {
     let tc = theme_colors(theme);
     Color32::from_rgba_unmultiplied(tc.selected.r(), tc.selected.g(), tc.selected.b(), 200)

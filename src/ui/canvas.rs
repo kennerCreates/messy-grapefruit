@@ -186,6 +186,15 @@ fn handle_line_tool(
         }
     }
 
+    // Set line tool cursor
+    if response.hover_pos().is_some() {
+        if editor.hover_element_id.is_some() && !editor.line_tool.is_drawing {
+            response.ctx.set_cursor_icon(egui::CursorIcon::Grab);
+        } else {
+            response.ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+    }
+
     // Render hover highlight
     if let Some(ref hover_id) = editor.hover_element_id
         && !editor.line_tool.is_drawing
@@ -228,8 +237,8 @@ fn handle_line_tool(
             &project.palette,
             &editor.viewport,
             canvas_rect,
-            editor.active_color_index,
-            editor.active_stroke_width,
+            editor.brush.color_index,
+            editor.brush.stroke_width,
             theme_mode,
             merge_target,
             editor.line_tool.curve_mode,

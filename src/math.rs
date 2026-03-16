@@ -4,6 +4,7 @@ use crate::model::vec2::Vec2;
 /// Convert Catmull-Rom spline segment to cubic bezier control points.
 /// Given four points (p0, p1, p2, p3), returns (cp1, cp2) for the cubic bezier
 /// from p1 to p2.
+#[allow(dead_code)] // Used by curve mode tests; may inline into recompute_auto_curves
 pub fn catmull_rom_to_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> (Vec2, Vec2) {
     let cp1 = p1 + (p2 - p0) / 6.0;
     let cp2 = p2 - (p3 - p1) / 6.0;
@@ -183,6 +184,7 @@ pub fn segment_bezier_points(v0: &PathVertex, v1: &PathVertex) -> (Vec2, Vec2, V
 }
 
 /// Evaluate a cubic bezier at parameter t.
+#[allow(dead_code)] // Phase 6: stroke taper rendering
 pub fn cubic_bezier_eval(p0: Vec2, cp1: Vec2, cp2: Vec2, p3: Vec2, t: f32) -> Vec2 {
     let t2 = t * t;
     let t3 = t2 * t;
@@ -265,6 +267,7 @@ pub fn de_casteljau_split(
 }
 
 /// Approximate the arc length of a cubic bezier curve by sampling.
+#[allow(dead_code)] // Phase 6: stroke taper rendering
 pub fn approximate_bezier_length(p0: Vec2, cp1: Vec2, cp2: Vec2, p3: Vec2, steps: usize) -> f32 {
     let mut length = 0.0;
     let mut prev = p0;
@@ -279,6 +282,7 @@ pub fn approximate_bezier_length(p0: Vec2, cp1: Vec2, cp2: Vec2, p3: Vec2, steps
 
 /// Compute cumulative arc lengths for a flattened polyline.
 /// Returns a vector of cumulative distances, starting with 0.0.
+#[allow(dead_code)] // Phase 6: stroke taper rendering
 pub fn cumulative_arc_lengths(points: &[Vec2]) -> Vec<f32> {
     let mut lengths = Vec::with_capacity(points.len());
     lengths.push(0.0);

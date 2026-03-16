@@ -2,6 +2,7 @@ use crate::math;
 use crate::model::sprite::{Layer, PathVertex, StrokeElement};
 use crate::model::vec2::Vec2;
 
+#[allow(dead_code)] // vertex_id used in auto-merge target identification
 pub struct MergeTarget {
     pub element_id: String,
     pub vertex_id: String,

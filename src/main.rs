@@ -82,7 +82,7 @@ impl App {
 impl App {
     fn dispatch_action(&mut self, action: action::AppAction) {
         let before = self.sprite.clone();
-        let layer_idx = self.editor.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
+        let layer_idx = self.editor.layer.active_idx.min(self.sprite.layers.len().saturating_sub(1));
 
         match action {
             action::AppAction::CommitStroke(element) => {

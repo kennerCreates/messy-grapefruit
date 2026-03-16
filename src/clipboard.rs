@@ -67,7 +67,7 @@ pub fn paste(
     };
 
     let before = sprite.clone();
-    let layer_idx = editor.active_layer_idx.min(sprite.layers.len().saturating_sub(1));
+    let layer_idx = editor.layer.active_idx.min(sprite.layers.len().saturating_sub(1));
     let mut new_ids = Vec::new();
 
     for mut element in elements {

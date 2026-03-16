@@ -42,12 +42,14 @@ pub fn load_sprite(path: &Path) -> Result<Sprite, IoError> {
     Ok(sprite)
 }
 
+#[allow(dead_code)] // Phase 15: project management
 pub fn save_project(project: &Project, path: &Path) -> Result<(), IoError> {
     let json = serde_json::to_string_pretty(project)?;
     std::fs::write(path, json)?;
     Ok(())
 }
 
+#[allow(dead_code)] // Phase 15: project management
 pub fn load_project(path: &Path) -> Result<Project, IoError> {
     let data = std::fs::read_to_string(path)?;
     let project = serde_json::from_str(&data)?;

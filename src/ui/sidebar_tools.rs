@@ -18,9 +18,9 @@ pub(super) fn show_line_tool_options(
         ui.add(icons::small_icon(icons::prop_width(), ui));
         ui.label("Width");
         for &w in &[1.0_f32, 2.0, 4.0] {
-            let selected = (editor.active_stroke_width - w).abs() < 0.01;
+            let selected = (editor.brush.stroke_width - w).abs() < 0.01;
             if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
-                editor.active_stroke_width = w;
+                editor.brush.stroke_width = w;
             }
         }
     });
@@ -30,14 +30,14 @@ pub(super) fn show_line_tool_options(
     // Active color
     ui.horizontal(|ui| {
         ui.label("Color");
-        let color = project.palette.get_color(editor.active_color_index);
+        let color = project.palette.get_color(editor.brush.color_index);
         render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
-        ui.label(format!("idx {}", editor.active_color_index));
+        ui.label(format!("idx {}", editor.brush.color_index));
     });
 
     // Color palette mini-picker
-    if let Some(new_idx) = render_color_palette(ui, &project.palette.colors, editor.active_color_index, project.editor_preferences.theme) {
-        editor.active_color_index = new_idx;
+    if let Some(new_idx) = render_color_palette(ui, &project.palette.colors, editor.brush.color_index, project.editor_preferences.theme) {
+        editor.brush.color_index = new_idx;
     }
 
     ui.add_space(4.0);

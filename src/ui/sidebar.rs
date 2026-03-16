@@ -91,7 +91,7 @@ fn show_collapsed(
         // Stroke width: show current value only
         ui.horizontal(|ui| {
             ui.add(icons::small_icon(icons::prop_width(), ui));
-            ui.label(format!("{}", editor.active_stroke_width as u32));
+            ui.label(format!("{}", editor.brush.stroke_width as u32));
         });
 
         ui.add_space(4.0);
@@ -105,7 +105,7 @@ fn show_collapsed(
         ui.add_space(4.0);
 
         // Active color swatch only (no palette)
-        let color = project.palette.get_color(editor.active_color_index);
+        let color = project.palette.get_color(editor.brush.color_index);
         render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
 
         ui.add_space(4.0);
@@ -153,7 +153,7 @@ fn show_collapsed(
     let layer_count = sprite.layers.len();
     for display_idx in 0..layer_count {
         let layer_idx = layer_count - 1 - display_idx;
-        let is_active = layer_idx == editor.active_layer_idx;
+        let is_active = layer_idx == editor.layer.active_idx;
 
         let label = egui::SelectableLabel::new(is_active, &sprite.layers[layer_idx].name);
         let resp = ui.add(label);
@@ -165,7 +165,7 @@ fn show_collapsed(
             );
         }
         if resp.clicked() {
-            editor.active_layer_idx = layer_idx;
+            editor.layer.active_idx = layer_idx;
         }
     }
 }
@@ -231,5 +231,5 @@ fn show_expanded(
     // Layer list
     ui.label("Layers");
     ui.add_space(4.0);
-    sidebar_layers::show_layer_list(ui, sprite, &mut editor.active_layer_idx, project.editor_preferences.theme);
+    sidebar_layers::show_layer_list(ui, sprite, &mut editor.layer.active_idx, project.editor_preferences.theme);
 }

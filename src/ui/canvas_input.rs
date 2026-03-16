@@ -92,7 +92,7 @@ pub fn handle_line_tool_input(
     );
 
     // Check for merge target
-    let layer = sprite.layers.get(editor.active_layer_idx);
+    let layer = sprite.layers.get(editor.layer.active_idx);
     if let Some(layer) = layer {
         let threshold = project.editor_preferences.grid_size as f32;
         if let Some(target) = merge::find_merge_target(snap_pos, layer, None, threshold) {
@@ -119,7 +119,7 @@ pub fn handle_line_tool_input(
     }
 
     // Check if active layer is locked — prevent drawing
-    if let Some(layer) = sprite.layers.get(editor.active_layer_idx)
+    if let Some(layer) = sprite.layers.get(editor.layer.active_idx)
         && layer.locked
     {
         return (None, merge_target_pos);
@@ -181,13 +181,13 @@ fn commit_stroke(
             project.min_corner_radius,
         );
         let mut element =
-            StrokeElement::new(vertices, editor.active_stroke_width, editor.active_color_index, editor.line_tool.curve_mode);
+            StrokeElement::new(vertices, editor.brush.stroke_width, editor.brush.color_index, editor.line_tool.curve_mode);
         element.closed = true;
         return AppAction::CommitStroke(element);
     }
 
     // Check for merge at start and end
-    let layer = sprite.layers.get(editor.active_layer_idx);
+    let layer = sprite.layers.get(editor.layer.active_idx);
 
     if let Some(layer) = layer {
         // Check if start vertex merges with an existing element
@@ -202,8 +202,8 @@ fn commit_stroke(
                     target.end,
                     &vertices,
                     merge::VertexEnd::Start,
-                    editor.active_stroke_width,
-                    editor.active_color_index,
+                    editor.brush.stroke_width,
+                    editor.brush.color_index,
                     editor.line_tool.curve_mode,
                     project.min_corner_radius,
                 );
@@ -222,8 +222,8 @@ fn commit_stroke(
                 target.end,
                 &vertices,
                 merge::VertexEnd::End,
-                editor.active_stroke_width,
-                editor.active_color_index,
+                editor.brush.stroke_width,
+                editor.brush.color_index,
                 editor.line_tool.curve_mode,
                 project.min_corner_radius,
             );
@@ -235,7 +235,7 @@ fn commit_stroke(
     }
 
     // No merge — create new element
-    let element = StrokeElement::new(vertices, editor.active_stroke_width, editor.active_color_index, editor.line_tool.curve_mode);
+    let element = StrokeElement::new(vertices, editor.brush.stroke_width, editor.brush.color_index, editor.line_tool.curve_mode);
     AppAction::CommitStroke(element)
 }
 

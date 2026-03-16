@@ -25,7 +25,7 @@ pub fn show_toolbar(
             *sprite = Sprite::new("Untitled", 256, 256);
             *history = History::new(200);
             *sprite_path = None;
-            editor.active_layer_idx = 0;
+            editor.layer.active_idx = 0;
             editor.line_tool.clear();
             editor.zoom_to_fit_requested = true;
         }
@@ -43,7 +43,7 @@ pub fn show_toolbar(
                     *sprite = loaded;
                     *history = History::new(200);
                     *sprite_path = Some(path);
-                    editor.active_layer_idx = 0;
+                    editor.layer.active_idx = 0;
                     editor.line_tool.clear();
                     editor.zoom_to_fit_requested = true;
                 }
