@@ -28,6 +28,7 @@ fn show_collapsed(
     project: &mut Project,
 ) {
     ui.spacing_mut().item_spacing.y = 6.0;
+    ui.set_min_width(ui.available_width());
 
     ui.horizontal(|ui| {
         // Expand toggle (kept small)
@@ -53,96 +54,112 @@ fn show_collapsed(
 
     ui.add_space(4.0);
 
-    match editor.tool {
-        ToolKind::Line => {
-            // Curve/straight toggle
-            if editor.line_tool.curve_mode {
-                if ui
-                    .add(icons::icon_button(icons::mode_curve(), ui))
-                    .on_hover_text("Curve Mode (C)")
-                    .clicked()
-                {
-                    editor.line_tool.curve_mode = false;
-                }
-            } else if ui
-                .add(icons::icon_button(icons::mode_straight(), ui))
-                .on_hover_text("Straight Mode (C)")
+    if matches!(editor.tool, ToolKind::Line) {
+        // Curve/straight toggle
+        if editor.line_tool.curve_mode {
+            if ui
+                .add(icons::icon_button(icons::mode_curve(), ui))
+                .on_hover_text("Curve Mode (C)")
                 .clicked()
             {
-                editor.line_tool.curve_mode = true;
+                editor.line_tool.curve_mode = false;
             }
+        } else if ui
+            .add(icons::icon_button(icons::mode_straight(), ui))
+            .on_hover_text("Straight Mode (C)")
+            .clicked()
+        {
+            editor.line_tool.curve_mode = true;
+        }
 
+        ui.add_space(4.0);
+
+        // Stroke width: show current value only
+        ui.horizontal(|ui| {
+            ui.add(icons::small_icon(icons::prop_width(), ui));
+            ui.label(format!("{}", editor.active_stroke_width as u32));
+        });
+
+        ui.add_space(4.0);
+
+        // Corner radius: icon + read-only value
+        ui.horizontal(|ui| {
+            ui.add(icons::small_icon(icons::prop_radius(), ui));
+            ui.label(format!("{:.1}", project.min_corner_radius));
+        });
+
+        ui.add_space(4.0);
+
+        // Active color swatch only (no palette)
+        let color = project.palette.get_color(editor.active_color_index);
+        let (rect, _response) = ui.allocate_exact_size(egui::Vec2::splat(20.0), egui::Sense::click());
+        let c32 = color.to_color32();
+        if c32.a() == 0 {
+            draw_checkerboard(ui, rect);
+        } else {
+            ui.painter().rect_filled(rect, 2.0, c32);
+        }
+        let sel_color = theme::selected_color(project.editor_preferences.theme);
+        ui.painter().rect_stroke(
+            rect,
+            2.0,
+            egui::Stroke::new(1.0, sel_color),
+            egui::StrokeKind::Outside,
+        );
+
+        ui.add_space(4.0);
+    } else if matches!(editor.tool, ToolKind::Select) && !editor.selection.is_empty() {
+        // Collapsed select tool: show selected element properties (compact)
+        let selected = &editor.selection.selected_ids;
+        let first_elem = sprite.layers.iter().flat_map(|l| &l.elements)
+            .find(|e| selected.iter().any(|id| id == &e.id));
+
+        if let Some(elem) = first_elem {
+            ui.label("Element");
             ui.add_space(4.0);
 
-            // Stroke width: 3 toggle buttons (1, 2, 4)
+            // Position
+            ui.horizontal(|ui| {
+                ui.add(icons::small_icon(icons::prop_position(), ui));
+                ui.label(format!("{:02},{:02}", elem.position.x as i32, elem.position.y as i32));
+            });
+
+            // Rotation
+            ui.horizontal(|ui| {
+                ui.add(icons::small_icon(icons::prop_rotation(), ui));
+                ui.label(format!("{}°", elem.rotation.to_degrees() as i32));
+            });
+
+            // Scale
+            ui.horizontal(|ui| {
+                ui.add(icons::small_icon(icons::prop_scale(), ui));
+                ui.label(format!("{},{}", elem.scale.x as i32, elem.scale.y as i32));
+            });
+
+            // Stroke width
             ui.horizontal(|ui| {
                 ui.add(icons::small_icon(icons::prop_width(), ui));
-                for &w in &[1.0_f32, 2.0, 4.0] {
-                    let selected = (editor.active_stroke_width - w).abs() < 0.01;
-                    if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
-                        editor.active_stroke_width = w;
-                    }
-                }
+                ui.label(format!("{}", elem.stroke_width as u32));
             });
+
+            // Color swatch
+            let color = project.palette.get_color(elem.stroke_color_index);
+            let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(20.0), egui::Sense::hover());
+            let c32 = color.to_color32();
+            if c32.a() == 0 {
+                draw_checkerboard(ui, rect);
+            } else {
+                ui.painter().rect_filled(rect, 2.0, c32);
+            }
+            let sel_color = theme::selected_color(project.editor_preferences.theme);
+            ui.painter().rect_stroke(rect, 2.0, egui::Stroke::new(1.0, sel_color), egui::StrokeKind::Outside);
 
             ui.add_space(4.0);
-
-            // Corner radius: icon + drag value on same line
-            let radius_changed = theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add(icons::small_icon(icons::prop_radius(), ui));
-                    ui.add(
-                        egui::DragValue::new(&mut project.min_corner_radius)
-                            .range(0.0..=32.0)
-                            .speed(0.1)
-                            .fixed_decimals(1),
-                    )
-                    .changed()
-                })
-                .inner
-            });
-
-            if radius_changed {
-                for layer in &mut sprite.layers {
-                    for element in &mut layer.elements {
-                        crate::math::recompute_auto_curves(
-                            &mut element.vertices,
-                            element.closed,
-                            element.curve_mode,
-                            project.min_corner_radius,
-                        );
-                    }
-                }
-            }
-        }
-        ToolKind::Select => {
-            // Show select tool icon
-            ui.add(icons::icon_button(icons::tool_select(), ui));
         }
     }
 
-    ui.add_space(4.0);
-
-    // Active color swatch only (no palette)
-    let color = project.palette.get_color(editor.active_color_index);
-    let (rect, _response) = ui.allocate_exact_size(egui::Vec2::splat(20.0), egui::Sense::click());
-    let c32 = color.to_color32();
-    if c32.a() == 0 {
-        draw_checkerboard(ui, rect);
-    } else {
-        ui.painter().rect_filled(rect, 2.0, c32);
-    }
+    // Layer list
     let sel_color = theme::selected_color(project.editor_preferences.theme);
-    ui.painter().rect_stroke(
-        rect,
-        2.0,
-        egui::Stroke::new(1.0, sel_color),
-        egui::StrokeKind::Outside,
-    );
-
-    ui.add_space(4.0);
-
-    // Layer list (select only, no lock/visible toggles)
     let layer_count = sprite.layers.len();
     for display_idx in 0..layer_count {
         let layer_idx = layer_count - 1 - display_idx;
@@ -172,6 +189,8 @@ fn show_expanded(
     history: &mut History,
 ) {
     ui.spacing_mut().item_spacing.y = 6.0;
+    // Force the layout to use full available width
+    ui.set_min_width(ui.available_width());
 
     ui.horizontal(|ui| {
         // Collapse toggle (kept small)

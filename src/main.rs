@@ -256,7 +256,7 @@ impl eframe::App for App {
             });
 
         // Floating sidebar (right side) — width depends on collapsed/expanded
-        let sidebar_width = if self.editor.sidebar_expanded { 220.0 } else { 56.0 };
+        let sidebar_width = if self.editor.sidebar_expanded { 220.0 } else { 64.0 };
         egui::Window::new("sidebar")
             .title_bar(false)
             .resizable(false)
