@@ -842,7 +842,6 @@ All planned features implemented. Key additions beyond the original plan:
 
 - Eraser: click vertex (delete + split) or segment (delete segment, clean up islands)
 - Symmetry drawing (`S`): mirror axis (V/H/V+H), draggable guide, ghost preview
-- Snap to vertices: magnetic snap to vertices on any visible unlocked layer (~8px threshold)
 - Reference image overlay: import PNG/JPG, position, opacity, lock, visibility. Not exported
 
 **Artist test:** Import a reference image → draw a symmetrical character over it → use eraser to fix mistakes → verify snap aligns vertices across layers.

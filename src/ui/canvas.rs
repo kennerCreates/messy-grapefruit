@@ -40,7 +40,7 @@ pub fn show_canvas(
     canvas_input::handle_viewport_input(editor, project, sprite, canvas_rect, ui);
 
     // Handle F key or toolbar button = zoom to fit
-    if (ui.input(|i| i.key_pressed(egui::Key::F)) && !ui.input(|i| i.modifiers.ctrl))
+    if (!ui.ctx().wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::F)) && !ui.input(|i| i.modifiers.ctrl))
         || editor.zoom_to_fit_requested
     {
         editor.zoom_to_fit_requested = false;

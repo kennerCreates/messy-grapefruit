@@ -38,15 +38,18 @@ pub fn handle_viewport_input(
         }
     }
 
+    // Skip single-key hotkeys when a text widget has focus
+    let text_has_focus = ui.ctx().wants_keyboard_input();
+
     // H key = canvas flip around sprite center
-    if ui.input(|i| i.key_pressed(egui::Key::H)) && !ui.input(|i| i.modifiers.ctrl) {
+    if !text_has_focus && ui.input(|i| i.key_pressed(egui::Key::H)) && !ui.input(|i| i.modifiers.ctrl) {
         let cx = sprite.canvas_width as f32 / 2.0;
         editor.viewport.flipped = !editor.viewport.flipped;
         editor.viewport.offset.x = -(editor.viewport.offset.x + 2.0 * cx);
     }
 
     // C key = toggle curve/straight mode (line tool only)
-    if ui.input(|i| i.key_pressed(egui::Key::C)) && !ui.input(|i| i.modifiers.ctrl)
+    if !text_has_focus && ui.input(|i| i.key_pressed(egui::Key::C)) && !ui.input(|i| i.modifiers.ctrl)
         && matches!(editor.tool, crate::state::editor::ToolKind::Line)
     {
         editor.line_tool.curve_mode = !editor.line_tool.curve_mode;
@@ -62,25 +65,25 @@ pub fn handle_viewport_input(
     }
 
     // V key = switch to select tool
-    if ui.input(|i| i.key_pressed(egui::Key::V)) && !ui.input(|i| i.modifiers.ctrl) {
+    if !text_has_focus && ui.input(|i| i.key_pressed(egui::Key::V)) && !ui.input(|i| i.modifiers.ctrl) {
         editor.clear_vertex_selection();
         editor.tool = crate::state::editor::ToolKind::Select;
     }
 
     // L key = switch to line tool
-    if ui.input(|i| i.key_pressed(egui::Key::L)) && !ui.input(|i| i.modifiers.ctrl) {
+    if !text_has_focus && ui.input(|i| i.key_pressed(egui::Key::L)) && !ui.input(|i| i.modifiers.ctrl) {
         editor.clear_vertex_selection();
         editor.tool = crate::state::editor::ToolKind::Line;
     }
 
     // G key = switch to fill tool
-    if ui.input(|i| i.key_pressed(egui::Key::G)) && !ui.input(|i| i.modifiers.ctrl) {
+    if !text_has_focus && ui.input(|i| i.key_pressed(egui::Key::G)) && !ui.input(|i| i.modifiers.ctrl) {
         editor.clear_vertex_selection();
         editor.tool = crate::state::editor::ToolKind::Fill;
     }
 
     // I key = switch to eyedropper tool
-    if ui.input(|i| i.key_pressed(egui::Key::I)) && !ui.input(|i| i.modifiers.ctrl) {
+    if !text_has_focus && ui.input(|i| i.key_pressed(egui::Key::I)) && !ui.input(|i| i.modifiers.ctrl) {
         editor.clear_vertex_selection();
         editor.eyedropper_return_tool = None; // explicit switch, not temporary
         editor.tool = crate::state::editor::ToolKind::Eyedropper;

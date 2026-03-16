@@ -605,7 +605,8 @@ fn handle_select_keyboard(
         editor.selection.select_all(ids);
     }
 
-    let delete_pressed = response.ctx.input(|i| {
+    let text_has_focus = response.ctx.wants_keyboard_input();
+    let delete_pressed = !text_has_focus && response.ctx.input(|i| {
         i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)
     });
     if delete_pressed {
@@ -653,7 +654,7 @@ fn handle_select_keyboard(
     }
 
     // R key: reset manual handles on selected vertex
-    if response.ctx.input(|i| i.key_pressed(egui::Key::R) && !i.modifiers.ctrl)
+    if !text_has_focus && response.ctx.input(|i| i.key_pressed(egui::Key::R) && !i.modifiers.ctrl)
         && let Some(ref vid) = editor.selected_vertex_id.clone()
         && is_vertex_edit_mode(editor)
     {
@@ -671,7 +672,7 @@ fn handle_select_keyboard(
         }
     }
 
-    if response.ctx.input(|i| i.key_pressed(egui::Key::C) && !i.modifiers.ctrl) && !editor.selection.is_empty() {
+    if !text_has_focus && response.ctx.input(|i| i.key_pressed(egui::Key::C) && !i.modifiers.ctrl) && !editor.selection.is_empty() {
         let before = sprite.clone();
         let selected = editor.selection.selected_ids.clone();
         let any_curved = sprite.layers.iter()

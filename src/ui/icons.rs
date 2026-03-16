@@ -31,6 +31,7 @@ pub fn grid_iso() -> ImageSource<'static> { egui::include_image!("../../assets/i
 // Theme icons
 pub fn theme_dark() -> ImageSource<'static> { egui::include_image!("../../assets/icons/theme_dark.svg") }
 pub fn theme_light() -> ImageSource<'static> { egui::include_image!("../../assets/icons/theme_light.svg") }
+pub fn settings() -> ImageSource<'static> { egui::include_image!("../../assets/icons/settings.svg") }
 
 // View icons
 pub fn view_flip() -> ImageSource<'static> { egui::include_image!("../../assets/icons/view_flip.svg") }

@@ -232,18 +232,19 @@ fn show_expanded(
         {
             project.editor_preferences.theme = Theme::Light;
         }
-    });
 
-    // Theme color settings toggle
-    if ui
-        .selectable_label(editor.theme_settings_open, "Theme Colors")
-        .clicked()
-    {
-        editor.theme_settings_open = !editor.theme_settings_open;
-        if !editor.theme_settings_open {
-            editor.theme_role_picker = None;
+        // Settings toggle (same row as theme buttons)
+        if ui
+            .add(icons::sidebar_toggle_button(icons::settings(), ui).selected(editor.theme_settings_open))
+            .on_hover_text("Theme Settings")
+            .clicked()
+        {
+            editor.theme_settings_open = !editor.theme_settings_open;
+            if !editor.theme_settings_open {
+                editor.theme_role_picker = None;
+            }
         }
-    }
+    });
 
     if editor.theme_settings_open {
         show_theme_color_settings(ui, editor, project);
