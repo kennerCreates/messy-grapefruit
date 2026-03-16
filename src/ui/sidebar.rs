@@ -75,21 +75,23 @@ fn show_collapsed(
             ui.add_space(4.0);
 
             // Stroke width: icon + drag value on same line
-            ui.horizontal(|ui| {
-                ui.add(icons::small_icon(icons::prop_width(), ui));
-                ui.add(
-                    egui::DragValue::new(&mut editor.active_stroke_width)
-                        .range(1.0..=32.0)
-                        .speed(0.1)
-                        .fixed_decimals(1),
-                );
+            theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(icons::small_icon(icons::prop_width(), ui));
+                    ui.add(
+                        egui::DragValue::new(&mut editor.active_stroke_width)
+                            .range(1.0..=32.0)
+                            .speed(0.1)
+                            .fixed_decimals(1),
+                    );
+                });
             });
 
             ui.add_space(4.0);
 
             // Corner radius: icon + drag value on same line
-            let radius_changed = ui
-                .horizontal(|ui| {
+            let radius_changed = theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+                ui.horizontal(|ui| {
                     ui.add(icons::small_icon(icons::prop_radius(), ui));
                     ui.add(
                         egui::DragValue::new(&mut project.min_corner_radius)
@@ -99,7 +101,8 @@ fn show_collapsed(
                     )
                     .changed()
                 })
-                .inner;
+                .inner
+            });
 
             if radius_changed {
                 for layer in &mut sprite.layers {
@@ -231,10 +234,12 @@ fn show_line_tool_options(
     project: &mut Project,
 ) {
     // Stroke width
-    ui.horizontal(|ui| {
-        ui.add(icons::small_icon(icons::prop_width(), ui));
-        ui.label("Width");
-        ui.add(egui::Slider::new(&mut editor.active_stroke_width, 1.0..=32.0).fixed_decimals(1));
+    theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+        ui.horizontal(|ui| {
+            ui.add(icons::small_icon(icons::prop_width(), ui));
+            ui.label("Width");
+            ui.add(egui::Slider::new(&mut editor.active_stroke_width, 1.0..=32.0).fixed_decimals(1));
+        });
     });
 
     ui.add_space(4.0);
@@ -290,8 +295,8 @@ fn show_line_tool_options(
     ui.add_space(4.0);
 
     // Min corner radius
-    let radius_changed = ui
-        .horizontal(|ui| {
+    let radius_changed = theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+        ui.horizontal(|ui| {
             ui.add(icons::small_icon(icons::prop_radius(), ui));
             ui.label("Radius");
             ui.add(
@@ -299,7 +304,8 @@ fn show_line_tool_options(
             )
             .changed()
         })
-        .inner;
+        .inner
+    });
 
     if radius_changed {
         for layer in &mut sprite.layers {
@@ -373,45 +379,47 @@ fn show_select_tool_options(
 
     let mut changed = false;
 
-    // Position
-    ui.horizontal(|ui| {
-        ui.label("X");
-        if ui.add(egui::DragValue::new(&mut pos_x).speed(0.5).fixed_decimals(1)).changed() {
-            changed = true;
-        }
-        ui.label("Y");
-        if ui.add(egui::DragValue::new(&mut pos_y).speed(0.5).fixed_decimals(1)).changed() {
-            changed = true;
-        }
-    });
+    theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+        // Position
+        ui.horizontal(|ui| {
+            ui.label("X");
+            if ui.add(egui::DragValue::new(&mut pos_x).speed(0.5).fixed_decimals(1)).changed() {
+                changed = true;
+            }
+            ui.label("Y");
+            if ui.add(egui::DragValue::new(&mut pos_y).speed(0.5).fixed_decimals(1)).changed() {
+                changed = true;
+            }
+        });
 
-    // Rotation
-    ui.horizontal(|ui| {
-        ui.label("Rot");
-        if ui.add(egui::DragValue::new(&mut rot_deg).speed(1.0).suffix("°").fixed_decimals(1)).changed() {
-            changed = true;
-        }
-    });
+        // Rotation
+        ui.horizontal(|ui| {
+            ui.label("Rot");
+            if ui.add(egui::DragValue::new(&mut rot_deg).speed(1.0).suffix("°").fixed_decimals(1)).changed() {
+                changed = true;
+            }
+        });
 
-    // Scale
-    ui.horizontal(|ui| {
-        ui.label("Sx");
-        if ui.add(egui::DragValue::new(&mut scale_x).speed(0.01).fixed_decimals(2)).changed() {
-            changed = true;
-        }
-        ui.label("Sy");
-        if ui.add(egui::DragValue::new(&mut scale_y).speed(0.01).fixed_decimals(2)).changed() {
-            changed = true;
-        }
-    });
+        // Scale
+        ui.horizontal(|ui| {
+            ui.label("Sx");
+            if ui.add(egui::DragValue::new(&mut scale_x).speed(0.01).fixed_decimals(2)).changed() {
+                changed = true;
+            }
+            ui.label("Sy");
+            if ui.add(egui::DragValue::new(&mut scale_y).speed(0.01).fixed_decimals(2)).changed() {
+                changed = true;
+            }
+        });
 
-    // Stroke width
-    ui.horizontal(|ui| {
-        ui.add(icons::small_icon(icons::prop_width(), ui));
-        ui.label("Width");
-        if ui.add(egui::Slider::new(&mut stroke_w, 1.0..=32.0).fixed_decimals(1)).changed() {
-            changed = true;
-        }
+        // Stroke width
+        ui.horizontal(|ui| {
+            ui.add(icons::small_icon(icons::prop_width(), ui));
+            ui.label("Width");
+            if ui.add(egui::Slider::new(&mut stroke_w, 1.0..=32.0).fixed_decimals(1)).changed() {
+                changed = true;
+            }
+        });
     });
 
     ui.add_space(4.0);

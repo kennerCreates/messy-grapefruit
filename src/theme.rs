@@ -51,7 +51,8 @@ pub fn apply_theme(ctx: &egui::Context, theme: Theme) {
     // Panel/window backgrounds = 2nd darkest (canvas_bg) for toolbar panels
     visuals.panel_fill = tc.canvas_bg;
     visuals.window_fill = tc.canvas_bg;
-    visuals.extreme_bg_color = tc.canvas_bg;
+    // Text input backgrounds: darkest color so they look "sunken" / distinct
+    visuals.extreme_bg_color = tc.panel_bg;
     visuals.faint_bg_color = tc.canvas_bg;
 
     // Window border/stroke subtle
@@ -63,8 +64,9 @@ pub fn apply_theme(ctx: &egui::Context, theme: Theme) {
     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, tc.icon_text);
     visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, tc.icon_text);
 
-    // Icon button background seamless to panel; slider rail uses bg_fill
-    visuals.widgets.inactive.bg_fill = tc.canvas_bg;
+    // Slider rail + text input bg = darkest so they're visible against panel
+    visuals.widgets.inactive.bg_fill = tc.panel_bg;
+    // Icon buttons: transparent so they blend with panel
     visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
 
     // Non-interactive widget bg = canvas_bg (seamless with panels)
@@ -85,10 +87,11 @@ pub fn apply_theme(ctx: &egui::Context, theme: Theme) {
 
     visuals.hyperlink_color = tc.mid;
 
-    // Remove button border strokes
+    // No border on inactive widgets (keeps buttons clean)
     visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-    visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-    visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
+    // Visible border on hover/active for all widgets
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, tc.mid);
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, tc.icon_text);
 
     // Separator color = darkest, subtle against panel bg
     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(0.5, tc.panel_bg);
@@ -129,8 +132,8 @@ pub fn hover_highlight_color(theme: Theme) -> Color32 {
 
 pub fn merge_preview_color(theme: Theme) -> Color32 {
     match theme {
-        Theme::Dark => Color32::from_rgba_unmultiplied(0x80, 0xff, 0x80, 180),
-        Theme::Light => Color32::from_rgba_unmultiplied(0x00, 0x80, 0x00, 180),
+        Theme::Dark => Color32::from_rgba_unmultiplied(0xb1, 0xd4, 0x80, 180),  // #b1d480
+        Theme::Light => Color32::from_rgba_unmultiplied(0x65, 0x8d, 0x78, 180), // #658d78
     }
 }
 
@@ -171,4 +174,15 @@ pub fn handle_color(theme: Theme) -> Color32 {
 pub fn origin_color(theme: Theme) -> Color32 {
     let tc = theme_colors(theme);
     Color32::from_rgba_unmultiplied(tc.selected.r(), tc.selected.g(), tc.selected.b(), 200)
+}
+
+/// Apply a visible border to text inputs (DragValue, Slider, TextEdit) within the closure.
+/// Buttons remain borderless because they use weak_bg_fill (transparent).
+pub fn with_input_style<R>(ui: &mut egui::Ui, theme: Theme, f: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let tc = theme_colors(theme);
+    let prev = ui.visuals().widgets.inactive.bg_stroke;
+    ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::new(1.0, tc.mid);
+    let result = f(ui);
+    ui.visuals_mut().widgets.inactive.bg_stroke = prev;
+    result
 }
