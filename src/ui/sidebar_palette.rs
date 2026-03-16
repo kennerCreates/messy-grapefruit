@@ -204,56 +204,6 @@ pub(super) fn render_palette_panel(
         }
     }
 
-    ui.add_space(4.0);
-
-    // Color ramp finder
-    ui.horizontal(|ui| {
-        if ui
-            .add(icons::small_icon_button(icons::palette_ramp(), ui))
-            .on_hover_text("Find Color Ramp")
-            .clicked()
-            && editor.brush.color_index != 0
-        {
-            editor.color_ramp = crate::engine::palette::find_color_ramp(
-                palette,
-                editor.brush.color_index,
-                8,
-            );
-        }
-    });
-
-    // Display ramp if available
-    if !editor.color_ramp.is_empty() {
-        ui.horizontal_wrapped(|ui| {
-            for &idx in &editor.color_ramp.clone() {
-                let color = palette.get_color(idx);
-                let size = egui::Vec2::splat(16.0);
-                let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-                let c32 = color.to_color32();
-                if c32.a() == 0 {
-                    draw_checkerboard(ui, rect);
-                } else {
-                    ui.painter().rect_filled(rect, 1.0, c32);
-                }
-                if editor.brush.color_index == idx {
-                    let sel_color = theme::selected_color(theme);
-                    ui.painter().rect_stroke(
-                        rect,
-                        1.0,
-                        egui::Stroke::new(2.0, sel_color),
-                        egui::StrokeKind::Outside,
-                    );
-                }
-                if response.clicked() {
-                    editor.brush.color_index = idx;
-                    editor.track_recent_color(idx);
-                }
-                if response.hovered() {
-                    response.on_hover_text(format!("Color {idx}"));
-                }
-            }
-        });
-    }
 }
 
 /// Render a single color swatch with selection border.

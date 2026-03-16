@@ -37,9 +37,10 @@ pub fn handle_viewport_input(
         }
     }
 
-    // H key = canvas flip
+    // H key = canvas flip (negate offset.x to keep content centered)
     if ui.input(|i| i.key_pressed(egui::Key::H)) && !ui.input(|i| i.modifiers.ctrl) {
         editor.viewport.flipped = !editor.viewport.flipped;
+        editor.viewport.offset.x = -editor.viewport.offset.x;
     }
 
     // C key = toggle curve/straight mode (line tool only)

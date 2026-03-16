@@ -22,7 +22,6 @@ pub fn tool_eyedropper() -> ImageSource<'static> { egui::include_image!("../../a
 pub fn palette_add() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_add.svg") }
 pub fn palette_remove() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_remove.svg") }
 pub fn palette_import() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_import.svg") }
-pub fn palette_ramp() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_ramp.svg") }
 
 // Grid icons
 pub fn grid_dots() -> ImageSource<'static> { egui::include_image!("../../assets/icons/grid_dots.svg") }

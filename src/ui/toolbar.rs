@@ -223,6 +223,7 @@ pub fn show_toolbar(
             .clicked()
         {
             editor.viewport.flipped = !editor.viewport.flipped;
+            editor.viewport.offset.x = -editor.viewport.offset.x;
         }
         if ui
             .add(icons::icon_button(icons::view_zoom_fit(), ui))

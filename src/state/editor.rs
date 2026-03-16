@@ -306,8 +306,6 @@ pub struct EditorState {
     pub lospec_error: Option<String>,
     /// Whether the Lospec import popup is open.
     pub lospec_popup_open: bool,
-    /// Cached color ramp results (indices sorted by lightness).
-    pub color_ramp: Vec<u8>,
 }
 
 impl Default for EditorState {
@@ -335,7 +333,6 @@ impl Default for EditorState {
             lospec_slug: String::new(),
             lospec_error: None,
             lospec_popup_open: false,
-            color_ramp: Vec::new(),
         }
     }
 }
