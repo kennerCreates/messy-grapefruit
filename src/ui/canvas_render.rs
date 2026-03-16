@@ -367,7 +367,7 @@ fn point_in_triangle_strict(p: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {
     let eps = 0.1; // screen pixels
     let has_neg = d1 < -eps || d2 < -eps || d3 < -eps;
     let has_pos = d1 > eps || d2 > eps || d3 > eps;
-    !(has_neg || has_pos)
+    has_neg != has_pos
 }
 
 fn tri_sign(p1: Pos2, p2: Pos2, p3: Pos2) -> f32 {

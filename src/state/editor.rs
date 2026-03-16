@@ -306,6 +306,10 @@ pub struct EditorState {
     pub lospec_error: Option<String>,
     /// Whether the Lospec import popup is open.
     pub lospec_popup_open: bool,
+    /// Whether the theme color settings are expanded.
+    pub theme_settings_open: bool,
+    /// Which theme role swatch has its palette picker open (0..5), if any.
+    pub theme_role_picker: Option<usize>,
 }
 
 impl Default for EditorState {
@@ -333,6 +337,8 @@ impl Default for EditorState {
             lospec_slug: String::new(),
             lospec_error: None,
             lospec_popup_open: false,
+            theme_settings_open: false,
+            theme_role_picker: None,
         }
     }
 }

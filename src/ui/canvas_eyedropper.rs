@@ -55,8 +55,6 @@ pub(super) fn handle_eyedropper_tool(
         && let Some(click_pos) = response.interact_pointer_pos()
     {
         let world = editor.viewport.screen_to_world(click_pos, canvas_center);
-        let shift = response.ctx.input(|i| i.modifiers.shift);
-
         let hit = hit_test::hit_test_eyedropper(
             world,
             sprite,
@@ -66,21 +64,18 @@ pub(super) fn handle_eyedropper_tool(
 
         match hit {
             Some((_, stroke_idx, fill_idx)) => {
-                if shift {
-                    editor.brush.fill_color_index = fill_idx;
+                // Sample both stroke and fill from the element
+                editor.brush.color_index = stroke_idx;
+                editor.brush.fill_color_index = fill_idx;
+                editor.track_recent_color(stroke_idx);
+                if fill_idx != stroke_idx {
                     editor.track_recent_color(fill_idx);
-                } else {
-                    editor.brush.color_index = stroke_idx;
-                    editor.track_recent_color(stroke_idx);
                 }
             }
             None => {
-                // Sample background color
-                if shift {
-                    editor.brush.fill_color_index = sprite.background_color_index;
-                } else {
-                    editor.brush.color_index = sprite.background_color_index;
-                }
+                // Sample background color into both
+                editor.brush.color_index = sprite.background_color_index;
+                editor.brush.fill_color_index = sprite.background_color_index;
                 editor.track_recent_color(sprite.background_color_index);
             }
         }

@@ -96,18 +96,13 @@ pub(super) fn render_palette_panel(
     // Palette management buttons
     ui.horizontal(|ui| {
         // Add color
+        let at_limit = palette.colors.len() >= 256;
         if ui
-            .add(icons::small_icon_button(icons::palette_add(), ui))
-            .on_hover_text("Add Color")
+            .add_enabled(!at_limit, icons::small_icon_button(icons::palette_add(), ui))
+            .on_hover_text(if at_limit { "Palette Full (256 max)" } else { "Add Color" })
             .clicked()
         {
-            if palette.colors.len() >= 256 {
-                // Show toast-like feedback (egui doesn't have native toasts,
-                // but we can use the tooltip mechanism)
-            } else {
-                // Add a default white color
-                actions.push(AppAction::AddPaletteColor(PaletteColor::new(255, 255, 255)));
-            }
+            actions.push(AppAction::AddPaletteColor(PaletteColor::new(255, 255, 255)));
         }
 
         // Delete selected color

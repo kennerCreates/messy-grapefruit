@@ -11,6 +11,7 @@ use crate::state::editor::EditorState;
 pub fn handle_viewport_input(
     editor: &mut EditorState,
     project: &Project,
+    sprite: &Sprite,
     canvas_rect: egui::Rect,
     ui: &egui::Ui,
 ) {
@@ -37,10 +38,11 @@ pub fn handle_viewport_input(
         }
     }
 
-    // H key = canvas flip (negate offset.x to keep content centered)
+    // H key = canvas flip around sprite center
     if ui.input(|i| i.key_pressed(egui::Key::H)) && !ui.input(|i| i.modifiers.ctrl) {
+        let cx = sprite.canvas_width as f32 / 2.0;
         editor.viewport.flipped = !editor.viewport.flipped;
-        editor.viewport.offset.x = -editor.viewport.offset.x;
+        editor.viewport.offset.x = -(editor.viewport.offset.x + 2.0 * cx);
     }
 
     // C key = toggle curve/straight mode (line tool only)

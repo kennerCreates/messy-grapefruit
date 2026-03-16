@@ -222,8 +222,9 @@ pub fn show_toolbar(
             .on_hover_text("Flip Canvas (H)")
             .clicked()
         {
+            let cx = sprite.canvas_width as f32 / 2.0;
             editor.viewport.flipped = !editor.viewport.flipped;
-            editor.viewport.offset.x = -editor.viewport.offset.x;
+            editor.viewport.offset.x = -(editor.viewport.offset.x + 2.0 * cx);
         }
         if ui
             .add(icons::icon_button(icons::view_zoom_fit(), ui))

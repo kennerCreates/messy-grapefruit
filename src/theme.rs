@@ -1,6 +1,8 @@
+use std::cell::RefCell;
+
 use egui::Color32;
 
-use crate::model::project::Theme;
+use crate::model::project::{Palette, Project, Theme, ThemeColorIndices};
 
 /// Semantic color roles derived from the 5-color palette.
 ///
@@ -13,6 +15,7 @@ use crate::model::project::Theme;
 ///   mid       — grid dots, icon hover background (middle)
 ///   selected  — selected/active icon highlight (2nd lightest / 2nd darkest)
 ///   icon_text — icons, text, foreground (lightest / darkest)
+#[derive(Clone, Copy)]
 pub struct ThemeColors {
     pub panel_bg: Color32,
     pub canvas_bg: Color32,
@@ -21,27 +24,59 @@ pub struct ThemeColors {
     pub icon_text: Color32,
 }
 
-pub fn theme_colors(theme: Theme) -> ThemeColors {
-    // All colors sourced from Downgraded 32 palette
-    match theme {
-        Theme::Dark => ThemeColors {
-            panel_bg:  Color32::from_rgb(0x3d, 0x00, 0x3d), // #3d003d
-            canvas_bg: Color32::from_rgb(0x41, 0x20, 0x51), // #412051
-            mid:       Color32::from_rgb(0x5c, 0x8b, 0xa8), // #5c8ba8
-            selected:  Color32::from_rgb(0xe0, 0x6b, 0x51), // #e06b51
-            icon_text: Color32::from_rgb(0xf2, 0xcb, 0x9b), // #f2cb9b
-        },
-        Theme::Light => ThemeColors {
-            panel_bg:  Color32::from_rgb(0xff, 0xff, 0xe0), // #ffffe0
-            canvas_bg: Color32::from_rgb(0xf2, 0xcb, 0x9b), // #f2cb9b
-            mid:       Color32::from_rgb(0x80, 0xb8, 0x78), // #80b878
-            selected:  Color32::from_rgb(0x7b, 0x33, 0x4c), // #7b334c
-            icon_text: Color32::from_rgb(0x3d, 0x00, 0x3d), // #3d003d
-        },
+// Hardcoded fallback colors (Downgraded 32 palette).
+const DEFAULT_DARK: ThemeColors = ThemeColors {
+    panel_bg:  Color32::from_rgb(0x3d, 0x00, 0x3d),
+    canvas_bg: Color32::from_rgb(0x41, 0x20, 0x51),
+    mid:       Color32::from_rgb(0x5c, 0x8b, 0xa8),
+    selected:  Color32::from_rgb(0xe0, 0x6b, 0x51),
+    icon_text: Color32::from_rgb(0xf2, 0xcb, 0x9b),
+};
+
+const DEFAULT_LIGHT: ThemeColors = ThemeColors {
+    panel_bg:  Color32::from_rgb(0xff, 0xff, 0xe0),
+    canvas_bg: Color32::from_rgb(0xf2, 0xcb, 0x9b),
+    mid:       Color32::from_rgb(0x80, 0xb8, 0x78),
+    selected:  Color32::from_rgb(0x7b, 0x33, 0x4c),
+    icon_text: Color32::from_rgb(0x3d, 0x00, 0x3d),
+};
+
+thread_local! {
+    static ACTIVE_DARK: RefCell<ThemeColors> = const { RefCell::new(DEFAULT_DARK) };
+    static ACTIVE_LIGHT: RefCell<ThemeColors> = const { RefCell::new(DEFAULT_LIGHT) };
+}
+
+/// Resolve theme colors from palette indices.
+fn resolve_from_palette(palette: &Palette, indices: &ThemeColorIndices) -> ThemeColors {
+    ThemeColors {
+        panel_bg:  palette.get_color(indices.panel_bg).to_color32(),
+        canvas_bg: palette.get_color(indices.canvas_bg).to_color32(),
+        mid:       palette.get_color(indices.mid).to_color32(),
+        selected:  palette.get_color(indices.selected).to_color32(),
+        icon_text: palette.get_color(indices.icon_text).to_color32(),
     }
 }
 
-pub fn apply_theme(ctx: &egui::Context, theme: Theme) {
+/// Update the cached theme colors from the project's palette and indices.
+/// Called once per frame from apply_theme.
+fn cache_theme_colors(project: &Project) {
+    let dark = resolve_from_palette(&project.palette, &project.editor_preferences.dark_theme_colors);
+    let light = resolve_from_palette(&project.palette, &project.editor_preferences.light_theme_colors);
+    ACTIVE_DARK.with(|c| *c.borrow_mut() = dark);
+    ACTIVE_LIGHT.with(|c| *c.borrow_mut() = light);
+}
+
+/// Get the current theme colors (reads from per-frame cache).
+pub fn theme_colors(theme: Theme) -> ThemeColors {
+    match theme {
+        Theme::Dark => ACTIVE_DARK.with(|c| *c.borrow()),
+        Theme::Light => ACTIVE_LIGHT.with(|c| *c.borrow()),
+    }
+}
+
+pub fn apply_theme(ctx: &egui::Context, project: &Project) {
+    cache_theme_colors(project);
+    let theme = project.editor_preferences.theme;
     let tc = theme_colors(theme);
     let mut visuals = match theme {
         Theme::Dark => egui::Visuals::dark(),

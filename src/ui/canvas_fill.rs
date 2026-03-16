@@ -34,9 +34,10 @@ pub(super) fn handle_fill_tool(
         editor.hover_element_id = None;
     }
 
-    // Click: apply fill
+    // Click: apply fill (only inside the canvas area)
     if response.clicked()
         && let Some(click_pos) = response.interact_pointer_pos()
+        && canvas_rect.contains(click_pos)
     {
         let world = editor.viewport.screen_to_world(click_pos, canvas_center);
         let hit = hit_test::hit_test_fill(

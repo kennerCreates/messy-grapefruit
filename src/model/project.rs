@@ -106,6 +106,101 @@ impl Palette {
     }
 }
 
+/// Palette indices for the 5 semantic theme color roles.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeColorIndices {
+    pub panel_bg: u8,
+    pub canvas_bg: u8,
+    pub mid: u8,
+    pub selected: u8,
+    pub icon_text: u8,
+}
+
+impl ThemeColorIndices {
+    /// Default dark theme indices for the Downgraded 32 palette.
+    pub fn default_dark() -> Self {
+        Self { panel_bg: 23, canvas_bg: 10, mid: 19, selected: 27, icon_text: 5 }
+    }
+
+    /// Default light theme indices for the Downgraded 32 palette.
+    pub fn default_light() -> Self {
+        Self { panel_bg: 15, canvas_bg: 5, mid: 31, selected: 1, icon_text: 23 }
+    }
+
+    /// Returns the 5 role names in order.
+    pub const ROLE_NAMES: [&'static str; 5] = ["Panel", "Canvas", "Accent", "Highlight", "Text"];
+
+    /// Get the index for a role by position (0..5).
+    pub fn get(&self, role: usize) -> u8 {
+        match role {
+            0 => self.panel_bg,
+            1 => self.canvas_bg,
+            2 => self.mid,
+            3 => self.selected,
+            4 => self.icon_text,
+            _ => 0,
+        }
+    }
+
+    /// Set the index for a role by position (0..5).
+    pub fn set(&mut self, role: usize, index: u8) {
+        match role {
+            0 => self.panel_bg = index,
+            1 => self.canvas_bg = index,
+            2 => self.mid = index,
+            3 => self.selected = index,
+            4 => self.icon_text = index,
+            _ => {}
+        }
+    }
+}
+
+/// Auto-pick theme color indices from a palette by sorting colors by luminance.
+pub fn auto_pick_theme_colors(palette: &Palette) -> (ThemeColorIndices, ThemeColorIndices) {
+    let mut indexed_lum: Vec<(u8, f32)> = palette
+        .colors
+        .iter()
+        .enumerate()
+        .skip(1) // skip transparent
+        .filter(|(_, c)| c.a > 0)
+        .map(|(i, c)| {
+            let lum = 0.299 * c.r as f32 + 0.587 * c.g as f32 + 0.114 * c.b as f32;
+            (i as u8, lum)
+        })
+        .collect();
+    indexed_lum.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    let n = indexed_lum.len();
+    if n < 5 {
+        let fb = indexed_lum.first().map(|x| x.0).unwrap_or(1);
+        let indices = ThemeColorIndices { panel_bg: fb, canvas_bg: fb, mid: fb, selected: fb, icon_text: fb };
+        return (indices, indices);
+    }
+
+    let pick = |fraction: f32| -> u8 {
+        let idx = ((n - 1) as f32 * fraction).round() as usize;
+        indexed_lum[idx].0
+    };
+
+    let dark = ThemeColorIndices {
+        panel_bg: pick(0.0),
+        canvas_bg: pick(0.15),
+        mid: pick(0.5),
+        selected: pick(0.75),
+        icon_text: pick(0.9),
+    };
+    let light = ThemeColorIndices {
+        panel_bg: pick(1.0),
+        canvas_bg: pick(0.85),
+        mid: pick(0.5),
+        selected: pick(0.25),
+        icon_text: pick(0.1),
+    };
+
+    (dark, light)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorPreferences {
@@ -113,6 +208,10 @@ pub struct EditorPreferences {
     pub grid_size: u32,
     pub grid_mode: GridMode,
     pub show_dots: bool,
+    #[serde(default = "ThemeColorIndices::default_dark")]
+    pub dark_theme_colors: ThemeColorIndices,
+    #[serde(default = "ThemeColorIndices::default_light")]
+    pub light_theme_colors: ThemeColorIndices,
 }
 
 impl Default for EditorPreferences {
@@ -122,6 +221,8 @@ impl Default for EditorPreferences {
             grid_size: 8,
             grid_mode: GridMode::Off,
             show_dots: true,
+            dark_theme_colors: ThemeColorIndices::default_dark(),
+            light_theme_colors: ThemeColorIndices::default_light(),
         }
     }
 }

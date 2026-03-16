@@ -37,7 +37,7 @@ pub fn show_canvas(
     painter.set_clip_rect(canvas_rect);
 
     // --- Shared: viewport input (pan, zoom, flip) ---
-    canvas_input::handle_viewport_input(editor, project, canvas_rect, ui);
+    canvas_input::handle_viewport_input(editor, project, sprite, canvas_rect, ui);
 
     // Handle F key or toolbar button = zoom to fit
     if (ui.input(|i| i.key_pressed(egui::Key::F)) && !ui.input(|i| i.modifiers.ctrl))

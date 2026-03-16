@@ -1,5 +1,5 @@
 use crate::action::AppAction;
-use crate::model::project::{Project, Theme};
+use crate::model::project::{auto_pick_theme_colors, Project, Theme, ThemeColorIndices};
 use crate::model::sprite::Sprite;
 use crate::state::editor::{EditorState, ToolKind};
 use crate::state::history::History;
@@ -234,6 +234,21 @@ fn show_expanded(
         }
     });
 
+    // Theme color settings toggle
+    if ui
+        .selectable_label(editor.theme_settings_open, "Theme Colors")
+        .clicked()
+    {
+        editor.theme_settings_open = !editor.theme_settings_open;
+        if !editor.theme_settings_open {
+            editor.theme_role_picker = None;
+        }
+    }
+
+    if editor.theme_settings_open {
+        show_theme_color_settings(ui, editor, project);
+    }
+
     ui.add_space(10.0);
     ui.separator();
     ui.add_space(10.0);
@@ -277,4 +292,95 @@ fn show_expanded(
     ui.label("Layers");
     ui.add_space(4.0);
     sidebar_layers::show_layer_list(ui, sprite, editor, project, history);
+}
+
+/// Show theme color role settings: 5 swatches per theme mode, clickable to reassign.
+fn show_theme_color_settings(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    project: &mut Project,
+) {
+    let theme = project.editor_preferences.theme;
+    let indices = match theme {
+        Theme::Dark => &mut project.editor_preferences.dark_theme_colors,
+        Theme::Light => &mut project.editor_preferences.light_theme_colors,
+    };
+
+    ui.add_space(4.0);
+
+    // Show 5 role swatches in a row
+    ui.horizontal_wrapped(|ui| {
+        for role in 0..5 {
+            let palette_idx = indices.get(role);
+            let color = project.palette.get_color(palette_idx);
+            let size = egui::Vec2::splat(20.0);
+            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+            let c32 = color.to_color32();
+            ui.painter().rect_filled(rect, 2.0, c32);
+
+            // Highlight if this role's picker is open
+            if editor.theme_role_picker == Some(role) {
+                ui.painter().rect_stroke(
+                    rect,
+                    2.0,
+                    egui::Stroke::new(2.0, egui::Color32::WHITE),
+                    egui::StrokeKind::Outside,
+                );
+            }
+
+            if response.clicked() {
+                editor.theme_role_picker = if editor.theme_role_picker == Some(role) {
+                    None
+                } else {
+                    Some(role)
+                };
+            }
+            response.on_hover_text(ThemeColorIndices::ROLE_NAMES[role]);
+        }
+    });
+
+    // If a role picker is open, show palette grid for selection
+    if let Some(role) = editor.theme_role_picker {
+        ui.add_space(4.0);
+        ui.label(format!("Pick: {}", ThemeColorIndices::ROLE_NAMES[role]));
+        let current_idx = indices.get(role);
+        ui.horizontal_wrapped(|ui| {
+            for (i, pc) in project.palette.colors.iter().enumerate() {
+                if i == 0 { continue; } // skip transparent
+                let size = egui::Vec2::splat(14.0);
+                let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+                let c32 = pc.to_color32();
+                ui.painter().rect_filled(rect, 1.0, c32);
+                if current_idx == i as u8 {
+                    ui.painter().rect_stroke(
+                        rect,
+                        1.0,
+                        egui::Stroke::new(2.0, egui::Color32::WHITE),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+                if response.clicked() {
+                    // Need to re-borrow indices mutably
+                    match theme {
+                        Theme::Dark => project.editor_preferences.dark_theme_colors.set(role, i as u8),
+                        Theme::Light => project.editor_preferences.light_theme_colors.set(role, i as u8),
+                    }
+                    editor.theme_role_picker = None;
+                }
+                if response.hovered() {
+                    response.on_hover_text(format!("Color {i}"));
+                }
+            }
+        });
+    }
+
+    ui.add_space(4.0);
+
+    // Auto-pick button
+    if ui.button("Auto").on_hover_text("Auto-pick theme colors from palette").clicked() {
+        let (dark, light) = auto_pick_theme_colors(&project.palette);
+        project.editor_preferences.dark_theme_colors = dark;
+        project.editor_preferences.light_theme_colors = light;
+        editor.theme_role_picker = None;
+    }
 }

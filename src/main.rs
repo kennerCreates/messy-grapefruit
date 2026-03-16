@@ -67,7 +67,7 @@ impl App {
         cc.egui_ctx.set_fonts(fonts);
 
         let project = Project::new("Untitled Project");
-        theme::apply_theme(&cc.egui_ctx, project.editor_preferences.theme);
+        theme::apply_theme(&cc.egui_ctx, &project);
         let sprite = Sprite::new("Untitled", 256, 256);
         let mut editor = EditorState::default();
         editor.layer.set_active_by_idx(0, &sprite);
@@ -152,6 +152,10 @@ impl App {
                 }
                 // Truncate to 256
                 self.project.palette.colors.truncate(256);
+                // Auto-pick theme colors from the new palette
+                let (dark, light) = model::project::auto_pick_theme_colors(&self.project.palette);
+                self.project.editor_preferences.dark_theme_colors = dark;
+                self.project.editor_preferences.light_theme_colors = light;
                 // Project-level, no sprite undo
             }
         }
@@ -173,7 +177,7 @@ fn remap_color_index(index: u8, deleted: u8) -> u8 {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        theme::apply_theme(ctx, self.project.editor_preferences.theme);
+        theme::apply_theme(ctx, &self.project);
 
         // Handle undo/redo and copy/paste globally
         let (undo, redo, copy, paste, cut) = ctx.input(|i| {
