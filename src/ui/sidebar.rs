@@ -56,6 +56,7 @@ fn show_collapsed(
 
     if matches!(editor.tool, ToolKind::Line) {
         // Curve/straight toggle
+        let mut mode_changed = false;
         if editor.line_tool.curve_mode {
             if ui
                 .add(icons::icon_button(icons::mode_curve(), ui))
@@ -63,6 +64,7 @@ fn show_collapsed(
                 .clicked()
             {
                 editor.line_tool.curve_mode = false;
+                mode_changed = true;
             }
         } else if ui
             .add(icons::icon_button(icons::mode_straight(), ui))
@@ -70,6 +72,15 @@ fn show_collapsed(
             .clicked()
         {
             editor.line_tool.curve_mode = true;
+            mode_changed = true;
+        }
+        if mode_changed && editor.line_tool.is_drawing {
+            crate::math::recompute_auto_curves(
+                &mut editor.line_tool.vertices,
+                false,
+                editor.line_tool.curve_mode,
+                project.min_corner_radius,
+            );
         }
 
         ui.add_space(4.0);
@@ -85,7 +96,7 @@ fn show_collapsed(
         // Corner radius: icon + read-only value
         ui.horizontal(|ui| {
             ui.add(icons::small_icon(icons::prop_radius(), ui));
-            ui.label(format!("{:.1}", project.min_corner_radius));
+            ui.label(format!("{}", project.min_corner_radius as u32));
         });
 
         ui.add_space(4.0);
@@ -115,9 +126,6 @@ fn show_collapsed(
             .find(|e| selected.iter().any(|id| id == &e.id));
 
         if let Some(elem) = first_elem {
-            ui.label("Element");
-            ui.add_space(4.0);
-
             // Position
             ui.horizontal(|ui| {
                 ui.add(icons::small_icon(icons::prop_position(), ui));
@@ -344,19 +352,32 @@ fn show_line_tool_options(
 
     // Curve/straight toggle
     ui.horizontal(|ui| {
+        let mut mode_changed = false;
         if ui
             .add(icons::icon_button(icons::mode_curve(), ui).selected(editor.line_tool.curve_mode))
             .on_hover_text("Curve Mode (C)")
             .clicked()
+            && !editor.line_tool.curve_mode
         {
             editor.line_tool.curve_mode = true;
+            mode_changed = true;
         }
         if ui
             .add(icons::icon_button(icons::mode_straight(), ui).selected(!editor.line_tool.curve_mode))
             .on_hover_text("Straight Mode")
             .clicked()
+            && editor.line_tool.curve_mode
         {
             editor.line_tool.curve_mode = false;
+            mode_changed = true;
+        }
+        if mode_changed && editor.line_tool.is_drawing {
+            crate::math::recompute_auto_curves(
+                &mut editor.line_tool.vertices,
+                false,
+                editor.line_tool.curve_mode,
+                project.min_corner_radius,
+            );
         }
     });
 }

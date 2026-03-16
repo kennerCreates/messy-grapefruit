@@ -10,6 +10,7 @@ use crate::state::editor::EditorState;
 /// Handle viewport input (pan, zoom, flip, zoom-to-fit).
 pub fn handle_viewport_input(
     editor: &mut EditorState,
+    project: &Project,
     canvas_rect: egui::Rect,
     ui: &egui::Ui,
 ) {
@@ -46,6 +47,15 @@ pub fn handle_viewport_input(
         && matches!(editor.tool, crate::state::editor::ToolKind::Line)
     {
         editor.line_tool.curve_mode = !editor.line_tool.curve_mode;
+        // Recompute control points on in-progress vertices when mode changes
+        if editor.line_tool.is_drawing {
+            crate::math::recompute_auto_curves(
+                &mut editor.line_tool.vertices,
+                false,
+                editor.line_tool.curve_mode,
+                project.min_corner_radius,
+            );
+        }
     }
 
     // V key = switch to select tool
