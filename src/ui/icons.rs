@@ -13,6 +13,7 @@ pub fn undo() -> ImageSource<'static> { egui::include_image!("../../assets/icons
 pub fn redo() -> ImageSource<'static> { egui::include_image!("../../assets/icons/action_redo.svg") }
 
 // Tool icons
+pub fn tool_select() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_select.svg") }
 pub fn tool_line() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_line.svg") }
 
 // Grid icons

@@ -41,9 +41,21 @@ pub fn handle_viewport_input(
         editor.viewport.flipped = !editor.viewport.flipped;
     }
 
-    // C key = toggle curve/straight mode
-    if ui.input(|i| i.key_pressed(egui::Key::C)) && !ui.input(|i| i.modifiers.ctrl) {
+    // C key = toggle curve/straight mode (line tool only)
+    if ui.input(|i| i.key_pressed(egui::Key::C)) && !ui.input(|i| i.modifiers.ctrl)
+        && matches!(editor.tool, crate::state::editor::ToolKind::Line)
+    {
         editor.line_tool.curve_mode = !editor.line_tool.curve_mode;
+    }
+
+    // V key = switch to select tool
+    if ui.input(|i| i.key_pressed(egui::Key::V)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.tool = crate::state::editor::ToolKind::Select;
+    }
+
+    // L key = switch to line tool
+    if ui.input(|i| i.key_pressed(egui::Key::L)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.tool = crate::state::editor::ToolKind::Line;
     }
 }
 

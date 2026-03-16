@@ -148,3 +148,26 @@ pub fn floating_panel_color(theme: Theme) -> Color32 {
 pub fn selected_color(theme: Theme) -> Color32 {
     theme_colors(theme).selected
 }
+
+/// Selection highlight outline on canvas (for selected elements).
+pub fn selection_highlight_color(theme: Theme) -> Color32 {
+    let tc = theme_colors(theme);
+    Color32::from_rgba_unmultiplied(tc.selected.r(), tc.selected.g(), tc.selected.b(), 160)
+}
+
+/// Marquee selection rectangle color.
+pub fn marquee_color(theme: Theme) -> Color32 {
+    let tc = theme_colors(theme);
+    Color32::from_rgba_unmultiplied(tc.mid.r(), tc.mid.g(), tc.mid.b(), 100)
+}
+
+/// Transform handle color.
+pub fn handle_color(theme: Theme) -> Color32 {
+    theme_colors(theme).icon_text
+}
+
+/// Origin crosshair color.
+pub fn origin_color(theme: Theme) -> Color32 {
+    let tc = theme_colors(theme);
+    Color32::from_rgba_unmultiplied(tc.selected.r(), tc.selected.g(), tc.selected.b(), 200)
+}

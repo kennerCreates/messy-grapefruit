@@ -9,7 +9,8 @@ mod ui;
 
 use eframe::egui;
 use model::project::Project;
-use model::sprite::Sprite;
+use model::sprite::{Sprite, StrokeElement};
+use model::vec2::Vec2;
 use state::editor::EditorState;
 use state::history::History;
 
@@ -95,22 +96,108 @@ impl App {
     }
 }
 
+/// Clipboard JSON wrapper for cross-sprite copy/paste.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ClipboardData {
+    messy_grapefruit_clipboard: bool,
+    elements: Vec<StrokeElement>,
+}
+
+impl App {
+    fn copy_selected(&self) {
+        if self.editor.selection.is_empty() {
+            return;
+        }
+        let mut elements = Vec::new();
+        for layer in &self.sprite.layers {
+            for element in &layer.elements {
+                if self.editor.selection.is_selected(&element.id) {
+                    elements.push(element.clone());
+                }
+            }
+        }
+        let data = ClipboardData {
+            messy_grapefruit_clipboard: true,
+            elements,
+        };
+        if let Ok(json) = serde_json::to_string(&data)
+            && let Ok(mut clipboard) = arboard::Clipboard::new() {
+                let _ = clipboard.set_text(json);
+            }
+    }
+
+    fn paste_from_clipboard(&mut self) {
+        let json = match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
+            Ok(text) => text,
+            Err(_) => return,
+        };
+        let data: ClipboardData = match serde_json::from_str::<ClipboardData>(&json) {
+            Ok(d) if d.messy_grapefruit_clipboard => d,
+            _ => return,
+        };
+        if data.elements.is_empty() {
+            return;
+        }
+
+        let before = self.sprite.clone();
+        let layer_idx = self.editor.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
+        let mut new_ids = Vec::new();
+
+        for mut element in data.elements {
+            // Assign new UUIDs
+            element.id = uuid::Uuid::new_v4().to_string();
+            for v in &mut element.vertices {
+                v.id = uuid::Uuid::new_v4().to_string();
+            }
+            // Offset position
+            element.position += Vec2::new(10.0, 10.0);
+            new_ids.push(element.id.clone());
+            self.sprite.layers[layer_idx].elements.push(element);
+        }
+
+        self.history.push("Paste elements".into(), before, self.sprite.clone());
+        self.editor.selection.select_all(new_ids);
+    }
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         theme::apply_theme(ctx, self.project.editor_preferences.theme);
 
-        // Handle undo/redo globally (works regardless of focused panel)
-        ctx.input(|i| {
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::Z) && !i.modifiers.shift {
-                self.history.undo(&mut self.sprite);
-            }
-            if i.modifiers.ctrl
-                && (i.key_pressed(egui::Key::Y)
-                    || (i.key_pressed(egui::Key::Z) && i.modifiers.shift))
-            {
-                self.history.redo(&mut self.sprite);
-            }
+        // Handle undo/redo and copy/paste globally
+        let (undo, redo, copy, paste, cut) = ctx.input(|i| {
+            (
+                i.modifiers.ctrl && i.key_pressed(egui::Key::Z) && !i.modifiers.shift,
+                i.modifiers.ctrl
+                    && (i.key_pressed(egui::Key::Y)
+                        || (i.key_pressed(egui::Key::Z) && i.modifiers.shift)),
+                i.modifiers.ctrl && i.key_pressed(egui::Key::C),
+                i.modifiers.ctrl && i.key_pressed(egui::Key::V),
+                i.modifiers.ctrl && i.key_pressed(egui::Key::X),
+            )
         });
+
+        if undo {
+            self.history.undo(&mut self.sprite);
+        }
+        if redo {
+            self.history.redo(&mut self.sprite);
+        }
+        if copy || cut {
+            self.copy_selected();
+        }
+        if cut && !self.editor.selection.is_empty() {
+            let before = self.sprite.clone();
+            let selected = self.editor.selection.selected_ids.clone();
+            for layer in self.sprite.layers.iter_mut() {
+                layer.elements.retain(|e| !selected.iter().any(|id| id == &e.id));
+            }
+            self.history.push("Cut elements".into(), before, self.sprite.clone());
+            self.editor.selection.clear();
+        }
+        if paste {
+            self.paste_from_clipboard();
+        }
 
         let panel_bg = theme::floating_panel_color(self.project.editor_preferences.theme);
         let floating_frame = egui::Frame::NONE
@@ -125,8 +212,9 @@ impl eframe::App for App {
                 let actions = ui::canvas::show_canvas(
                     ui,
                     &mut self.editor,
-                    &self.sprite,
+                    &mut self.sprite,
                     &self.project,
+                    &mut self.history,
                 );
                 for action in actions {
                     self.dispatch_action(action);
@@ -169,6 +257,7 @@ impl eframe::App for App {
                     &mut self.editor,
                     &mut self.sprite,
                     &mut self.project,
+                    &mut self.history,
                 );
             });
 

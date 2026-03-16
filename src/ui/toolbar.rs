@@ -117,7 +117,16 @@ pub fn show_toolbar(
 
         ui.separator();
 
-        // Tool: Line
+        // Tools: Select, Line
+        let is_select = matches!(editor.tool, crate::state::editor::ToolKind::Select);
+        if ui
+            .add(icons::icon_button(icons::tool_select(), ui).selected(is_select))
+            .on_hover_text("Select Tool (V)")
+            .clicked()
+        {
+            editor.tool = crate::state::editor::ToolKind::Select;
+        }
+
         let is_line = matches!(editor.tool, crate::state::editor::ToolKind::Line);
         if ui
             .add(icons::icon_button(icons::tool_line(), ui).selected(is_line))

@@ -3,7 +3,91 @@ use crate::model::vec2::Vec2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolKind {
+    Select,
     Line,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SelectionState {
+    pub selected_ids: Vec<String>,
+}
+
+impl SelectionState {
+    pub fn is_selected(&self, id: &str) -> bool {
+        self.selected_ids.iter().any(|s| s == id)
+    }
+
+    pub fn clear(&mut self) {
+        self.selected_ids.clear();
+    }
+
+    pub fn select_single(&mut self, id: String) {
+        self.selected_ids.clear();
+        self.selected_ids.push(id);
+    }
+
+    pub fn toggle(&mut self, id: &str) {
+        if let Some(pos) = self.selected_ids.iter().position(|s| s == id) {
+            self.selected_ids.remove(pos);
+        } else {
+            self.selected_ids.push(id.to_string());
+        }
+    }
+
+    pub fn select_all(&mut self, ids: Vec<String>) {
+        self.selected_ids = ids;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.selected_ids.is_empty()
+    }
+}
+
+/// Which handle on the selection bounding box is being manipulated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandleKind {
+    ScaleNW, ScaleN, ScaleNE,
+    ScaleE, ScaleSE, ScaleS,
+    ScaleSW, ScaleW,
+    Rotate,
+}
+
+/// Active drag operation in select tool.
+#[derive(Debug, Clone)]
+pub enum SelectDragKind {
+    /// Dragging selected elements to move them.
+    Move {
+        start_world: Vec2,
+        last_snapped_delta: Vec2,
+    },
+    /// Dragging a marquee rectangle to select elements.
+    Marquee {
+        start_screen: egui::Pos2,
+        start_world: Vec2,
+    },
+    /// Dragging a scale handle on the selection AABB.
+    Scale {
+        handle: HandleKind,
+        /// AABB at drag start (min, max).
+        initial_bounds: (Vec2, Vec2),
+        /// Element scales at drag start, keyed by element ID.
+        initial_scales: Vec<(String, Vec2)>,
+        /// Element positions at drag start.
+        initial_positions: Vec<(String, Vec2)>,
+        /// The anchor point (opposite corner/edge) in world space.
+        anchor: Vec2,
+    },
+    /// Dragging the rotation handle.
+    Rotate {
+        /// Center of rotation (AABB center).
+        pivot: Vec2,
+        /// Starting angle from pivot to cursor (radians).
+        start_angle: f32,
+        /// Element rotations at drag start.
+        initial_rotations: Vec<(String, f32)>,
+        /// Element positions at drag start.
+        initial_positions: Vec<(String, Vec2)>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -82,11 +166,29 @@ impl LineToolState {
     }
 }
 
+/// Entry in the selection stack popup (Alt+click on overlapping elements).
+#[derive(Debug, Clone)]
+pub struct StackEntry {
+    pub element_id: String,
+    pub display_name: String,
+    pub stroke_color_index: u8,
+}
+
+/// Popup showing all elements under the cursor for pick-selection.
+#[derive(Debug, Clone)]
+pub struct SelectionStackPopup {
+    pub screen_pos: egui::Pos2,
+    pub entries: Vec<StackEntry>,
+}
+
 #[derive(Debug, Clone)]
 pub struct EditorState {
     pub tool: ToolKind,
     pub viewport: ViewportState,
     pub line_tool: LineToolState,
+    pub selection: SelectionState,
+    pub select_drag: Option<SelectDragKind>,
+    pub selection_stack_popup: Option<SelectionStackPopup>,
     pub active_stroke_width: f32,
     pub active_color_index: u8,
     pub active_layer_idx: usize,
@@ -105,6 +207,9 @@ impl Default for EditorState {
                 curve_mode: true,
                 is_drawing: false,
             },
+            selection: SelectionState::default(),
+            select_drag: None,
+            selection_stack_popup: None,
             active_stroke_width: 2.0,
             active_color_index: 1, // black
             active_layer_idx: 0,

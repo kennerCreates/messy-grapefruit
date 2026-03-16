@@ -1,3 +1,4 @@
+use crate::engine::transform;
 use crate::math;
 use crate::model::sprite::{PathVertex, Sprite};
 use crate::model::vec2::Vec2;
@@ -23,10 +24,23 @@ pub fn hit_test_elements(
             }
             let hit_threshold = threshold + element.stroke_width / 2.0;
 
-            let dist = if element.curve_mode {
-                hit_test_curve_path(world_pos, &element.vertices, element.closed, &mut polyline)
+            // Transform test point into element's local space for hit testing
+            let local_pos = if transform::has_transform(element) {
+                transform::inverse_transform_point(
+                    world_pos,
+                    element.origin,
+                    element.position,
+                    element.rotation,
+                    element.scale,
+                )
             } else {
-                hit_test_rounded_path(world_pos, &element.vertices, element.closed, &mut polyline)
+                world_pos
+            };
+
+            let dist = if element.curve_mode {
+                hit_test_curve_path(local_pos, &element.vertices, element.closed, &mut polyline)
+            } else {
+                hit_test_rounded_path(local_pos, &element.vertices, element.closed, &mut polyline)
             };
 
             if dist <= hit_threshold {
@@ -35,6 +49,53 @@ pub fn hit_test_elements(
         }
     }
     None
+}
+
+/// Find ALL visible, unlocked elements under the cursor, ordered top-to-bottom.
+/// Returns (element_id, display_name, stroke_color_index) tuples.
+pub fn hit_test_all_elements(
+    world_pos: Vec2,
+    sprite: &Sprite,
+    threshold: f32,
+) -> Vec<(String, String, u8)> {
+    let mut results = Vec::new();
+    let mut polyline = Vec::new();
+
+    for layer in sprite.layers.iter().rev() {
+        if !layer.visible || layer.locked {
+            continue;
+        }
+        for element in layer.elements.iter().rev() {
+            if element.vertices.len() < 2 {
+                continue;
+            }
+            let hit_threshold = threshold + element.stroke_width / 2.0;
+
+            let local_pos = if transform::has_transform(element) {
+                transform::inverse_transform_point(
+                    world_pos,
+                    element.origin,
+                    element.position,
+                    element.rotation,
+                    element.scale,
+                )
+            } else {
+                world_pos
+            };
+
+            let dist = if element.curve_mode {
+                hit_test_curve_path(local_pos, &element.vertices, element.closed, &mut polyline)
+            } else {
+                hit_test_rounded_path(local_pos, &element.vertices, element.closed, &mut polyline)
+            };
+
+            if dist <= hit_threshold {
+                let name = element.name.clone().unwrap_or_else(|| "Stroke".to_string());
+                results.push((element.id.clone(), name, element.stroke_color_index));
+            }
+        }
+    }
+    results
 }
 
 /// Hit test a curve-mode path (bezier segments through vertex positions).

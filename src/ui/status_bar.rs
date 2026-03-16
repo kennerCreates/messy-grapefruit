@@ -7,7 +7,14 @@ use super::icons;
 pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &Sprite, project: &Project) {
     ui.horizontal(|ui| {
         // Tool icon
-        ui.add(icons::small_icon(icons::tool_line(), ui));
+        match editor.tool {
+            crate::state::editor::ToolKind::Select => {
+                ui.add(icons::small_icon(icons::tool_select(), ui));
+            }
+            crate::state::editor::ToolKind::Line => {
+                ui.add(icons::small_icon(icons::tool_line(), ui));
+            }
+        }
 
         ui.separator();
 

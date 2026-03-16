@@ -2525,6 +2525,7 @@ dependencies = [
 name = "messy-grapefruit"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "eframe",
  "egui",
  "egui_extras",
