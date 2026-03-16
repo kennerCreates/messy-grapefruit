@@ -66,6 +66,23 @@ impl History {
         !self.redo_stack.is_empty()
     }
 
+    /// Coalescing push: if the top undo entry has the same description,
+    /// update its `after` state instead of creating a new entry.
+    /// This merges consecutive small edits (like slider drags) into one undo step.
+    pub fn push_coalesced(&mut self, description: String, before: Sprite, after: Sprite) {
+        if let Some(top) = self.undo_stack.last_mut()
+            && top.description == description
+        {
+            top.sprite_after = after;
+            return;
+        }
+        self.push(description, before, after);
+    }
+
+    pub fn is_dragging(&self) -> bool {
+        self.pending_drag.is_some()
+    }
+
     pub fn begin_drag(&mut self, description: String, snapshot: Sprite) {
         self.pending_drag = Some((description, snapshot));
     }

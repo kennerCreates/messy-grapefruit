@@ -47,6 +47,9 @@ pub fn sidebar_collapse() -> ImageSource<'static> { egui::include_image!("../../
 // Property icons
 pub fn prop_width() -> ImageSource<'static> { egui::include_image!("../../assets/icons/prop_width.svg") }
 pub fn prop_radius() -> ImageSource<'static> { egui::include_image!("../../assets/icons/prop_radius.svg") }
+pub fn prop_position() -> ImageSource<'static> { egui::include_image!("../../assets/icons/prop_position.svg") }
+pub fn prop_rotation() -> ImageSource<'static> { egui::include_image!("../../assets/icons/prop_rotation.svg") }
+pub fn prop_scale() -> ImageSource<'static> { egui::include_image!("../../assets/icons/prop_scale.svg") }
 
 // Metric icons
 pub fn metric_element() -> ImageSource<'static> { egui::include_image!("../../assets/icons/metric_element.svg") }

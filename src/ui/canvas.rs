@@ -1,6 +1,7 @@
 use crate::action::AppAction;
 use crate::engine::{hit_test, snap, transform};
 use crate::math;
+use crate::model::sprite::StrokeElement;
 use crate::model::project::Project;
 use crate::model::sprite::Sprite;
 use crate::model::vec2::Vec2;
@@ -357,9 +358,13 @@ fn handle_select_tool(
     // --- Drag end ---
     if response.drag_stopped_by(egui::PointerButton::Primary) {
         match editor.select_drag.take() {
-            Some(SelectDragKind::Move { .. })
-            | Some(SelectDragKind::Scale { .. })
+            Some(SelectDragKind::Move { .. }) => {
+                history.end_drag(sprite.clone());
+            }
+            Some(SelectDragKind::Scale { .. })
             | Some(SelectDragKind::Rotate { .. }) => {
+                // Bake transform into vertices and snap to grid
+                bake_and_snap_selected(sprite, &editor.selection.selected_ids, project);
                 history.end_drag(sprite.clone());
             }
             Some(SelectDragKind::Marquee { start_world, .. }) => {
@@ -460,13 +465,19 @@ fn handle_select_tool(
     }
 
     // --- C key toggles curve/straight mode on selected elements ---
+    // If any selected element is curved → all become straight; otherwise all become curved.
     if response.ctx.input(|i| i.key_pressed(egui::Key::C) && !i.modifiers.ctrl) && !editor.selection.is_empty() {
         let before = sprite.clone();
         let selected = editor.selection.selected_ids.clone();
+        let any_curved = sprite.layers.iter()
+            .flat_map(|l| &l.elements)
+            .filter(|e| selected.iter().any(|id| id == &e.id))
+            .any(|e| e.curve_mode);
+        let target_mode = !any_curved;
         for layer in sprite.layers.iter_mut() {
             for element in layer.elements.iter_mut() {
                 if selected.iter().any(|id| id == &element.id) {
-                    element.curve_mode = !element.curve_mode;
+                    element.curve_mode = target_mode;
                     math::recompute_auto_curves(
                         &mut element.vertices,
                         element.closed,
@@ -552,6 +563,40 @@ fn collect_selected_field<T>(
         }
     }
     ordered
+}
+
+/// After scale/rotate, bake the transform into vertex positions and snap to grid.
+fn bake_and_snap_selected(sprite: &mut Sprite, selected_ids: &[String], project: &Project) {
+    let grid_size = project.editor_preferences.grid_size;
+    let grid_mode = project.editor_preferences.grid_mode;
+
+    for layer in sprite.layers.iter_mut() {
+        for element in layer.elements.iter_mut() {
+            if selected_ids.iter().any(|id| id == &element.id) {
+                bake_element_transform(element, grid_size, grid_mode, project.min_corner_radius);
+            }
+        }
+    }
+}
+
+/// Bake an element's transform into its vertices, snap to grid, reset transform to identity.
+fn bake_element_transform(element: &mut StrokeElement, grid_size: u32, grid_mode: crate::model::project::GridMode, corner_radius: f32) {
+    for v in &mut element.vertices {
+        v.pos = transform::transform_point(v.pos, element.origin, element.position, element.rotation, element.scale);
+        v.pos = snap::snap_to_grid(v.pos, grid_size, grid_mode);
+    }
+    // Reset transform to identity
+    element.position = Vec2::ZERO;
+    element.rotation = 0.0;
+    element.scale = Vec2::ONE;
+    element.origin = Vec2::ZERO;
+    // Recompute curves from snapped positions
+    math::recompute_auto_curves(
+        &mut element.vertices,
+        element.closed,
+        element.curve_mode,
+        corner_radius,
+    );
 }
 
 /// Compute the anchor point (opposite to the handle being dragged) on the selection AABB.

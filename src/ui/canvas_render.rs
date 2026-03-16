@@ -64,6 +64,8 @@ fn render_element_path(
 }
 
 /// Render a path using cubic bezier segments through vertex positions (curve mode).
+/// Flattens all segments into a single polyline so line joins are handled properly
+/// (no gaps at sharp corners).
 fn render_curve_path(
     painter: &Painter,
     verts: &[PathVertex],
@@ -72,13 +74,37 @@ fn render_curve_path(
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
-    for i in 0..verts.len().saturating_sub(1) {
-        render_bezier_segment(painter, &verts[i], &verts[i + 1], stroke, viewport, canvas_center);
+    if verts.len() < 2 {
+        return;
     }
-    if closed && verts.len() >= 2 {
-        let last = verts.len() - 1;
-        render_bezier_segment(painter, &verts[last], &verts[0], stroke, viewport, canvas_center);
+
+    // Adaptive tolerance: ~0.5 screen pixels regardless of zoom
+    let tolerance = (0.5 / viewport.zoom).max(0.01);
+    let mut world_points: Vec<Vec2> = Vec::new();
+
+    let seg_count = if closed { verts.len() } else { verts.len() - 1 };
+    for i in 0..seg_count {
+        let v0 = &verts[i];
+        let v1 = &verts[(i + 1) % verts.len()];
+        let (p0, cp1, cp2, p3) = math::segment_bezier_points(v0, v1);
+        math::flatten_cubic_bezier(p0, cp1, cp2, p3, tolerance, &mut world_points);
     }
+
+    if world_points.len() < 2 {
+        return;
+    }
+
+    let screen_points: Vec<Pos2> = world_points
+        .iter()
+        .map(|p| viewport.world_to_screen(*p, canvas_center))
+        .collect();
+
+    painter.add(egui::Shape::Path(egui::epaint::PathShape {
+        points: screen_points,
+        closed,
+        fill: Color32::TRANSPARENT,
+        stroke: stroke.into(),
+    }));
 }
 
 /// Render a path with Figma-style corner fillets (straight mode with radius).
@@ -124,28 +150,6 @@ fn render_rounded_path(
     painter.add(egui::Shape::Path(egui::epaint::PathShape {
         points: screen_points,
         closed,
-        fill: Color32::TRANSPARENT,
-        stroke: stroke.into(),
-    }));
-}
-
-fn render_bezier_segment(
-    painter: &Painter,
-    v0: &PathVertex,
-    v1: &PathVertex,
-    stroke: Stroke,
-    viewport: &ViewportState,
-    canvas_center: Pos2,
-) {
-    let (p0, cp1, cp2, p3) = math::segment_bezier_points(v0, v1);
-    let s0 = viewport.world_to_screen(p0, canvas_center);
-    let s1 = viewport.world_to_screen(cp1, canvas_center);
-    let s2 = viewport.world_to_screen(cp2, canvas_center);
-    let s3 = viewport.world_to_screen(p3, canvas_center);
-
-    painter.add(egui::Shape::CubicBezier(egui::epaint::CubicBezierShape {
-        points: [s0, s1, s2, s3],
-        closed: false,
         fill: Color32::TRANSPARENT,
         stroke: stroke.into(),
     }));

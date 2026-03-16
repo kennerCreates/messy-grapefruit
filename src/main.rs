@@ -34,6 +34,8 @@ pub struct App {
     pub editor: EditorState,
     pub history: History,
     pub sprite_path: Option<std::path::PathBuf>,
+    /// Internal clipboard fallback (in case system clipboard fails).
+    pub internal_clipboard: Option<Vec<StrokeElement>>,
 }
 
 impl App {
@@ -72,6 +74,7 @@ impl App {
             editor: EditorState::default(),
             history: History::new(200),
             sprite_path: None,
+            internal_clipboard: None,
         }
     }
 }
@@ -104,7 +107,7 @@ struct ClipboardData {
 }
 
 impl App {
-    fn copy_selected(&self) {
+    fn copy_selected(&mut self) {
         if self.editor.selection.is_empty() {
             return;
         }
@@ -116,34 +119,46 @@ impl App {
                 }
             }
         }
+        if elements.is_empty() {
+            return;
+        }
+
+        // Always store in internal clipboard
+        self.internal_clipboard = Some(elements.clone());
+
+        // Also try system clipboard
         let data = ClipboardData {
             messy_grapefruit_clipboard: true,
             elements,
         };
         if let Ok(json) = serde_json::to_string(&data)
-            && let Ok(mut clipboard) = arboard::Clipboard::new() {
-                let _ = clipboard.set_text(json);
-            }
+            && let Ok(mut clipboard) = arboard::Clipboard::new()
+        {
+            let _ = clipboard.set_text(json);
+        }
     }
 
     fn paste_from_clipboard(&mut self) {
-        let json = match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
-            Ok(text) => text,
-            Err(_) => return,
-        };
-        let data: ClipboardData = match serde_json::from_str::<ClipboardData>(&json) {
-            Ok(d) if d.messy_grapefruit_clipboard => d,
-            _ => return,
-        };
-        if data.elements.is_empty() {
+        // Try system clipboard first
+        let elements = if let Ok(mut clipboard) = arboard::Clipboard::new()
+            && let Ok(json) = clipboard.get_text()
+            && let Ok(data) = serde_json::from_str::<ClipboardData>(&json)
+            && data.messy_grapefruit_clipboard
+            && !data.elements.is_empty()
+        {
+            data.elements
+        } else if let Some(elements) = &self.internal_clipboard {
+            // Fall back to internal clipboard
+            elements.clone()
+        } else {
             return;
-        }
+        };
 
         let before = self.sprite.clone();
         let layer_idx = self.editor.active_layer_idx.min(self.sprite.layers.len().saturating_sub(1));
         let mut new_ids = Vec::new();
 
-        for mut element in data.elements {
+        for mut element in elements {
             // Assign new UUIDs
             element.id = uuid::Uuid::new_v4().to_string();
             for v in &mut element.vertices {

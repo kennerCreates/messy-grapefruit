@@ -74,17 +74,15 @@ fn show_collapsed(
 
             ui.add_space(4.0);
 
-            // Stroke width: icon + drag value on same line
-            theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add(icons::small_icon(icons::prop_width(), ui));
-                    ui.add(
-                        egui::DragValue::new(&mut editor.active_stroke_width)
-                            .range(1.0..=32.0)
-                            .speed(0.1)
-                            .fixed_decimals(1),
-                    );
-                });
+            // Stroke width: 3 toggle buttons (1, 2, 4)
+            ui.horizontal(|ui| {
+                ui.add(icons::small_icon(icons::prop_width(), ui));
+                for &w in &[1.0_f32, 2.0, 4.0] {
+                    let selected = (editor.active_stroke_width - w).abs() < 0.01;
+                    if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
+                        editor.active_stroke_width = w;
+                    }
+                }
             });
 
             ui.add_space(4.0);
@@ -233,13 +231,16 @@ fn show_line_tool_options(
     sprite: &mut Sprite,
     project: &mut Project,
 ) {
-    // Stroke width
-    theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
-        ui.horizontal(|ui| {
-            ui.add(icons::small_icon(icons::prop_width(), ui));
-            ui.label("Width");
-            ui.add(egui::Slider::new(&mut editor.active_stroke_width, 1.0..=32.0).fixed_decimals(1));
-        });
+    // Stroke width: 3 toggle buttons
+    ui.horizontal(|ui| {
+        ui.add(icons::small_icon(icons::prop_width(), ui));
+        ui.label("Width");
+        for &w in &[1.0_f32, 2.0, 4.0] {
+            let selected = (editor.active_stroke_width - w).abs() < 0.01;
+            if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
+                editor.active_stroke_width = w;
+            }
+        }
     });
 
     ui.add_space(4.0);
@@ -377,49 +378,56 @@ fn show_select_tool_options(
             None => return,
         };
 
-    let mut changed = false;
+    // Track which property changed (for separate undo descriptions)
+    let mut change_desc: Option<&str> = None;
 
     theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
         // Position
         ui.horizontal(|ui| {
+            ui.add(icons::small_icon(icons::prop_position(), ui));
             ui.label("X");
             if ui.add(egui::DragValue::new(&mut pos_x).speed(0.5).fixed_decimals(1)).changed() {
-                changed = true;
+                change_desc = Some("Edit position");
             }
             ui.label("Y");
             if ui.add(egui::DragValue::new(&mut pos_y).speed(0.5).fixed_decimals(1)).changed() {
-                changed = true;
+                change_desc = Some("Edit position");
             }
         });
 
         // Rotation
         ui.horizontal(|ui| {
-            ui.label("Rot");
+            ui.add(icons::small_icon(icons::prop_rotation(), ui));
             if ui.add(egui::DragValue::new(&mut rot_deg).speed(1.0).suffix("°").fixed_decimals(1)).changed() {
-                changed = true;
+                change_desc = Some("Edit rotation");
             }
         });
 
         // Scale
         ui.horizontal(|ui| {
-            ui.label("Sx");
+            ui.add(icons::small_icon(icons::prop_scale(), ui));
+            ui.label("X");
             if ui.add(egui::DragValue::new(&mut scale_x).speed(0.01).fixed_decimals(2)).changed() {
-                changed = true;
+                change_desc = Some("Edit scale");
             }
-            ui.label("Sy");
+            ui.label("Y");
             if ui.add(egui::DragValue::new(&mut scale_y).speed(0.01).fixed_decimals(2)).changed() {
-                changed = true;
+                change_desc = Some("Edit scale");
             }
         });
+    });
 
-        // Stroke width
-        ui.horizontal(|ui| {
-            ui.add(icons::small_icon(icons::prop_width(), ui));
-            ui.label("Width");
-            if ui.add(egui::Slider::new(&mut stroke_w, 1.0..=32.0).fixed_decimals(1)).changed() {
-                changed = true;
+    // Stroke width: 3 toggle buttons
+    ui.horizontal(|ui| {
+        ui.add(icons::small_icon(icons::prop_width(), ui));
+        ui.label("Width");
+        for &w in &[1.0_f32, 2.0, 4.0] {
+            let selected = (stroke_w - w).abs() < 0.01;
+            if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
+                stroke_w = w;
+                change_desc = Some("Edit stroke width");
             }
-        });
+        }
     });
 
     ui.add_space(4.0);
@@ -441,27 +449,31 @@ fn show_select_tool_options(
             }
             if response.clicked() {
                 color_idx = i as u8;
-                changed = true;
+                change_desc = Some("Edit color");
             }
         }
     });
 
     ui.add_space(4.0);
 
-    // Curve/straight toggle
+    // Curve/straight toggle — sets all selected elements to the same mode
     ui.horizontal(|ui| {
-        if ui.add(icons::icon_button(icons::mode_curve(), ui).selected(is_curve)).on_hover_text("Curve Mode (C)").clicked() {
+        if ui.add(icons::icon_button(icons::mode_curve(), ui).selected(is_curve)).on_hover_text("Curve Mode (C)").clicked()
+            && !is_curve
+        {
             is_curve = true;
-            changed = true;
+            change_desc = Some("Edit curve mode");
         }
-        if ui.add(icons::icon_button(icons::mode_straight(), ui).selected(!is_curve)).on_hover_text("Straight Mode").clicked() {
+        if ui.add(icons::icon_button(icons::mode_straight(), ui).selected(!is_curve)).on_hover_text("Straight Mode").clicked()
+            && is_curve
+        {
             is_curve = false;
-            changed = true;
+            change_desc = Some("Edit curve mode");
         }
     });
 
-    // Apply changes
-    if changed {
+    // Apply changes — coalesced undo per property type
+    if let Some(desc) = change_desc {
         let before = sprite.clone();
         let new_rot = rot_deg.to_radians();
         for layer in sprite.layers.iter_mut() {
@@ -486,7 +498,7 @@ fn show_select_tool_options(
                 }
             }
         }
-        history.push("Edit element properties".into(), before, sprite.clone());
+        history.push_coalesced(desc.into(), before, sprite.clone());
     }
 }
 
