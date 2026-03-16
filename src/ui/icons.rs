@@ -93,3 +93,8 @@ pub fn small_icon(source: ImageSource<'static>, ui: &egui::Ui) -> Image<'static>
     let tint = tint(ui);
     Image::new(source).fit_to_exact_size(egui::Vec2::splat(SMALL_ICON_SIZE)).tint(tint)
 }
+
+/// Create a small icon image (24x24) with an explicit tint color.
+pub fn small_icon_tinted(source: ImageSource<'static>, tint: egui::Color32, _ui: &egui::Ui) -> Image<'static> {
+    Image::new(source).fit_to_exact_size(egui::Vec2::splat(SMALL_ICON_SIZE)).tint(tint)
+}

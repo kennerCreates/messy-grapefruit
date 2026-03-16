@@ -6,10 +6,10 @@ use super::icons;
 
 pub fn show_status_bar(ui: &mut egui::Ui, _editor: &EditorState, sprite: &Sprite, _project: &Project) {
     ui.horizontal(|ui| {
-        // Flip indicator
+        // Flip indicator (always show icon; tint when active)
         if _editor.viewport.flipped {
-            ui.add(icons::small_icon(icons::view_flip(), ui));
-            ui.colored_label(egui::Color32::YELLOW, "FLIPPED");
+            let tint = crate::theme::theme_colors(_project.editor_preferences.theme).icon_text;
+            ui.add(icons::small_icon_tinted(icons::view_flip(), tint, ui));
             ui.separator();
         }
 

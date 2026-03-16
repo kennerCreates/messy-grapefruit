@@ -142,7 +142,7 @@ impl Project {
             name: name.into(),
             format_version: 1,
             palette: Palette::default_palette(),
-            min_corner_radius: 8.0,
+            min_corner_radius: 4.0,
             editor_preferences: EditorPreferences::default(),
         }
     }
