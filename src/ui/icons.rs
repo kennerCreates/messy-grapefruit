@@ -40,10 +40,11 @@ pub fn layer_duplicate() -> ImageSource<'static> { egui::include_image!("../../a
 pub fn layer_mirror() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_mirror.svg") }
 pub fn layer_combine() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_combine.svg") }
 pub fn layer_solo() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_solo.svg") }
-pub fn layer_solo_clear() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_solo_clear.svg") }
 pub fn layer_group_collapse() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_group_collapse.svg") }
 pub fn layer_group_expand() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_group_expand.svg") }
 pub fn layer_group_create() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_group_create.svg") }
+pub fn layer_move_up() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_move_up.svg") }
+pub fn layer_move_down() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_move_down.svg") }
 
 // Mode icons
 pub fn mode_curve() -> ImageSource<'static> { egui::include_image!("../../assets/icons/mode_curve.svg") }

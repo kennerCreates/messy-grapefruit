@@ -123,15 +123,6 @@ pub(super) fn show_layer_list(
             history.push("Create group".into(), before, sprite.clone());
         }
 
-        // Solo clear (only shown when solo is active)
-        if editor.layer.solo_layer_id.is_some()
-            && ui
-                .add(icons::small_icon_button(icons::layer_solo_clear(), ui))
-                .on_hover_text("Clear Solo")
-                .clicked()
-            {
-                editor.layer.solo_layer_id = None;
-            }
     });
 
     ui.add_space(4.0);
@@ -142,12 +133,6 @@ pub(super) fn show_layer_list(
 
     // --- Build display list (groups + layers) ---
     let items = build_panel_items(sprite);
-
-    // Collect row rects for drag reorder (layer_idx -> row rect)
-    let mut row_rects: Vec<(usize, egui::Rect)> = Vec::new();
-    // Track if we're currently dragging
-    let is_dragging = editor.layer.drag_reorder.is_some();
-    let drag_layer_id = editor.layer.drag_reorder.as_ref().map(|d| d.layer_id.clone());
 
     for item in &items {
         match item {
@@ -218,7 +203,7 @@ pub(super) fn show_layer_list(
                         history.push("Toggle group lock".into(), before, sprite.clone());
                     }
 
-                    // Group name (double-click to rename)
+                    // Group name (right-click for rename/ungroup)
                     let is_renaming_group = editor.layer.renaming_layer_id.as_deref() == Some(gid.as_str());
                     if is_renaming_group {
                         let name = &mut sprite.layer_groups[gidx].name;
@@ -238,11 +223,13 @@ pub(super) fn show_layer_list(
                                 egui::RichText::new(&sprite.layer_groups[gidx].name).strong()
                             ).sense(egui::Sense::click())
                         );
-                        if resp.double_clicked() {
-                            editor.layer.renaming_layer_id = Some(gid.clone());
-                        }
-                        // Right-click to delete group (ungroup layers)
+
+                        // Right-click context menu
                         resp.context_menu(|ui| {
+                            if ui.button("Rename").clicked() {
+                                editor.layer.renaming_layer_id = Some(gid.clone());
+                                ui.close_menu();
+                            }
                             if ui.button("Ungroup").clicked() {
                                 let before = sprite.clone();
                                 for layer in sprite.layers.iter_mut() {
@@ -256,6 +243,38 @@ pub(super) fn show_layer_list(
                             }
                         });
                     }
+
+                    // Move group up/down buttons
+                    let group_indices: Vec<usize> = sprite.layers.iter().enumerate()
+                        .filter(|(_, l)| l.group_id.as_deref() == Some(gid.as_str()))
+                        .map(|(i, _)| i)
+                        .collect();
+                    let can_move_up = group_indices.last().is_some_and(|&max| max + 1 < sprite.layers.len());
+                    let can_move_down = group_indices.first().is_some_and(|&min| min > 0);
+
+                    if ui
+                        .add_enabled(can_move_up, icons::small_icon_button(icons::layer_move_up(), ui))
+                        .on_hover_text("Move Group Up")
+                        .clicked()
+                    {
+                        let before = sprite.clone();
+                        // Move all group layers up by swapping the block with the layer above
+                        for &idx in group_indices.iter().rev() {
+                            sprite.layers.swap(idx, idx + 1);
+                        }
+                        history.push("Move group up".into(), before, sprite.clone());
+                    }
+                    if ui
+                        .add_enabled(can_move_down, icons::small_icon_button(icons::layer_move_down(), ui))
+                        .on_hover_text("Move Group Down")
+                        .clicked()
+                    {
+                        let before = sprite.clone();
+                        for &idx in &group_indices {
+                            sprite.layers.swap(idx, idx - 1);
+                        }
+                        history.push("Move group down".into(), before, sprite.clone());
+                    }
                 });
             }
 
@@ -263,30 +282,29 @@ pub(super) fn show_layer_list(
                 let is_active = *layer_idx == active_idx;
                 let layer_id = sprite.layers[*layer_idx].id.clone();
                 let is_solo = editor.layer.solo_layer_id.as_deref() == Some(&layer_id);
-                let is_being_dragged = drag_layer_id.as_deref() == Some(&layer_id);
+                let current_group_id = sprite.layers[*layer_idx].group_id.clone();
+                // Collect group info for context menu (avoids borrow conflicts in closure)
+                let groups: Vec<(String, String)> = sprite.layer_groups.iter()
+                    .map(|g| (g.id.clone(), g.name.clone()))
+                    .collect();
 
-                let row_resp = ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                     // Indent for grouped layers
                     if *indented {
                         ui.add_space(12.0);
                     }
 
-                    // Solo toggle
-                    let solo_icon = if is_solo {
-                        icons::layer_solo()
-                    } else {
-                        icons::layer_solo_clear()
-                    };
-                    if ui
-                        .add(icons::small_icon_button(solo_icon, ui))
-                        .on_hover_text(if is_solo { "Unsolo" } else { "Solo Layer" })
-                        .clicked()
-                    {
-                        if is_solo {
+                    // First column: solo icon (shown) or invisible spacer (to align with group chevron)
+                    if is_solo {
+                        if ui
+                            .add(icons::small_icon_button(icons::layer_solo(), ui))
+                            .on_hover_text("Clear Solo")
+                            .clicked()
+                        {
                             editor.layer.solo_layer_id = None;
-                        } else {
-                            editor.layer.solo_layer_id = Some(layer_id.clone());
                         }
+                    } else {
+                        ui.add_visible(false, icons::small_icon_button(icons::layer_solo(), ui));
                     }
 
                     // Visibility toggle
@@ -329,7 +347,7 @@ pub(super) fn show_layer_list(
                         history.push("Toggle layer lock".into(), before, sprite.clone());
                     }
 
-                    // Layer name (double-click to rename, click to select, drag to reorder)
+                    // Layer name (double-click to solo, click to select)
                     let is_renaming = editor.layer.renaming_layer_id.as_deref() == Some(&layer_id);
                     if is_renaming {
                         let name = &mut sprite.layers[*layer_idx].name;
@@ -344,8 +362,8 @@ pub(super) fn show_layer_list(
                             editor.layer.renaming_layer_id = None;
                         }
                     } else {
-                        // Dim non-soloed layers when solo is active, dim dragged layer
-                        let dimmed = (editor.layer.solo_layer_id.is_some() && !is_solo) || is_being_dragged;
+                        // Dim non-soloed layers when solo is active
+                        let dimmed = editor.layer.solo_layer_id.is_some() && !is_solo;
                         let name_text = if dimmed {
                             egui::RichText::new(&sprite.layers[*layer_idx].name)
                                 .color(ui.visuals().weak_text_color())
@@ -354,124 +372,93 @@ pub(super) fn show_layer_list(
                         };
 
                         let label = egui::SelectableLabel::new(is_active, name_text);
-                        let resp = ui.add(label);
+                        let label_resp = ui.add(label);
                         if is_active {
-                            let rect = resp.rect;
+                            let rect = label_resp.rect;
                             ui.painter().line_segment(
                                 [rect.left_bottom(), rect.right_bottom()],
                                 egui::Stroke::new(2.0, sel_color),
                             );
                         }
 
-                        // Drag reorder: start drag on primary button drag
-                        if resp.drag_started_by(egui::PointerButton::Primary) && !is_dragging {
-                            editor.layer.drag_reorder = Some(crate::state::editor::LayerDragState {
-                                layer_id: layer_id.clone(),
-                                target_idx: None,
-                                target_group_id: None,
-                            });
-                        }
-
-                        if resp.clicked() {
+                        if label_resp.clicked() {
                             editor.layer.set_active_by_idx(*layer_idx, sprite);
                         }
-                        if resp.double_clicked() {
-                            editor.layer.renaming_layer_id = Some(layer_id.clone());
+                        // Double-click layer name → solo (or clear solo if already soloed)
+                        if label_resp.double_clicked() {
+                            if is_solo {
+                                editor.layer.solo_layer_id = None;
+                            } else {
+                                editor.layer.solo_layer_id = Some(layer_id.clone());
+                            }
                         }
+
+                        // Right-click context menu
+                        label_resp.context_menu(|ui| {
+                            if ui.button("Rename").clicked() {
+                                editor.layer.renaming_layer_id = Some(layer_id.clone());
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if !groups.is_empty() {
+                                ui.menu_button("Move to Group", |ui| {
+                                    // "None" option to remove from group
+                                    let is_ungrouped = current_group_id.is_none();
+                                    if ui.add(egui::SelectableLabel::new(is_ungrouped, "None")).clicked() {
+                                        let before = sprite.clone();
+                                        sprite.layers[*layer_idx].group_id = None;
+                                        history.push("Remove from group".into(), before, sprite.clone());
+                                        ui.close_menu();
+                                    }
+                                    ui.separator();
+                                    for (gid, gname) in &groups {
+                                        let is_in = current_group_id.as_deref() == Some(gid.as_str());
+                                        if ui.add(egui::SelectableLabel::new(is_in, gname.as_str())).clicked() {
+                                            let before = sprite.clone();
+                                            sprite.layers[*layer_idx].group_id = Some(gid.clone());
+                                            history.push("Move to group".into(), before, sprite.clone());
+                                            ui.close_menu();
+                                        }
+                                    }
+                                });
+                            }
+                            if current_group_id.is_some()
+                                && ui.button("Remove from Group").clicked()
+                            {
+                                let before = sprite.clone();
+                                sprite.layers[*layer_idx].group_id = None;
+                                history.push("Remove from group".into(), before, sprite.clone());
+                                ui.close_menu();
+                            }
+                        });
+                    }
+
+                    // Move up/down buttons
+                    let can_up = *layer_idx + 1 < sprite.layers.len();
+                    let can_down = *layer_idx > 0;
+
+                    if ui
+                        .add_enabled(can_up, icons::small_icon_button(icons::layer_move_up(), ui))
+                        .on_hover_text("Move Layer Up")
+                        .clicked()
+                    {
+                        let before = sprite.clone();
+                        sprite.layers.swap(*layer_idx, *layer_idx + 1);
+                        editor.layer.set_active_by_idx(*layer_idx + 1, sprite);
+                        history.push("Move layer up".into(), before, sprite.clone());
+                    }
+                    if ui
+                        .add_enabled(can_down, icons::small_icon_button(icons::layer_move_down(), ui))
+                        .on_hover_text("Move Layer Down")
+                        .clicked()
+                    {
+                        let before = sprite.clone();
+                        sprite.layers.swap(*layer_idx, *layer_idx - 1);
+                        editor.layer.set_active_by_idx(*layer_idx - 1, sprite);
+                        history.push("Move layer down".into(), before, sprite.clone());
                     }
                 });
-
-                // Collect row rect for drag target computation
-                row_rects.push((*layer_idx, row_resp.response.rect));
             }
-        }
-    }
-
-    // --- Drag reorder logic ---
-    if let Some(drag) = &editor.layer.drag_reorder {
-        let drag_id = drag.layer_id.clone();
-
-        // Get pointer position
-        if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
-            // Find target insertion position from row rects
-            // Row rects are in display order (top-to-bottom = highest layer index first)
-            let mut best_target_idx: Option<usize> = None;
-            let mut best_y = f32::MAX;
-
-            for (layer_idx, rect) in &row_rects {
-                let mid_y = rect.center().y;
-                // If pointer is above this row's midpoint, insert above (higher index in layers vec)
-                // If pointer is below, insert below (lower index)
-                if pointer_pos.y < mid_y {
-                    // Insert above this row: target_idx = layer_idx + 1
-                    let target = *layer_idx + 1;
-                    if (mid_y - pointer_pos.y) < best_y {
-                        best_y = mid_y - pointer_pos.y;
-                        best_target_idx = Some(target);
-                    }
-                } else {
-                    // Insert below this row: target_idx = layer_idx
-                    let target = *layer_idx;
-                    if (pointer_pos.y - mid_y) < best_y {
-                        best_y = pointer_pos.y - mid_y;
-                        best_target_idx = Some(target);
-                    }
-                }
-            }
-
-            // Draw insertion indicator line
-            if let Some(target_idx) = best_target_idx {
-                // Find the Y position for the indicator
-                let indicator_y = if target_idx >= sprite.layers.len() {
-                    // Insert at top (above highest layer) — use top of first row
-                    row_rects.first().map(|(_, r)| r.top()).unwrap_or(0.0)
-                } else {
-                    // Insert above target_idx — find the row for target_idx
-                    row_rects.iter()
-                        .find(|(idx, _)| *idx == target_idx)
-                        .map(|(_, r)| r.bottom())
-                        .unwrap_or_else(|| {
-                            row_rects.last().map(|(_, r)| r.bottom()).unwrap_or(0.0)
-                        })
-                };
-
-                let line_left = row_rects.first().map(|(_, r)| r.left()).unwrap_or(0.0);
-                let line_right = row_rects.first().map(|(_, r)| r.right()).unwrap_or(100.0);
-
-                ui.painter().line_segment(
-                    [egui::Pos2::new(line_left, indicator_y), egui::Pos2::new(line_right, indicator_y)],
-                    egui::Stroke::new(2.0, sel_color),
-                );
-
-                // Update drag state target
-                if let Some(drag) = &mut editor.layer.drag_reorder {
-                    drag.target_idx = Some(target_idx);
-                }
-            }
-        }
-
-        // Check for drag release
-        let released = ui.ctx().input(|i| i.pointer.any_released());
-        let cancelled = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
-
-        if released {
-            if let Some(drag) = editor.layer.drag_reorder.take()
-                && let (Some(src_idx), Some(target_idx)) = (sprite.layer_idx_by_id(&drag.layer_id), drag.target_idx)
-                    && src_idx != target_idx && src_idx + 1 != target_idx {
-                        let before = sprite.clone();
-                        let layer = sprite.layers.remove(src_idx);
-                        let insert_at = if target_idx > src_idx {
-                            target_idx - 1
-                        } else {
-                            target_idx
-                        };
-                        let insert_at = insert_at.min(sprite.layers.len());
-                        sprite.layers.insert(insert_at, layer);
-                        editor.layer.active_layer_id = Some(drag_id);
-                        history.push("Reorder layer".into(), before, sprite.clone());
-                    }
-        } else if cancelled {
-            editor.layer.drag_reorder = None;
         }
     }
 }

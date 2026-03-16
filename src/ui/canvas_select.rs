@@ -40,6 +40,7 @@ pub(super) fn handle_select_tool(
     handle_select_drag_update(response, editor, sprite, project, canvas_center, canvas_rect);
     handle_select_drag_end(response, editor, sprite, project, history, canvas_center, canvas_rect);
     handle_select_click(response, editor, sprite, canvas_center, threshold);
+    handle_select_double_click(response, editor, sprite, canvas_center, threshold);
     handle_select_keyboard(response, editor, sprite, project, history);
     render_select_overlays(response, painter, editor, sprite, canvas_rect, theme_mode);
 }
@@ -533,6 +534,37 @@ fn handle_select_click(
     if response.secondary_clicked() {
         editor.selection.clear();
         editor.selection_stack_popup = None;
+    }
+}
+
+/// Double-click on canvas: element → solo its layer, background → clear solo.
+fn handle_select_double_click(
+    response: &egui::Response,
+    editor: &mut EditorState,
+    sprite: &Sprite,
+    canvas_center: egui::Pos2,
+    threshold: f32,
+) {
+    if !response.double_clicked() {
+        return;
+    }
+    if let Some(click_pos) = response.interact_pointer_pos() {
+        let world_pos = editor.viewport.screen_to_world(click_pos, canvas_center);
+        // Hit test without solo filtering so we can solo any visible layer
+        if let Some(hit_id) = hit_test::hit_test_elements(world_pos, sprite, threshold, None) {
+            // Find which layer contains this element
+            if let Some(layer) = sprite.layers.iter().find(|l| l.elements.iter().any(|e| e.id == hit_id)) {
+                if editor.layer.solo_layer_id.as_deref() == Some(&layer.id) {
+                    // Already soloed this layer — clear solo
+                    editor.layer.solo_layer_id = None;
+                } else {
+                    editor.layer.solo_layer_id = Some(layer.id.clone());
+                }
+            }
+        } else {
+            // Double-click on empty canvas — clear solo
+            editor.layer.solo_layer_id = None;
+        }
     }
 }
 
