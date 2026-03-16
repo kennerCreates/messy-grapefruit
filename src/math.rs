@@ -35,6 +35,34 @@ pub fn recompute_auto_curves(
 
     for i in 0..n {
         if vertices[i].manual_handles {
+            // Enforce minimum curvature radius on manual handles using the same
+            // angle-based formula as straight-mode fillets: d = R / tan(θ/2).
+            // θ is the angle between the two handle directions at the vertex.
+            // When handles form a sharp kink (small θ), longer tangents are required.
+            if curve_mode && min_corner_radius > 0.001
+                && let (Some(cp1), Some(cp2)) = (vertices[i].cp1, vertices[i].cp2)
+            {
+                let to_cp1 = cp1 - positions[i];
+                let to_cp2 = cp2 - positions[i];
+                let len1 = to_cp1.length();
+                let len2 = to_cp2.length();
+
+                if len1 > 0.001 && len2 > 0.001 {
+                    let cos_theta = (to_cp1.dot(to_cp2) / (len1 * len2)).clamp(-1.0, 1.0);
+                    let theta = cos_theta.acos();
+                    let half_theta_tan = (theta / 2.0).tan();
+
+                    if half_theta_tan > 0.001 {
+                        let min_tangent_len = min_corner_radius / half_theta_tan;
+                        if len1 < min_tangent_len {
+                            vertices[i].cp1 = Some(positions[i] + to_cp1 * (min_tangent_len / len1));
+                        }
+                        if len2 < min_tangent_len {
+                            vertices[i].cp2 = Some(positions[i] + to_cp2 * (min_tangent_len / len2));
+                        }
+                    }
+                }
+            }
             continue;
         }
 
