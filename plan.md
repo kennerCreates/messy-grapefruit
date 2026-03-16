@@ -67,8 +67,9 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 │           IKTargetElement { id, name?, type: "ik-target", position: Vec2, ikChainId: string }
 │               (lightweight — no vertices/strokes, renders as crosshair icon on canvas)
 │               (position is world-space — not relative to the layer. Lives on tip layer for organization only)
-│           └── PathVertex { id, pos: Vec2, cp1?: Vec2, cp2?: Vec2 }
+│           └── PathVertex { id, pos: Vec2, cp1?: Vec2, cp2?: Vec2, manual_handles?: bool }
 │               (cp1/cp2 = cubic bezier handles; absent = straight line)
+│               (manual_handles = true when user has explicitly dragged handles; recompute_auto_curves preserves these)
 │               (origin = user-defined pivot point for rotation/scale, snaps to grid)
 │
 │   LayerConstraints {
@@ -509,7 +510,7 @@ Two modes, determined by what the artist clicks:
 
 ## Workspace Structure
 
-**Current state (Phase 1 complete):**
+**Current state (Phase 2 complete):**
 
 ```
 messy-grapefruit/
@@ -518,38 +519,41 @@ messy-grapefruit/
 ├── plan.md
 ├── assets/icons/           (custom icon PNGs for toolbar/sidebar)
 ├── src/
-│   ├── main.rs              (191 lines — App struct, eframe entry, action dispatch)
+│   ├── main.rs              (210 lines — App struct, eframe entry, action dispatch, keyboard undo/redo)
+│   ├── action.rs            (11 lines — AppAction enum for canvas→app communication)
+│   ├── clipboard.rs         (107 lines — copy/paste/cut with system clipboard + JSON serialization)
 │   ├── model/
 │   │   ├── mod.rs
 │   │   ├── vec2.rs          (241 lines — Vec2 type + ops + conversions + tests)
-│   │   ├── project.rs       (163 lines — Project, Palette, PaletteColor, EditorPreferences)
-│   │   └── sprite.rs        (192 lines — Sprite, Layer, StrokeElement, PathVertex)
+│   │   ├── project.rs       (187 lines — Project, Palette, PaletteColor, EditorPreferences)
+│   │   └── sprite.rs        (199 lines — Sprite, Layer, StrokeElement, PathVertex + manual_handles)
 │   ├── state/
 │   │   ├── mod.rs
-│   │   ├── editor.rs        (151 lines — EditorState, ViewportState, LineToolState, ToolKind)
-│   │   └── history.rs       (139 lines — snapshot undo/redo with drag coalescing)
+│   │   ├── editor.rs        (293 lines — EditorState, ViewportState, SelectionState, SelectDragKind, VertexHover)
+│   │   └── history.rs       (155 lines — snapshot undo/redo with drag coalescing)
 │   ├── io.rs                (55 lines — save/load sprite JSON via rfd)
-│   ├── math.rs              (433 lines — Catmull-Rom, bezier eval/split/flatten, fillet arcs, auto-curves)
-│   ├── theme.rs             (110 lines — dark/light theme colors + apply)
+│   ├── math.rs              (465 lines — Catmull-Rom, bezier eval/split/flatten, fillet arcs, auto-curves, min radius enforcement)
+│   ├── theme.rs             (188 lines — dark/light theme colors + apply + input styling)
 │   ├── ui/
 │   │   ├── mod.rs
-│   │   ├── icons.rs         (62 lines — icon asset loaders via include_image!)
-│   │   ├── canvas.rs        (172 lines — top-level show_canvas orchestrator)
-│   │   ├── canvas_input.rs  (236 lines — viewport input, line tool input, hotkeys)
-│   │   ├── canvas_render.rs (269 lines — element rendering, highlights, previews, boundary)
-│   │   ├── grid.rs          (166 lines — dot/line rendering, straight + isometric)
+│   │   ├── icons.rs         (100 lines — icon asset loaders via include_image!, property icons)
+│   │   ├── canvas.rs        (1118 lines — select tool orchestrator with 7 sub-functions, vertex editing, line tool, zoom-to-fit)
+│   │   ├── canvas_input.rs  (257 lines — viewport input, line tool input, hotkeys)
+│   │   ├── canvas_render.rs (540 lines — element rendering, highlights, previews, boundary, vertex dots, CP handles)
+│   │   ├── grid.rs          (180 lines — dot/line rendering, straight + isometric)
 │   │   ├── toolbar.rs       (214 lines — file ops, tools, grid controls, view, theme)
-│   │   ├── sidebar.rs       (192 lines — line tool options, corner radius, layer list)
-│   │   └── status_bar.rs    (65 lines — sprite metrics, flip indicator, grid mode)
+│   │   ├── sidebar.rs       (622 lines — context-sensitive tool options, element properties, layer list, palette swatches)
+│   │   └── status_bar.rs    (40 lines — sprite metrics, flip indicator, grid mode)
 │   └── engine/
 │       ├── mod.rs
 │       ├── snap.rs           (55 lines — grid snapping to isometric diamond lattice)
-│       ├── hit_test.rs       (84 lines — point-to-stroke distance via bezier flattening)
+│       ├── hit_test.rs       (241 lines — point-to-stroke distance, vertex/handle hit testing in screen space)
+│       ├── transform.rs      (258 lines — element transforms, world↔local conversions, selection bounds, recompute curves)
 │       └── merge.rs          (117 lines — auto-merge coincident vertices at endpoints)
 └── .gitignore
 ```
 
-**Total: ~3,700 lines (Phase 1). Target workspace for all phases:**
+**Total: ~5,900 lines (Phase 2). Target workspace for all phases:**
 
 ```
 src/
@@ -735,18 +739,18 @@ All planned features implemented except stroke taper rendering (math functions e
 - **File structure**: Canvas code split into three focused files: `canvas.rs` (orchestrator), `canvas_input.rs` (input handling), `canvas_render.rs` (rendering). This avoided the previous implementation's 2,300-line monolithic canvas file.
 
 **Remaining warnings to resolve in future phases:**
-- `math.rs: cubic_bezier_eval, approximate_bezier_length, cumulative_arc_lengths` — wire up in stroke taper rendering (Phase 1 polish or Phase 6)
+- `math.rs: cubic_bezier_eval, approximate_bezier_length, cumulative_arc_lengths` — wire up in stroke taper rendering (Phase 6)
 - `math.rs: catmull_rom_to_cubic` — used by curve mode tests; either use in recompute_auto_curves or inline and remove
-- `icons.rs: stroke_taper` — wire up taper toggle button in toolbar (Phase 1 polish)
 - `merge.rs: vertex_id` — use in auto-merge target identification or remove field
 - `io.rs: save_project, load_project` — use in Phase 15 (project management)
-- `theme.rs: secondary` — use in Phase 4+ (palette panel, themed accents)
+- `theme.rs: origin_color` — use when origin point handle is rendered (Phase 3+)
 
-### Phase 2: Select & Edit — "I can move and arrange what I drew"
+### Phase 2: Select & Edit — "I can move and arrange what I drew" ✅
 
 **Icons needed:**
-- Select tool
+- Select tool, Position, Rotation, Scale
 
+**Planned features:**
 - Select tool: click, shift-click, drag marquee, Ctrl+A
 - Move, scale, rotate with user-defined origin (grid-snapped)
 - Copy/paste (Ctrl+C/V, including cross-sprite), Delete
@@ -755,6 +759,29 @@ All planned features implemented except stroke taper rendering (math functions e
 - Context-sensitive tool options in sidebar top zone
 
 **Artist test:** Draw elements → select and rearrange → copy/paste → Alt+click to pick buried elements → toggle vertex curves.
+
+**Implementation notes (completed 2026-03-16):**
+
+All planned features implemented. Key additions beyond the original plan:
+
+- **Vertex editing sub-mode**: When exactly one element is selected, individual vertices become visible as dots on the path. Click to select a vertex, drag to reposition (grid-snapped). On curve-mode elements, selecting a vertex shows cp1/cp2 bezier handles that can be dragged to reshape the curve. Keyboard: Delete removes a vertex, R resets a vertex's manual handles back to auto-curve, Escape deselects vertex (then element).
+
+- **Manual handles with minimum radius enforcement**: Added `manual_handles: bool` to `PathVertex`. When a user drags a control point handle, the vertex is marked `manual_handles: true` and `recompute_auto_curves` preserves its user-set CPs instead of overwriting with Catmull-Rom values. Manual handles still enforce a minimum curvature radius using the same angle-based formula as straight-mode fillets: `d = R / tan(θ/2)` where θ is the angle between the two handle directions at the vertex. This prevents visually sharp curves even when handles are dragged close together.
+
+- **Transform handles**: 8 directional scale handles (corners + edges) plus a rotation handle rendered on the selection bounding box. Scale handles resize relative to the opposite corner/edge. Rotation handle (above center) rotates around the AABB center with 15° snap when Shift is held. All handles render as small colored squares/circles with hover feedback.
+
+- **Selection stack popup**: Alt+click on overlapping elements shows a popup listing all elements under the cursor, ordered by render depth. Each entry shows a color swatch and element name. Click to select that specific element. Dismisses on click-outside or Escape.
+
+- **Clipboard**: System clipboard integration via `arboard` crate. Elements serialized as JSON with a `messy_grapefruit_clipboard` sentinel field for cross-sprite paste. Cut/copy/paste all clear vertex selection state. Paste offsets by (+10, +10) and generates new UUIDs for elements and vertices.
+
+- **Context-sensitive sidebar**: Expanded sidebar shows position (X/Y drag values), rotation (degrees), scale (X/Y), stroke width buttons, color index, and curve/straight toggle when elements are selected. Collapsed sidebar shows compact readouts. All property edits go through undo. The sidebar also gained a `theme::with_input_style` helper for consistent dark/light input field styling.
+
+- **Bake transform on curve toggle**: Toggling an element between curve and straight mode in the sidebar (or via `C` key while selected) bakes the current position/rotation/scale into vertex positions and resets the transform to identity before recomputing curves. This prevents visual jumps when switching modes.
+
+- **Canvas code split into 7 sub-functions**: `handle_select_hover`, `handle_select_drag_start`, `handle_select_drag_update`, `handle_select_drag_end`, `handle_select_click`, `handle_select_keyboard`, `render_select_overlays`. Each handles one aspect of the select tool. Vertex editing logic is integrated into these same functions with priority checks (vertex/handle interactions take precedence over transform handle interactions when in vertex edit mode).
+
+**Remaining warnings to resolve in future phases:**
+- Same as Phase 1 (unused math functions for taper rendering, unused catmull_rom_to_cubic, unused merge.rs vertex_id, unused io.rs project save/load, unused theme.rs secondary/origin_color)
 
 ### Phase 3: Layers — "I can organize my art"
 

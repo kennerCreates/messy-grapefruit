@@ -1,8 +1,13 @@
 pub mod canvas;
 pub mod canvas_input;
 pub mod canvas_render;
+mod canvas_select;
+mod canvas_transform;
 pub mod grid;
 pub mod icons;
 pub mod sidebar;
+mod sidebar_layers;
+mod sidebar_palette;
+mod sidebar_tools;
 pub mod status_bar;
 pub mod toolbar;
