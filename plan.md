@@ -817,20 +817,53 @@ All planned features implemented. Key additions beyond the original plan:
 
 **Artist test:** Create multiple layers → draw body parts on separate layers → reorder with up/down buttons → solo a layer (double-click name) → create groups → collapse/expand → move layers between groups via right-click menu.
 
-### Phase 4: Color & Palette — "I can color my line art"
+### Phase 4: Color & Palette — "I can color my line art" ✅
 
-**Icons needed:**
-- Fill tool, Eyedropper tool
-- Palette panel: add color, delete color, Lospec import, color ramp finder
+**Status:** Complete.
 
-- Palette panel (fixed tab): color swatches, RGB picker, add/delete (max 256)
-- Indexed color rendering: elements store palette index, renderer looks up color
-- Fill tool: closed elements → fillColorIndex, canvas → backgroundColorIndex
-- Eyedropper (`I`, Alt+click): sample stroke/fill color index
-- Lospec palette import (blocking HTTP fetch via `reqwest`)
-- Recent colors bar (last 8 used), color ramp finder
+**Icons added** (`assets/icons/`):
+- `tool_fill`, `tool_eyedropper` — tool icons
+- `palette_add`, `palette_remove`, `palette_import` — palette panel action buttons
+- `settings` — theme settings toggle (same row as dark/light theme icons)
 
-**Artist test:** Build a palette → fill shapes with color → sample colors with eyedropper → import a Lospec palette → verify all art updates on palette color change.
+**What was built:**
+
+- **Palette data model**: `PaletteColor` (RGBA), `Palette` (name + colors vec, max 256). Index 0 is always transparent. Default palette is "Downgraded 32" (33 colors). Elements store `fill_color_index: u8` and use palette index for stroke via `color_index: u8`
+- **Palette panel**: color swatch grid (16×16 per swatch), click to select stroke color (Line tool) or fill color (Fill tool). Selected swatch has 2px highlight border. Checkerboard background for transparent colors
+- **Add/delete colors**: add button inserts white (disabled at 256 max with "Palette Full" tooltip). Delete remaps all element indices across all sprites via `remap_color_index()`
+- **RGB color editor**: sliders + DragValue inputs (0–255) for the selected non-transparent color. Dispatches `EditPaletteColor` — all elements using that index update live
+- **Recent colors bar**: last 8 used colors shown as 14×14 swatches (session-only, LRU deduplication). Click to select
+- **Fill tool** (`G`): click closed element to set `fill_color_index`, click empty canvas to set `background_color_index`. Hover highlight on fillable targets. Tool options panel shows active fill color swatch + mini palette picker
+- **Eyedropper tool** (`I`): click element to sample both stroke and fill colors into brush. Click empty canvas to sample background. Alt+click temporary mode from Line or Fill tool — returns to previous tool after sampling. Hover shows 16×16 color swatch tooltip at cursor
+- **Lospec palette import**: text input for slug (e.g. "endesga-32"), fetches from `https://lospec.com/palette-list/{slug}.json` via blocking HTTP. Error display with red text. On success: replaces palette, ensures index 0 is transparent, truncates to 256, auto-picks theme colors
+- **Fill rendering**: ear-clipping polygon triangulation (`ear_clip_triangulate`) for concave polygon fill. Deduplicates near-identical points from curve flattening. Epsilon tolerance on convexity check for near-collinear curve points. Fill rendered as `egui::Mesh`, stroke rendered as separate `PathShape` on top
+- **Editor theme from palette**: `ThemeColorIndices` maps 5 semantic roles (Panel, Canvas, Accent, Highlight, Text) to palette indices. Separate mappings for dark and light mode. `auto_pick_theme_colors()` assigns roles by luminance sorting. Auto-triggered on Lospec import
+- **Theme settings UI**: settings icon button next to dark/light toggles in expanded sidebar. Opens role customization panel: 5 role swatches (20×20) in a row, click to open palette picker for that role. "Auto" button for intelligent reassignment
+- **Theme application**: `apply_theme()` sets all egui visuals from resolved palette colors — panel backgrounds, canvas background, text/icons, hover/active/selection states, grid dots, transform handles
+- **Keyboard shortcut safety**: all single-key shortcuts (tool switching, etc.) check `text_has_focus` to prevent triggering while typing in text fields
+
+**Files added:**
+- `src/ui/canvas_fill.rs` — fill tool click/hover logic
+- `src/ui/canvas_eyedropper.rs` — eyedropper sampling + temporary mode
+
+**Files modified:**
+- `src/model/project.rs` — `PaletteColor`, `Palette`, `ThemeColorIndices`, `EditorPreferences` with dark/light theme indices
+- `src/model/sprite.rs` — `fill_color_index` on `StrokeElement`, `background_color_index` on `Sprite`
+- `src/state/editor.rs` — `BrushState` (color_index, fill_color_index), recent_colors, lospec state, theme_settings_open, theme_role_picker, eyedropper_return_tool
+- `src/action.rs` — `SetFillColor`, `SetBackgroundColor`, `AddPaletteColor`, `DeletePaletteColor`, `EditPaletteColor`, `ImportPalette`
+- `src/main.rs` — action dispatch for all palette/fill actions, color remapping on delete, auto theme on import
+- `src/theme.rs` — `ThemeColors` cache, `resolve_from_palette()`, `apply_theme()`, thread-local active theme storage, canvas/grid/handle color getters
+- `src/ui/sidebar.rs` — theme toggle buttons + settings icon, theme role swatch row + palette picker, auto-pick button
+- `src/ui/sidebar_palette.rs` — full palette grid, add/delete/import buttons, RGB editor, recent colors bar, Lospec import dialog
+- `src/ui/sidebar_tools.rs` — fill tool options (swatch + mini picker), eyedropper options (stroke/fill display)
+- `src/ui/canvas_render.rs` — `render_filled_path()`, ear-clipping triangulation, fill mesh rendering
+- `src/ui/canvas_input.rs` — `G`/`I` key shortcuts, Alt+click eyedropper, `text_has_focus` guard
+- `src/ui/icons.rs` — 6 new icon functions (tool_fill, tool_eyedropper, palette_add/remove/import, settings)
+- `src/io.rs` — `fetch_lospec_palette()` HTTP fetch + JSON parsing
+- `src/engine/hit_test.rs` — `hit_test_fill()` for fill tool targeting
+- `src/ui/canvas.rs` — fill/eyedropper tool rendering integration
+
+**Artist test:** Build a palette → fill shapes with color → sample colors with eyedropper → import a Lospec palette → verify all art updates on palette color change → customize theme role colors → switch dark/light mode → verify theme follows palette.
 
 ### Phase 5: Drawing Refinement — "I can draw complex art efficiently"
 

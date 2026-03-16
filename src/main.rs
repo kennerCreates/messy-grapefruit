@@ -66,7 +66,12 @@ impl App {
             .insert(0, "courier_prime".to_owned());
         cc.egui_ctx.set_fonts(fonts);
 
-        let project = Project::new("Untitled Project");
+        let mut project = Project::new("Untitled Project");
+        // Load saved app defaults (palette + theme) if available
+        if let Some(defaults) = io::load_app_defaults() {
+            project.palette = defaults.palette;
+            project.editor_preferences = defaults.editor_preferences;
+        }
         theme::apply_theme(&cc.egui_ctx, &project);
         let sprite = Sprite::new("Untitled", 256, 256);
         let mut editor = EditorState::default();
@@ -115,6 +120,7 @@ impl App {
             action::AppAction::AddPaletteColor(color) => {
                 if self.project.palette.colors.len() < 256 {
                     self.project.palette.colors.push(color);
+                    io::save_app_defaults(&self.project);
                 }
                 // Project-level, no sprite undo
             }
@@ -132,11 +138,13 @@ impl App {
                 }
                 self.sprite.background_color_index = remap_color_index(self.sprite.background_color_index, index);
                 self.history.push("Delete palette color".into(), before, self.sprite.clone());
+                io::save_app_defaults(&self.project);
             }
             action::AppAction::EditPaletteColor { index, color } => {
                 if let Some(c) = self.project.palette.colors.get_mut(index as usize) {
                     *c = color;
                 }
+                io::save_app_defaults(&self.project);
                 // Project-level, no sprite undo
             }
             action::AppAction::ImportPalette(colors) => {
@@ -156,6 +164,8 @@ impl App {
                 let (dark, light) = model::project::auto_pick_theme_colors(&self.project.palette);
                 self.project.editor_preferences.dark_theme_colors = dark;
                 self.project.editor_preferences.light_theme_colors = light;
+                // Save as application defaults
+                io::save_app_defaults(&self.project);
                 // Project-level, no sprite undo
             }
         }

@@ -1,4 +1,5 @@
 use crate::action::AppAction;
+use crate::io;
 use crate::model::project::{auto_pick_theme_colors, Project, Theme, ThemeColorIndices};
 use crate::model::sprite::Sprite;
 use crate::state::editor::{EditorState, ToolKind};
@@ -224,6 +225,7 @@ fn show_expanded(
             .clicked()
         {
             project.editor_preferences.theme = Theme::Dark;
+            io::save_app_defaults(project);
         }
         if ui
             .add(icons::sidebar_toggle_button(icons::theme_light(), ui).selected(!is_dark))
@@ -231,6 +233,7 @@ fn show_expanded(
             .clicked()
         {
             project.editor_preferences.theme = Theme::Light;
+            io::save_app_defaults(project);
         }
 
         // Settings toggle (same row as theme buttons)
@@ -367,6 +370,7 @@ fn show_theme_color_settings(
                         Theme::Light => project.editor_preferences.light_theme_colors.set(role, i as u8),
                     }
                     editor.theme_role_picker = None;
+                    io::save_app_defaults(project);
                 }
                 if response.hovered() {
                     response.on_hover_text(format!("Color {i}"));
@@ -383,5 +387,6 @@ fn show_theme_color_settings(
         project.editor_preferences.dark_theme_colors = dark;
         project.editor_preferences.light_theme_colors = light;
         editor.theme_role_picker = None;
+        io::save_app_defaults(project);
     }
 }
