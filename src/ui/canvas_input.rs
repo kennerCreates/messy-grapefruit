@@ -92,7 +92,7 @@ pub fn handle_line_tool_input(
     );
 
     // Check for merge target
-    let layer = sprite.layers.get(editor.layer.active_idx);
+    let layer = sprite.layers.get(editor.layer.resolve_active_idx(sprite));
     if let Some(layer) = layer {
         let threshold = project.editor_preferences.grid_size as f32;
         if let Some(target) = merge::find_merge_target(snap_pos, layer, None, threshold) {
@@ -119,7 +119,7 @@ pub fn handle_line_tool_input(
     }
 
     // Check if active layer is locked — prevent drawing
-    if let Some(layer) = sprite.layers.get(editor.layer.active_idx)
+    if let Some(layer) = sprite.layers.get(editor.layer.resolve_active_idx(sprite))
         && layer.locked
     {
         return (None, merge_target_pos);
@@ -187,7 +187,7 @@ fn commit_stroke(
     }
 
     // Check for merge at start and end
-    let layer = sprite.layers.get(editor.layer.active_idx);
+    let layer = sprite.layers.get(editor.layer.resolve_active_idx(sprite));
 
     if let Some(layer) = layer {
         // Check if start vertex merges with an existing element

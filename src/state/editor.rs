@@ -1,4 +1,4 @@
-use crate::model::sprite::PathVertex;
+use crate::model::sprite::{PathVertex, Sprite};
 use crate::model::vec2::Vec2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,10 +219,61 @@ impl Default for BrushState {
     }
 }
 
+/// Drag-reorder state for a layer being dragged in the layer panel.
+#[derive(Debug, Clone)]
+pub struct LayerDragState {
+    /// ID of the layer being dragged.
+    pub layer_id: String,
+    /// Target insertion index (in `sprite.layers` order).
+    pub target_idx: Option<usize>,
+    /// Target group ID (None = ungrouped, Some = drop into group).
+    pub target_group_id: Option<String>,
+}
+
 /// Layer panel state.
 #[derive(Debug, Clone, Default)]
 pub struct LayerState {
-    pub active_idx: usize,
+    /// ID of the active (selected) layer.
+    pub active_layer_id: Option<String>,
+    /// Layer ID currently in solo mode, if any.
+    pub solo_layer_id: Option<String>,
+    /// Layer ID being renamed (inline TextEdit), if any.
+    pub renaming_layer_id: Option<String>,
+    /// Drag-reorder state, if a layer is being dragged.
+    pub drag_reorder: Option<LayerDragState>,
+}
+
+impl LayerState {
+    /// Resolve the active layer index from the stored ID.
+    /// Falls back to 0 if the ID is not found or not set.
+    pub fn resolve_active_idx(&self, sprite: &Sprite) -> usize {
+        if let Some(id) = &self.active_layer_id {
+            sprite.layer_idx_by_id(id).unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    /// Set the active layer by index, storing the ID.
+    pub fn set_active_by_idx(&mut self, idx: usize, sprite: &Sprite) {
+        if let Some(layer) = sprite.layers.get(idx) {
+            self.active_layer_id = Some(layer.id.clone());
+        }
+    }
+
+    /// Ensure the active layer ID is valid; fix up if not.
+    pub fn validate(&mut self, sprite: &Sprite) {
+        if let Some(id) = &self.active_layer_id
+            && sprite.layer_idx_by_id(id).is_some() {
+                return;
+            }
+        // Fall back to first layer
+        if let Some(first) = sprite.layers.first() {
+            self.active_layer_id = Some(first.id.clone());
+        } else {
+            self.active_layer_id = None;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

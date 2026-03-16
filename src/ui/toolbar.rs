@@ -25,7 +25,7 @@ pub fn show_toolbar(
             *sprite = Sprite::new("Untitled", 256, 256);
             *history = History::new(200);
             *sprite_path = None;
-            editor.layer.active_idx = 0;
+            editor.layer.set_active_by_idx(0, sprite);
             editor.line_tool.clear();
             editor.zoom_to_fit_requested = true;
         }
@@ -43,7 +43,7 @@ pub fn show_toolbar(
                     *sprite = loaded;
                     *history = History::new(200);
                     *sprite_path = Some(path);
-                    editor.layer.active_idx = 0;
+                    editor.layer.set_active_by_idx(0, sprite);
                     editor.line_tool.clear();
                     editor.zoom_to_fit_requested = true;
                 }
@@ -107,6 +107,7 @@ pub fn show_toolbar(
         {
             editor.clear_vertex_selection();
             history.undo(sprite);
+            editor.layer.validate(sprite);
         }
         if ui
             .add_enabled(history.can_redo(), icons::icon_button(icons::redo(), ui))
@@ -115,6 +116,7 @@ pub fn show_toolbar(
         {
             editor.clear_vertex_selection();
             history.redo(sprite);
+            editor.layer.validate(sprite);
         }
 
         ui.separator();

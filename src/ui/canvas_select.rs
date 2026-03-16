@@ -111,7 +111,7 @@ fn handle_select_hover(
             editor.hover_element_id = None;
         } else {
             let world_pos = editor.viewport.screen_to_world(hover_pos, canvas_center);
-            editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold);
+            editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold, editor.layer.solo_layer_id.as_deref());
             if editor.hover_element_id.is_some() {
                 response.ctx.set_cursor_icon(egui::CursorIcon::Grab);
             } else {
@@ -225,7 +225,7 @@ fn handle_select_drag_start(
             });
         }
     } else {
-        let hit = hit_test::hit_test_elements(start_world, sprite, threshold);
+        let hit = hit_test::hit_test_elements(start_world, sprite, threshold, editor.layer.solo_layer_id.as_deref());
         if let Some(hit_id) = hit {
             if !editor.selection.is_selected(&hit_id) {
                 let shift = response.ctx.input(|i| i.modifiers.shift);
@@ -445,7 +445,7 @@ fn handle_select_drag_end(
                 let end_world = editor.viewport.screen_to_world(end_screen, canvas_center);
                 let rect_min = start_world.min(end_world);
                 let rect_max = start_world.max(end_world);
-                let ids = transform::elements_in_rect(sprite, rect_min, rect_max);
+                let ids = transform::elements_in_rect(sprite, rect_min, rect_max, editor.layer.solo_layer_id.as_deref());
                 let shift = response.ctx.input(|i| i.modifiers.shift);
                 if shift {
                     for id in ids {
@@ -501,7 +501,7 @@ fn handle_select_click(
         if alt {
             if let Some(click_pos) = response.interact_pointer_pos() {
                 let world_pos = editor.viewport.screen_to_world(click_pos, canvas_center);
-                let all_hits = hit_test::hit_test_all_elements(world_pos, sprite, threshold);
+                let all_hits = hit_test::hit_test_all_elements(world_pos, sprite, threshold, editor.layer.solo_layer_id.as_deref());
                 if all_hits.len() >= 2 {
                     let entries: Vec<_> = all_hits.into_iter().map(|(id, name, color_idx)| {
                         crate::state::editor::StackEntry { element_id: id, display_name: name, stroke_color_index: color_idx }
@@ -555,11 +555,16 @@ fn handle_select_keyboard(
     }
 
     if response.ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::A)) {
+        let solo = editor.layer.solo_layer_id.as_deref();
         let mut ids = Vec::new();
         for layer in &sprite.layers {
             if !layer.visible || layer.locked {
                 continue;
             }
+            if let Some(solo_id) = solo
+                && layer.id != solo_id {
+                    continue;
+                }
             for element in &layer.elements {
                 ids.push(element.id.clone());
             }

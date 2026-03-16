@@ -34,17 +34,31 @@ fn element_hit_distance(
     }
 }
 
+/// Check if a layer is interactive (visible, unlocked, and not excluded by solo).
+fn is_layer_interactive(layer: &crate::model::sprite::Layer, solo_layer_id: Option<&str>) -> bool {
+    if !layer.visible || layer.locked {
+        return false;
+    }
+    if let Some(solo_id) = solo_layer_id
+        && layer.id != solo_id {
+            return false;
+        }
+    true
+}
+
 /// Find the topmost visible, unlocked element under the cursor.
+/// When `solo_layer_id` is set, only the soloed layer is hit-testable.
 /// Returns the element ID if found.
 pub fn hit_test_elements(
     world_pos: Vec2,
     sprite: &Sprite,
     threshold: f32,
+    solo_layer_id: Option<&str>,
 ) -> Option<String> {
     let mut polyline = Vec::new();
 
     for layer in sprite.layers.iter().rev() {
-        if !layer.visible || layer.locked {
+        if !is_layer_interactive(layer, solo_layer_id) {
             continue;
         }
         for element in layer.elements.iter().rev() {
@@ -58,17 +72,19 @@ pub fn hit_test_elements(
 }
 
 /// Find ALL visible, unlocked elements under the cursor, ordered top-to-bottom.
+/// When `solo_layer_id` is set, only the soloed layer is searched.
 /// Returns (element_id, display_name, stroke_color_index) tuples.
 pub fn hit_test_all_elements(
     world_pos: Vec2,
     sprite: &Sprite,
     threshold: f32,
+    solo_layer_id: Option<&str>,
 ) -> Vec<(String, String, u8)> {
     let mut results = Vec::new();
     let mut polyline = Vec::new();
 
     for layer in sprite.layers.iter().rev() {
-        if !layer.visible || layer.locked {
+        if !is_layer_interactive(layer, solo_layer_id) {
             continue;
         }
         for element in layer.elements.iter().rev() {

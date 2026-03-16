@@ -101,12 +101,17 @@ pub fn selection_bounds(sprite: &Sprite, selected_ids: &[String]) -> Option<(Vec
 }
 
 /// Find all visible, unlocked elements whose AABB intersects the given rect.
-pub fn elements_in_rect(sprite: &Sprite, rect_min: Vec2, rect_max: Vec2) -> Vec<String> {
+/// When `solo_layer_id` is set, only the soloed layer is searched.
+pub fn elements_in_rect(sprite: &Sprite, rect_min: Vec2, rect_max: Vec2, solo_layer_id: Option<&str>) -> Vec<String> {
     let mut result = Vec::new();
     for layer in &sprite.layers {
         if !layer.visible || layer.locked {
             continue;
         }
+        if let Some(solo_id) = solo_layer_id
+            && layer.id != solo_id {
+                continue;
+            }
         for element in &layer.elements {
             if let Some((emin, emax)) = element_bounds(element) {
                 // AABB intersection test

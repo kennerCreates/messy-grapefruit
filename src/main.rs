@@ -68,10 +68,13 @@ impl App {
 
         let project = Project::new("Untitled Project");
         theme::apply_theme(&cc.egui_ctx, project.editor_preferences.theme);
+        let sprite = Sprite::new("Untitled", 256, 256);
+        let mut editor = EditorState::default();
+        editor.layer.set_active_by_idx(0, &sprite);
         Self {
             project,
-            sprite: Sprite::new("Untitled", 256, 256),
-            editor: EditorState::default(),
+            sprite,
+            editor,
             history: History::new(200),
             sprite_path: None,
             internal_clipboard: None,
@@ -82,7 +85,7 @@ impl App {
 impl App {
     fn dispatch_action(&mut self, action: action::AppAction) {
         let before = self.sprite.clone();
-        let layer_idx = self.editor.layer.active_idx.min(self.sprite.layers.len().saturating_sub(1));
+        let layer_idx = self.editor.layer.resolve_active_idx(&self.sprite);
 
         match action {
             action::AppAction::CommitStroke(element) => {
@@ -119,10 +122,12 @@ impl eframe::App for App {
         if undo {
             self.editor.clear_vertex_selection();
             self.history.undo(&mut self.sprite);
+            self.editor.layer.validate(&self.sprite);
         }
         if redo {
             self.editor.clear_vertex_selection();
             self.history.redo(&mut self.sprite);
+            self.editor.layer.validate(&self.sprite);
         }
         if cut {
             clipboard::cut(&mut self.editor, &mut self.sprite, &mut self.history, &mut self.internal_clipboard);

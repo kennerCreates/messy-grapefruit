@@ -150,12 +150,22 @@ fn show_collapsed(
 
     // Layer list (simplified, no visibility/lock toggles)
     let sel_color = theme::selected_color(project.editor_preferences.theme);
+    let active_idx = editor.layer.resolve_active_idx(sprite);
+    let solo = editor.layer.solo_layer_id.clone();
     let layer_count = sprite.layers.len();
     for display_idx in 0..layer_count {
         let layer_idx = layer_count - 1 - display_idx;
-        let is_active = layer_idx == editor.layer.active_idx;
+        let is_active = layer_idx == active_idx;
+        let is_dimmed = solo.as_deref().is_some_and(|sid| sid != sprite.layers[layer_idx].id);
 
-        let label = egui::SelectableLabel::new(is_active, &sprite.layers[layer_idx].name);
+        let name_text = if is_dimmed {
+            egui::RichText::new(&sprite.layers[layer_idx].name)
+                .color(ui.visuals().weak_text_color())
+        } else {
+            egui::RichText::new(&sprite.layers[layer_idx].name)
+        };
+
+        let label = egui::SelectableLabel::new(is_active, name_text);
         let resp = ui.add(label);
         if is_active {
             let rect = resp.rect;
@@ -165,7 +175,7 @@ fn show_collapsed(
             );
         }
         if resp.clicked() {
-            editor.layer.active_idx = layer_idx;
+            editor.layer.set_active_by_idx(layer_idx, sprite);
         }
     }
 }
@@ -231,5 +241,5 @@ fn show_expanded(
     // Layer list
     ui.label("Layers");
     ui.add_space(4.0);
-    sidebar_layers::show_layer_list(ui, sprite, &mut editor.layer.active_idx, project.editor_preferences.theme);
+    sidebar_layers::show_layer_list(ui, sprite, editor, project, history);
 }

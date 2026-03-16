@@ -75,12 +75,36 @@ impl StrokeElement {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LayerGroup {
+    pub id: String,
+    pub name: String,
+    pub collapsed: bool,
+    pub visible: bool,
+    pub locked: bool,
+}
+
+impl LayerGroup {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.into(),
+            collapsed: false,
+            visible: true,
+            locked: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Layer {
     pub id: String,
     pub name: String,
     pub visible: bool,
     pub locked: bool,
     pub elements: Vec<StrokeElement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
 }
 
 impl Layer {
@@ -91,6 +115,7 @@ impl Layer {
             visible: true,
             locked: false,
             elements: Vec::new(),
+            group_id: None,
         }
     }
 
@@ -113,6 +138,8 @@ pub struct Sprite {
     pub canvas_height: u32,
     pub background_color_index: u8,
     pub layers: Vec<Layer>,
+    #[serde(default)]
+    pub layer_groups: Vec<LayerGroup>,
 }
 
 impl Sprite {
@@ -125,7 +152,21 @@ impl Sprite {
             canvas_height,
             background_color_index: 0,
             layers: vec![Layer::new("Layer 1")],
+            layer_groups: Vec::new(),
         }
+    }
+
+    /// Find layer index by ID. Returns None if not found.
+    pub fn layer_idx_by_id(&self, id: &str) -> Option<usize> {
+        self.layers.iter().position(|l| l.id == id)
+    }
+
+    /// Get indices of layers belonging to a group, in order.
+    pub fn layers_in_group(&self, group_id: &str) -> Vec<usize> {
+        self.layers.iter().enumerate()
+            .filter(|(_, l)| l.group_id.as_deref() == Some(group_id))
+            .map(|(i, _)| i)
+            .collect()
     }
 
     pub fn element_count(&self) -> usize {
@@ -195,5 +236,71 @@ mod tests {
         ));
         assert_eq!(sprite.element_count(), 1);
         assert_eq!(sprite.vertex_count(), 2);
+    }
+
+    #[test]
+    fn test_layer_group_serde_round_trip() {
+        let mut sprite = Sprite::new("Test", 256, 256);
+        let group = LayerGroup::new("Body Parts");
+        let group_id = group.id.clone();
+        sprite.layer_groups.push(group);
+        sprite.layers[0].group_id = Some(group_id.clone());
+
+        let json = serde_json::to_string_pretty(&sprite).unwrap();
+        let sprite2: Sprite = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(sprite2.layer_groups.len(), 1);
+        assert_eq!(sprite2.layer_groups[0].name, "Body Parts");
+        assert!(sprite2.layer_groups[0].visible);
+        assert!(!sprite2.layer_groups[0].locked);
+        assert!(!sprite2.layer_groups[0].collapsed);
+        assert_eq!(sprite2.layers[0].group_id.as_deref(), Some(group_id.as_str()));
+    }
+
+    #[test]
+    fn test_backward_compat_no_groups() {
+        // JSON from before groups were added (no groupId, no layerGroups)
+        let json = r#"{
+            "id": "test-id",
+            "name": "OldSprite",
+            "formatVersion": 1,
+            "canvasWidth": 128,
+            "canvasHeight": 128,
+            "backgroundColorIndex": 0,
+            "layers": [{
+                "id": "layer-id",
+                "name": "Layer 1",
+                "visible": true,
+                "locked": false,
+                "elements": []
+            }]
+        }"#;
+        let sprite: Sprite = serde_json::from_str(json).unwrap();
+        assert_eq!(sprite.layer_groups.len(), 0);
+        assert!(sprite.layers[0].group_id.is_none());
+    }
+
+    #[test]
+    fn test_layers_in_group() {
+        let mut sprite = Sprite::new("Test", 256, 256);
+        let group = LayerGroup::new("Group");
+        let gid = group.id.clone();
+        sprite.layer_groups.push(group);
+
+        sprite.layers[0].group_id = Some(gid.clone());
+        let mut l2 = Layer::new("Layer 2");
+        l2.group_id = Some(gid.clone());
+        sprite.layers.push(l2);
+        sprite.layers.push(Layer::new("Layer 3")); // ungrouped
+
+        assert_eq!(sprite.layers_in_group(&gid), vec![0, 1]);
+    }
+
+    #[test]
+    fn test_layer_idx_by_id() {
+        let sprite = Sprite::new("Test", 256, 256);
+        let id = sprite.layers[0].id.clone();
+        assert_eq!(sprite.layer_idx_by_id(&id), Some(0));
+        assert_eq!(sprite.layer_idx_by_id("nonexistent"), None);
     }
 }

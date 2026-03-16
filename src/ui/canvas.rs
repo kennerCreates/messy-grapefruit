@@ -71,6 +71,7 @@ pub fn show_canvas(
         sprite,
         &project.palette,
         canvas_rect,
+        editor.layer.solo_layer_id.as_deref(),
     );
 
     // --- Tool-specific: input, hit testing, preview ---
@@ -180,7 +181,7 @@ fn handle_line_tool(
         if let Some(hover_pos) = response.hover_pos() {
             let world_pos = editor.viewport.screen_to_world(hover_pos, canvas_rect.center());
             let threshold = HIT_TEST_THRESHOLD / editor.viewport.zoom;
-            editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold);
+            editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold, editor.layer.solo_layer_id.as_deref());
         } else {
             editor.hover_element_id = None;
         }

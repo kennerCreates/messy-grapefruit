@@ -36,12 +36,15 @@ const CP_HANDLE_RADIUS: f32 = 3.5;
 pub const VERTEX_HIT_RADIUS: f32 = 8.0;
 
 /// Render all visible elements in the sprite.
+/// When `solo_layer_id` is set, the soloed layer renders at full opacity,
+/// while other layers are dimmed to ~15%.
 pub fn render_elements(
     painter: &Painter,
     viewport: &ViewportState,
     sprite: &Sprite,
     palette: &Palette,
     canvas_rect: egui::Rect,
+    solo_layer_id: Option<&str>,
 ) {
     let canvas_center = canvas_rect.center();
 
@@ -49,8 +52,15 @@ pub fn render_elements(
         if !layer.visible {
             continue;
         }
+        let is_dimmed = solo_layer_id.is_some_and(|sid| sid != layer.id);
         for element in &layer.elements {
-            let color = palette.get_color(element.stroke_color_index).to_color32();
+            let mut color = palette.get_color(element.stroke_color_index).to_color32();
+            if is_dimmed {
+                color = Color32::from_rgba_unmultiplied(
+                    color.r(), color.g(), color.b(),
+                    (color.a() as f32 * 0.15) as u8,
+                );
+            }
             render_uniform_stroke(painter, element, color, viewport, canvas_center);
         }
     }
