@@ -372,6 +372,8 @@ pub struct EditorState {
     pub eraser_hover: Option<EraserHover>,
     /// Symmetry drawing state.
     pub symmetry: SymmetryState,
+    /// Pending vertex-join target during endpoint vertex drag (world pos for indicator).
+    pub vertex_join_target: Option<Vec2>,
     /// Selected reference image ID (for drag/properties).
     pub selected_ref_image_id: Option<String>,
     /// Active reference image drag state.
@@ -409,6 +411,7 @@ impl Default for EditorState {
             snap_vertex_target: None,
             eraser_hover: None,
             symmetry: SymmetryState::default(),
+            vertex_join_target: None,
             selected_ref_image_id: None,
             dragging_ref_image: None,
         }

@@ -108,6 +108,14 @@ impl App {
                 layer.elements.push(merged_element);
                 self.history.push("Merge stroke".into(), before, self.sprite.clone());
             }
+            action::AppAction::MergeSymmetricStrokes(entries) => {
+                let layer = &mut self.sprite.layers[layer_idx];
+                for entry in entries {
+                    layer.elements.retain(|e| e.id != entry.replace_element_id);
+                    layer.elements.push(entry.merged_element);
+                }
+                self.history.push("Merge symmetric strokes".into(), before, self.sprite.clone());
+            }
             action::AppAction::CommitSymmetricStrokes(elements) => {
                 for elem in elements {
                     self.sprite.layers[layer_idx].elements.push(elem);

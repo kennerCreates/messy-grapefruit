@@ -363,12 +363,29 @@ fn handle_select_drag_update(
                     snapped, origin, position, rotation, scale,
                 );
 
+                // Check if this vertex is an endpoint of an open path
+                let is_endpoint = !closed && !element.vertices.is_empty()
+                    && (element.vertices[0].id == vertex_id
+                        || element.vertices[element.vertices.len() - 1].id == vertex_id);
+
                 if let Some((elem, idx)) = transform::find_element_vertex_mut(sprite, &element_id, &vertex_id) {
                     elem.vertices[idx].pos = new_local;
                     math::recompute_auto_curves(
                         &mut elem.vertices, closed, curve_mode,
                         project.min_corner_radius,
                     );
+                }
+
+                // If dragging an endpoint, check for join targets on other elements
+                editor.vertex_join_target = None;
+                if is_endpoint {
+                    let join_threshold = project.editor_preferences.grid_size as f32;
+                    if let Some(target) = crate::engine::merge::find_endpoint_target_world(
+                        snapped, sprite, &element_id, join_threshold,
+                        editor.layer.solo_layer_id.as_deref(),
+                    ) {
+                        editor.vertex_join_target = Some(target.position);
+                    }
                 }
             }
         }
@@ -459,8 +476,44 @@ fn handle_select_drag_end(
                 }
             }
         }
-        Some(SelectDragKind::VertexMove { .. })
-        | Some(SelectDragKind::HandleMove { .. }) => {
+        Some(SelectDragKind::VertexMove { ref element_id, ref vertex_id, .. }) => {
+            let element_id = element_id.clone();
+            let vertex_id = vertex_id.clone();
+
+            // Check if we should join to another element's endpoint
+            if editor.vertex_join_target.is_some()
+                && let Some(element) = find_selected_element(sprite, &element_id)
+            {
+                let closed = element.closed;
+                let is_first = !element.vertices.is_empty() && element.vertices[0].id == vertex_id;
+                let is_last = !element.vertices.is_empty() && element.vertices[element.vertices.len() - 1].id == vertex_id;
+
+                if !closed && (is_first || is_last) {
+                    let source_end = if is_first { crate::engine::merge::VertexEnd::Start } else { crate::engine::merge::VertexEnd::End };
+
+                    // Get the vertex's current world position
+                    let v = element.vertices.iter().find(|v| v.id == vertex_id).unwrap();
+                    let world_pos = transform::transform_point(
+                        v.pos, element.origin, element.position, element.rotation, element.scale,
+                    );
+
+                    let join_threshold = project.editor_preferences.grid_size as f32;
+                    if let Some(target) = crate::engine::merge::find_endpoint_target_world(
+                        world_pos, sprite, &element_id, join_threshold,
+                        editor.layer.solo_layer_id.as_deref(),
+                    ) {
+                        perform_join(
+                            sprite, editor, project,
+                            &element_id, source_end,
+                            &target.element_id, target.end,
+                        );
+                    }
+                }
+            }
+            editor.vertex_join_target = None;
+            history.end_drag(sprite.clone());
+        }
+        Some(SelectDragKind::HandleMove { .. }) => {
             history.end_drag(sprite.clone());
         }
         None => {}
@@ -785,4 +838,148 @@ fn render_select_overlays(
             canvas_render::draw_dashed_line(painter, max_p, egui::Pos2::new(min_p.x, max_p.y), stroke, MARQUEE_DASH, MARQUEE_GAP);
             canvas_render::draw_dashed_line(painter, egui::Pos2::new(min_p.x, max_p.y), min_p, stroke, MARQUEE_DASH, MARQUEE_GAP);
         }
+
+    // Vertex join indicator (concentric circles at join target)
+    if let Some(join_pos) = editor.vertex_join_target {
+        let screen_pos = editor.viewport.world_to_screen(join_pos, canvas_rect.center());
+        let merge_color = theme::merge_preview_color(theme_mode);
+        painter.circle_stroke(screen_pos, 8.0, egui::Stroke::new(2.0, merge_color));
+        painter.circle_stroke(screen_pos, 4.0, egui::Stroke::new(2.0, merge_color));
+    }
+}
+
+/// Join two elements at their endpoints. Removes the source element and replaces
+/// the target element with the merged result. Also mirrors the join if symmetry is active.
+fn perform_join(
+    sprite: &mut Sprite,
+    editor: &mut EditorState,
+    project: &Project,
+    source_id: &str,
+    source_end: crate::engine::merge::VertexEnd,
+    target_id: &str,
+    target_end: crate::engine::merge::VertexEnd,
+) {
+    use crate::engine::merge;
+
+    // Find both elements (they may be on different layers)
+    let source = sprite.layers.iter()
+        .flat_map(|l| &l.elements)
+        .find(|e| e.id == source_id)
+        .cloned();
+    let target = sprite.layers.iter()
+        .flat_map(|l| &l.elements)
+        .find(|e| e.id == target_id)
+        .cloned();
+
+    let (Some(source), Some(target)) = (source, target) else { return };
+
+    let joined = merge::join_elements(&target, target_end, &source, source_end, project.min_corner_radius);
+
+    // Replace target with joined, remove source
+    for layer in &mut sprite.layers {
+        if let Some(elem) = layer.elements.iter_mut().find(|e| e.id == target_id) {
+            *elem = joined.clone();
+        }
+        layer.elements.retain(|e| e.id != source_id);
+    }
+
+    // Update selection to the joined element
+    editor.selection.select_single(target_id.to_string());
+    editor.selected_vertex_id = None;
+
+    // --- Symmetry: mirror the join action ---
+    if !editor.symmetry.active {
+        return;
+    }
+
+    // For each symmetry axis, find the mirrored counterparts and join them too.
+    // Strategy: find elements whose endpoints are near the mirror of the original
+    // source/target endpoints, then join those.
+    use crate::engine::symmetry;
+    use crate::state::editor::SymmetryAxis;
+
+    let axes: Vec<SymmetryAxis> = match editor.symmetry.axis {
+        SymmetryAxis::Vertical => vec![SymmetryAxis::Vertical],
+        SymmetryAxis::Horizontal => vec![SymmetryAxis::Horizontal],
+        SymmetryAxis::Both => vec![SymmetryAxis::Vertical, SymmetryAxis::Horizontal, SymmetryAxis::Both],
+    };
+
+    let axis_pos = &editor.symmetry.axis_position;
+    let join_threshold = project.editor_preferences.grid_size as f32;
+
+    for axis in axes {
+        // Mirror the source endpoint world position
+        let source_ep = if source_end == merge::VertexEnd::Start {
+            &source.vertices[0]
+        } else {
+            &source.vertices[source.vertices.len() - 1]
+        };
+        let source_world = transform::transform_point(
+            source_ep.pos, source.origin, source.position, source.rotation, source.scale,
+        );
+        let mirrored_source = symmetry::mirror_point(source_world, axis, axis_pos);
+
+        // Mirror the target endpoint world position
+        let target_ep = if target_end == merge::VertexEnd::Start {
+            &target.vertices[0]
+        } else {
+            &target.vertices[target.vertices.len() - 1]
+        };
+        let target_world = transform::transform_point(
+            target_ep.pos, target.origin, target.position, target.rotation, target.scale,
+        );
+        let mirrored_target = symmetry::mirror_point(target_world, axis, axis_pos);
+
+        // Find elements near those mirrored positions (excluding already-joined elements)
+        let mirror_source = find_element_near_endpoint(sprite, mirrored_source, join_threshold, &joined.id);
+        let mirror_target = find_element_near_endpoint(sprite, mirrored_target, join_threshold, &joined.id);
+
+        if let (Some((ms_id, ms_end)), Some((mt_id, mt_end))) = (mirror_source, mirror_target) {
+            if ms_id == mt_id {
+                continue; // Same element — skip
+            }
+            let ms_elem = sprite.layers.iter().flat_map(|l| &l.elements).find(|e| e.id == ms_id).cloned();
+            let mt_elem = sprite.layers.iter().flat_map(|l| &l.elements).find(|e| e.id == mt_id).cloned();
+            if let (Some(ms_elem), Some(mt_elem)) = (ms_elem, mt_elem) {
+                let mirror_joined = merge::join_elements(&mt_elem, mt_end, &ms_elem, ms_end, project.min_corner_radius);
+                for layer in &mut sprite.layers {
+                    if let Some(elem) = layer.elements.iter_mut().find(|e| e.id == mt_id) {
+                        *elem = mirror_joined.clone();
+                    }
+                    layer.elements.retain(|e| e.id != ms_id);
+                }
+            }
+        }
+    }
+}
+
+/// Find an element with an endpoint near a world position. Returns (element_id, which_end).
+fn find_element_near_endpoint(
+    sprite: &Sprite,
+    world_pos: Vec2,
+    threshold: f32,
+    exclude_id: &str,
+) -> Option<(String, crate::engine::merge::VertexEnd)> {
+    for layer in &sprite.layers {
+        for element in &layer.elements {
+            if element.id == exclude_id || element.closed || element.vertices.is_empty() {
+                continue;
+            }
+            let first = &element.vertices[0];
+            let first_world = transform::transform_point(
+                first.pos, element.origin, element.position, element.rotation, element.scale,
+            );
+            if first_world.distance(world_pos) <= threshold {
+                return Some((element.id.clone(), crate::engine::merge::VertexEnd::Start));
+            }
+            let last = &element.vertices[element.vertices.len() - 1];
+            let last_world = transform::transform_point(
+                last.pos, element.origin, element.position, element.rotation, element.scale,
+            );
+            if last_world.distance(world_pos) <= threshold {
+                return Some((element.id.clone(), crate::engine::merge::VertexEnd::End));
+            }
+        }
+    }
+    None
 }

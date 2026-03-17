@@ -252,25 +252,24 @@ fn commit_stroke(
         let start_pos = vertices[0].pos;
         let end_pos = vertices[vertices.len() - 1].pos;
 
-        if let Some(target) = merge::find_merge_target(start_pos, layer, None, threshold) {
-            // Merge at start
-            if let Some(existing) = layer.elements.iter().find(|e| e.id == target.element_id) {
-                let merged = merge::merge_elements(
-                    existing,
-                    target.end,
-                    &vertices,
-                    merge::VertexEnd::Start,
-                    editor.brush.stroke_width,
-                    editor.brush.color_index,
-                    editor.line_tool.curve_mode,
-                    project.min_corner_radius,
-                );
-                // Symmetry doesn't apply to merges — only the primary stroke merges
-                return vec![AppAction::MergeStroke {
-                    merged_element: merged,
-                    replace_element_id: target.element_id,
-                }];
-            }
+        if let Some(target) = merge::find_merge_target(start_pos, layer, None, threshold)
+            && let Some(existing) = layer.elements.iter().find(|e| e.id == target.element_id)
+        {
+            let merged = merge::merge_elements(
+                existing,
+                target.end,
+                &vertices,
+                merge::VertexEnd::Start,
+                editor.brush.stroke_width,
+                editor.brush.color_index,
+                editor.line_tool.curve_mode,
+                project.min_corner_radius,
+            );
+            return build_merge_actions(
+                merged, target.element_id, target.position, target.end,
+                &vertices, merge::VertexEnd::Start,
+                editor, layer, project,
+            );
         }
 
         if let Some(target) = merge::find_merge_target(end_pos, layer, None, threshold)
@@ -286,10 +285,11 @@ fn commit_stroke(
                 editor.line_tool.curve_mode,
                 project.min_corner_radius,
             );
-            return vec![AppAction::MergeStroke {
-                merged_element: merged,
-                replace_element_id: target.element_id,
-            }];
+            return build_merge_actions(
+                merged, target.element_id, target.position, target.end,
+                &vertices, merge::VertexEnd::End,
+                editor, layer, project,
+            );
         }
     }
 
@@ -305,6 +305,102 @@ fn commit_stroke(
     }
 
     vec![AppAction::CommitStroke(element)]
+}
+
+/// Build merge action(s), including symmetric mirror merges if symmetry is active.
+#[allow(clippy::too_many_arguments)]
+fn build_merge_actions(
+    primary_merged: StrokeElement,
+    primary_replace_id: String,
+    merge_point: Vec2,
+    _merge_end: merge::VertexEnd,
+    new_vertices: &[PathVertex],
+    new_end: merge::VertexEnd,
+    editor: &EditorState,
+    layer: &crate::model::sprite::Layer,
+    project: &Project,
+) -> Vec<AppAction> {
+    if !editor.symmetry.active {
+        return vec![AppAction::MergeStroke {
+            merged_element: primary_merged,
+            replace_element_id: primary_replace_id,
+        }];
+    }
+
+    use crate::engine::symmetry;
+
+    let axis_pos = &editor.symmetry.axis_position;
+    let threshold = project.editor_preferences.grid_size as f32;
+
+    let axes: Vec<SymmetryAxis> = match editor.symmetry.axis {
+        SymmetryAxis::Vertical => vec![SymmetryAxis::Vertical],
+        SymmetryAxis::Horizontal => vec![SymmetryAxis::Horizontal],
+        SymmetryAxis::Both => vec![SymmetryAxis::Vertical, SymmetryAxis::Horizontal, SymmetryAxis::Both],
+    };
+
+    let mut entries = vec![crate::action::MergeEntry {
+        merged_element: primary_merged,
+        replace_element_id: primary_replace_id.clone(),
+    }];
+
+    for axis in axes {
+        // Mirror the merge point to find the corresponding element
+        let mirrored_point = symmetry::mirror_point(merge_point, axis, axis_pos);
+
+        // Find an element with an endpoint near the mirrored merge point
+        if let Some(mirror_target) = merge::find_merge_target(mirrored_point, layer, Some(&primary_replace_id), threshold) {
+            // Skip if we've already merged this element
+            if entries.iter().any(|e| e.replace_element_id == mirror_target.element_id) {
+                continue;
+            }
+
+            if let Some(mirror_existing) = layer.elements.iter().find(|e| e.id == mirror_target.element_id) {
+                // Mirror the new stroke vertices
+                let mirrored_verts = symmetry::mirror_vertices(new_vertices, axis, axis_pos);
+
+                // The mirrored new_end is the same (start stays start, end stays end)
+                // but the mirrored vertices are already reversed by mirror_vertices,
+                // so we need to flip the end designation.
+                let mirrored_new_end = match new_end {
+                    merge::VertexEnd::Start => merge::VertexEnd::End,
+                    merge::VertexEnd::End => merge::VertexEnd::Start,
+                };
+
+                let mut mirror_merged = merge::merge_elements(
+                    mirror_existing,
+                    mirror_target.end,
+                    &mirrored_verts,
+                    mirrored_new_end,
+                    mirror_existing.stroke_width,
+                    mirror_existing.stroke_color_index,
+                    mirror_existing.curve_mode,
+                    project.min_corner_radius,
+                );
+                // Recompute curves
+                math::recompute_auto_curves(
+                    &mut mirror_merged.vertices,
+                    mirror_merged.closed,
+                    mirror_merged.curve_mode,
+                    project.min_corner_radius,
+                );
+
+                entries.push(crate::action::MergeEntry {
+                    merged_element: mirror_merged,
+                    replace_element_id: mirror_target.element_id,
+                });
+            }
+        }
+    }
+
+    if entries.len() == 1 {
+        let entry = entries.remove(0);
+        vec![AppAction::MergeStroke {
+            merged_element: entry.merged_element,
+            replace_element_id: entry.replace_element_id,
+        }]
+    } else {
+        vec![AppAction::MergeSymmetricStrokes(entries)]
+    }
 }
 
 /// Create symmetric elements (joined or separate) for the given primary element.
