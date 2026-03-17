@@ -178,8 +178,9 @@ impl App {
                         elem.stroke_color_index = remap_color_index(elem.stroke_color_index, index);
                         elem.fill_color_index = remap_color_index(elem.fill_color_index, index);
                         if let Some(ref mut grad) = elem.gradient_fill {
-                            grad.color_index_start = remap_color_index(grad.color_index_start, index);
-                            grad.color_index_end = remap_color_index(grad.color_index_end, index);
+                            for stop in &mut grad.stops {
+                                stop.color_index = remap_color_index(stop.color_index, index);
+                            }
                         }
                     }
                 }

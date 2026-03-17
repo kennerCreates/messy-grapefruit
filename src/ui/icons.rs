@@ -76,6 +76,7 @@ pub fn mode_straight() -> ImageSource<'static> { egui::include_image!("../../ass
 pub fn fill_flat() -> ImageSource<'static> { egui::include_image!("../../assets/icons/fill_flat.svg") }
 pub fn fill_linear() -> ImageSource<'static> { egui::include_image!("../../assets/icons/fill_linear.svg") }
 pub fn fill_radial() -> ImageSource<'static> { egui::include_image!("../../assets/icons/fill_radial.svg") }
+#[allow(dead_code)] // available for hatch section header
 pub fn fill_hatch() -> ImageSource<'static> { egui::include_image!("../../assets/icons/fill_hatch.svg") }
 
 // Gradient alignment icons

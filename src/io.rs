@@ -40,7 +40,15 @@ pub fn save_sprite(sprite: &Sprite, path: &Path) -> Result<(), IoError> {
 
 pub fn load_sprite(path: &Path) -> Result<Sprite, IoError> {
     let data = std::fs::read_to_string(path)?;
-    let sprite = serde_json::from_str(&data)?;
+    let mut sprite: Sprite = serde_json::from_str(&data)?;
+    // Migrate legacy gradient formats to multi-stop
+    for layer in &mut sprite.layers {
+        for elem in &mut layer.elements {
+            if let Some(ref mut grad) = elem.gradient_fill {
+                grad.normalize_legacy();
+            }
+        }
+    }
     Ok(sprite)
 }
 

@@ -1,4 +1,4 @@
-use crate::model::sprite::{PathVertex, StrokeElement};
+use crate::model::sprite::{GradientFill, PathVertex, StrokeElement};
 use crate::model::vec2::Vec2;
 use crate::state::editor::SymmetryAxis;
 
@@ -14,6 +14,39 @@ pub fn mirror_point(pos: Vec2, axis: SymmetryAxis, axis_pos: &Vec2) -> Vec2 {
 /// Mirror an optional control point position.
 fn mirror_cp(cp: &Option<Vec2>, axis: SymmetryAxis, axis_pos: &Vec2) -> Option<Vec2> {
     cp.map(|p| mirror_point(p, axis, axis_pos))
+}
+
+/// Mirror a gradient fill to match a mirrored element.
+/// Flips the angle and spatial parameters based on the symmetry axis.
+fn mirror_gradient(grad: &GradientFill, axis: SymmetryAxis) -> GradientFill {
+    let mut m = grad.clone();
+    match axis {
+        SymmetryAxis::Vertical => {
+            // Mirror across vertical axis: negate angle (flip horizontal direction)
+            m.angle_rad = -grad.angle_rad;
+            if let Some(ref mut c) = m.center { c.x = 1.0 - c.x; }
+            if let Some(ref mut f) = m.focal_offset { f.x = 1.0 - f.x; }
+            if let Some(ref mut s) = m.line_start { s.x = 1.0 - s.x; }
+            if let Some(ref mut e) = m.line_end { e.x = 1.0 - e.x; }
+        }
+        SymmetryAxis::Horizontal => {
+            // Mirror across horizontal axis: negate angle (flip vertical direction)
+            m.angle_rad = -grad.angle_rad;
+            if let Some(ref mut c) = m.center { c.y = 1.0 - c.y; }
+            if let Some(ref mut f) = m.focal_offset { f.y = 1.0 - f.y; }
+            if let Some(ref mut s) = m.line_start { s.y = 1.0 - s.y; }
+            if let Some(ref mut e) = m.line_end { e.y = 1.0 - e.y; }
+        }
+        SymmetryAxis::Both => {
+            // Mirror across both axes: rotate 180°
+            m.angle_rad = grad.angle_rad + std::f32::consts::PI;
+            if let Some(ref mut c) = m.center { c.x = 1.0 - c.x; c.y = 1.0 - c.y; }
+            if let Some(ref mut f) = m.focal_offset { f.x = 1.0 - f.x; f.y = 1.0 - f.y; }
+            if let Some(ref mut s) = m.line_start { s.x = 1.0 - s.x; s.y = 1.0 - s.y; }
+            if let Some(ref mut e) = m.line_end { e.x = 1.0 - e.x; e.y = 1.0 - e.y; }
+        }
+    }
+    m
 }
 
 /// Mirror a single vertex (creates a new vertex with new UUID).
@@ -105,7 +138,7 @@ pub fn try_join_symmetric(
         let mut m = StrokeElement::new(mirrored_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
         m.closed = true;
         m.fill_color_index = element.fill_color_index;
-        m.gradient_fill = element.gradient_fill.clone();
+        m.gradient_fill = element.gradient_fill.as_ref().map(|g| mirror_gradient(g, axis));
         m.hatch_fill_id = element.hatch_fill_id.clone();
         m.hatch_flow_curve = element.hatch_flow_curve.clone();
         m.hatch_masks = element.hatch_masks.clone();
@@ -119,7 +152,7 @@ pub fn try_join_symmetric(
         let mut m = StrokeElement::new(mirrored_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
         m.closed = element.closed;
         m.fill_color_index = element.fill_color_index;
-        m.gradient_fill = element.gradient_fill.clone();
+        m.gradient_fill = element.gradient_fill.as_ref().map(|g| mirror_gradient(g, axis));
         m.hatch_fill_id = element.hatch_fill_id.clone();
         m.hatch_flow_curve = element.hatch_flow_curve.clone();
         m.hatch_masks = element.hatch_masks.clone();

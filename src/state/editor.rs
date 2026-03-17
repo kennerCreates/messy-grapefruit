@@ -1,4 +1,4 @@
-use crate::model::sprite::{PathVertex, Sprite};
+use crate::model::sprite::{GradientStop, PathVertex, SpreadMethod, Sprite};
 use crate::model::vec2::Vec2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,14 +10,13 @@ pub enum ToolKind {
     Eraser,
 }
 
-/// Active fill mode for the sidebar / fill tool.
+/// Active fill color mode (flat or gradient).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FillMode {
     #[default]
     Flat,
     LinearGradient,
     RadialGradient,
-    Hatch,
 }
 
 /// Eraser tool hover target: vertex or segment.
@@ -276,18 +275,24 @@ pub struct BrushState {
     pub color_index: u8,
     pub fill_color_index: u8,
     pub fill_mode: FillMode,
-    /// Gradient start color (used when fill_mode is LinearGradient or RadialGradient).
-    pub gradient_color_start: u8,
-    /// Gradient end color.
-    pub gradient_color_end: u8,
-    /// Gradient alignment preset (linear mode).
-    pub gradient_alignment: crate::model::sprite::GradientAlignment,
+    /// Gradient color stops (minimum 2).
+    pub gradient_stops: Vec<GradientStop>,
+    /// Midpoint values between each pair of adjacent stops (0.0-1.0, default 0.5).
+    pub gradient_midpoints: Vec<f32>,
+    /// Gradient angle in radians (for linear gradients).
+    pub gradient_angle: f32,
+    /// How the gradient extends beyond its range.
+    pub gradient_spread: SpreadMethod,
     /// Radial gradient center (normalized 0..1).
-    pub radial_center: crate::model::vec2::Vec2,
+    pub radial_center: Vec2,
     /// Radial gradient radius (normalized 0..1).
     pub radial_radius: f32,
-    /// Gradient sharpness (gamma). 1.0 = linear, >1 = sharper, <1 = softer.
-    pub gradient_sharpness: f32,
+    /// Radial focal point offset (normalized 0..1 within AABB).
+    pub radial_focal_offset: Vec2,
+    /// Index of the currently selected stop in the gradient bar UI.
+    pub selected_stop_index: Option<usize>,
+    /// Whether clicking also applies the selected hatch pattern.
+    pub hatch_apply_enabled: bool,
 }
 
 impl Default for BrushState {
@@ -297,14 +302,38 @@ impl Default for BrushState {
             color_index: 1, // black
             fill_color_index: 0, // transparent
             fill_mode: FillMode::Flat,
-            gradient_color_start: 1,
-            gradient_color_end: 15,
-            gradient_alignment: crate::model::sprite::GradientAlignment::Vertical,
-            radial_center: crate::model::vec2::Vec2::new(0.5, 0.5),
+            gradient_stops: vec![
+                GradientStop { position: 0.0, color_index: 1 },
+                GradientStop { position: 1.0, color_index: 15 },
+            ],
+            gradient_midpoints: vec![0.5],
+            gradient_angle: std::f32::consts::FRAC_PI_2, // vertical
+            gradient_spread: SpreadMethod::Pad,
+            radial_center: Vec2::new(0.5, 0.5),
             radial_radius: 0.5,
-            gradient_sharpness: 1.0,
+            radial_focal_offset: Vec2::new(0.5, 0.5),
+            selected_stop_index: Some(0),
+            hatch_apply_enabled: false,
         }
     }
+}
+
+/// What kind of gradient drag is in progress on the canvas.
+#[derive(Debug, Clone)]
+pub enum GradientDragKind {
+    /// Dragging to define gradient start/end line on canvas.
+    DefineLine {
+        element_id: String,
+        start_world: Vec2,
+    },
+}
+
+/// Active gradient drag state on the canvas.
+#[derive(Debug, Clone)]
+pub struct GradientDragState {
+    pub kind: GradientDragKind,
+    /// Whether angle snapping is active (true by default, Alt disables).
+    pub snap_active: bool,
 }
 
 /// Drag-reorder state for a layer being dragged in the layer panel.
@@ -414,6 +443,8 @@ pub struct EditorState {
     pub hatch_editor_open: bool,
     /// Flow curve editing state (when editing control points on canvas).
     pub editing_flow_curve: Option<FlowCurveEditState>,
+    /// Active gradient drag state (on-canvas gradient line placement).
+    pub gradient_drag: Option<GradientDragState>,
 }
 
 /// State for on-canvas flow curve editing.
@@ -462,6 +493,7 @@ impl Default for EditorState {
             selected_hatch_pattern_id: None,
             hatch_editor_open: false,
             editing_flow_curve: None,
+            gradient_drag: None,
         }
     }
 }

@@ -3,7 +3,7 @@ use egui::{Color32, Painter, Pos2, Stroke};
 use crate::engine::transform;
 use crate::math;
 use crate::model::project::{HatchPattern, Palette, Theme};
-use crate::model::sprite::{GradientType, PathVertex, StrokeElement, Sprite};
+use crate::model::sprite::{GradientType, PathVertex, SpreadMethod, StrokeElement, Sprite};
 use crate::model::vec2::Vec2;
 use crate::state::editor::{HandleKind, VertexHover, ViewportState};
 use crate::theme;
@@ -37,11 +37,14 @@ pub const VERTEX_HIT_RADIUS: f32 = 8.0;
 
 /// Fill rendering info passed through the render pipeline.
 #[derive(Clone)]
+#[allow(dead_code)]
 enum FillInfo {
     Flat(Color32),
     Gradient {
-        color_start: Color32,
-        color_end: Color32,
+        /// Color stops sorted by position, pre-resolved from palette.
+        stops: Vec<(f32, Color32)>,
+        /// Midpoint values between each adjacent stop pair (0.0-1.0).
+        midpoints: Vec<f32>,
         gradient_type: GradientType,
         angle_rad: f32,
         /// Element AABB in screen space (min, max).
@@ -49,10 +52,12 @@ enum FillInfo {
         bounds_max: Pos2,
         /// Radial center, normalized 0..1 within element AABB.
         center: (f32, f32),
-        /// Radial radius, normalized 0..1 of the AABB diagonal.
+        /// Radial radius, normalized 0..1 of the AABB max dimension.
         radius: f32,
-        /// Sharpness: 1.0 = linear, >1 = sharper, <1 = softer.
-        sharpness: f32,
+        /// Spread method (pad, reflect, repeat).
+        spread: SpreadMethod,
+        /// Radial focal point offset (normalized 0..1 within AABB).
+        focal_offset: (f32, f32),
     },
 }
 
@@ -67,14 +72,77 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     )
 }
 
+/// Apply spread method to raw t value, returning a value suitable for stop lookup.
+fn apply_spread(t: f32, spread: SpreadMethod) -> f32 {
+    match spread {
+        SpreadMethod::Pad => t.clamp(0.0, 1.0),
+        SpreadMethod::Repeat => {
+            let t = t.rem_euclid(1.0);
+            if t < 0.0 { t + 1.0 } else { t }
+        }
+        SpreadMethod::Reflect => {
+            let cycle = t.rem_euclid(2.0);
+            if cycle > 1.0 { 2.0 - cycle } else { cycle }
+        }
+    }
+}
+
+/// Sample color from multi-stop gradient at parameter t (0..1).
+fn sample_gradient(t: f32, stops: &[(f32, Color32)], midpoints: &[f32]) -> Color32 {
+    if stops.is_empty() {
+        return Color32::TRANSPARENT;
+    }
+    if stops.len() == 1 || t <= stops[0].0 {
+        return stops[0].1;
+    }
+    if t >= stops[stops.len() - 1].0 {
+        return stops[stops.len() - 1].1;
+    }
+
+    // Find the bracketing stop pair
+    let mut i = 0;
+    while i + 1 < stops.len() && stops[i + 1].0 < t {
+        i += 1;
+    }
+    if i + 1 >= stops.len() {
+        return stops[stops.len() - 1].1;
+    }
+
+    let (pos_a, col_a) = stops[i];
+    let (pos_b, col_b) = stops[i + 1];
+    let seg_len = pos_b - pos_a;
+    if seg_len < 0.0001 {
+        return col_a;
+    }
+
+    // Local t within this segment (0..1)
+    let local_t = ((t - pos_a) / seg_len).clamp(0.0, 1.0);
+
+    // Apply midpoint remap: midpoint m shifts where the 50% blend occurs.
+    // m=0.5 is linear, m<0.5 shifts blend earlier, m>0.5 shifts it later.
+    let m = midpoints.get(i).copied().unwrap_or(0.5).clamp(0.01, 0.99);
+    let adjusted = if local_t <= m {
+        0.5 * (local_t / m)
+    } else {
+        0.5 + 0.5 * ((local_t - m) / (1.0 - m))
+    };
+
+    lerp_color(col_a, col_b, adjusted)
+}
+
 fn gradient_color_at(pos: Pos2, fill: &FillInfo) -> Color32 {
     match fill {
         FillInfo::Flat(c) => *c,
         FillInfo::Gradient {
-            color_start, color_end, gradient_type, angle_rad,
-            bounds_min, bounds_max, center, radius, sharpness,
+            stops, midpoints, gradient_type, angle_rad,
+            bounds_min, bounds_max, center: _, radius, spread,
+            focal_offset,
         } => {
-            match gradient_type {
+            if stops.is_empty() {
+                return Color32::TRANSPARENT;
+            }
+
+            let raw_t = match gradient_type {
                 GradientType::Linear => {
                     let dir_x = angle_rad.cos();
                     let dir_y = angle_rad.sin();
@@ -93,26 +161,28 @@ fn gradient_color_at(pos: Pos2, fill: &FillInfo) -> Color32 {
                     }
                     let extent = proj_max - proj_min;
                     if extent < 0.001 {
-                        return *color_start;
+                        return stops[0].1;
                     }
                     let proj = pos.x * dir_x + pos.y * dir_y;
-                    let t = ((proj - proj_min) / extent).clamp(0.0, 1.0).powf(*sharpness);
-                    lerp_color(*color_start, *color_end, t)
+                    (proj - proj_min) / extent
                 }
                 GradientType::Radial => {
-                    let cx = bounds_min.x + center.0 * (bounds_max.x - bounds_min.x);
-                    let cy = bounds_min.y + center.1 * (bounds_max.y - bounds_min.y);
+                    // Use focal point as origin for distance calculation
+                    let fx = bounds_min.x + focal_offset.0 * (bounds_max.x - bounds_min.x);
+                    let fy = bounds_min.y + focal_offset.1 * (bounds_max.y - bounds_min.y);
                     let dx = bounds_max.x - bounds_min.x;
                     let dy = bounds_max.y - bounds_min.y;
                     let max_dist = radius * (dx.max(dy) * 0.5);
                     if max_dist < 0.001 {
-                        return *color_start;
+                        return stops[0].1;
                     }
-                    let dist = ((pos.x - cx).powi(2) + (pos.y - cy).powi(2)).sqrt();
-                    let t = (dist / max_dist).clamp(0.0, 1.0).powf(*sharpness);
-                    lerp_color(*color_start, *color_end, t)
+                    let dist = ((pos.x - fx).powi(2) + (pos.y - fy).powi(2)).sqrt();
+                    dist / max_dist
                 }
-            }
+            };
+
+            let t = apply_spread(raw_t, *spread);
+            sample_gradient(t, stops, midpoints)
         }
     }
 }
@@ -160,25 +230,28 @@ fn resolve_fill_info(
         }
     };
 
-    if let Some(ref grad) = element.gradient_fill {
-        if element.closed {
-            let (bmin, bmax) = element_screen_bounds(element, viewport, canvas_center);
-            let cs = apply_dim(palette.get_color(grad.color_index_start).to_color32());
-            let ce = apply_dim(palette.get_color(grad.color_index_end).to_color32());
-            let center = grad.center.map(|c| (c.x, c.y)).unwrap_or((0.5, 0.5));
-            let radius = grad.radius.unwrap_or(0.5);
-            return FillInfo::Gradient {
-                color_start: cs,
-                color_end: ce,
-                gradient_type: grad.gradient_type,
-                angle_rad: grad.alignment.to_radians(),
-                bounds_min: bmin,
-                bounds_max: bmax,
-                center,
-                radius,
-                sharpness: grad.sharpness,
-            };
-        }
+    if let Some(ref grad) = element.gradient_fill
+        && element.closed && grad.stops.len() >= 2
+    {
+        let (bmin, bmax) = element_screen_bounds(element, viewport, canvas_center);
+        let stops: Vec<(f32, Color32)> = grad.stops.iter()
+            .map(|s| (s.position, apply_dim(palette.get_color(s.color_index).to_color32())))
+            .collect();
+        let center = grad.center.map(|c| (c.x, c.y)).unwrap_or((0.5, 0.5));
+        let radius = grad.radius.unwrap_or(0.5);
+        let focal_offset = grad.focal_offset.map(|f| (f.x, f.y)).unwrap_or(center);
+        return FillInfo::Gradient {
+            stops,
+            midpoints: grad.midpoints.clone(),
+            gradient_type: grad.gradient_type,
+            angle_rad: grad.angle_rad,
+            bounds_min: bmin,
+            bounds_max: bmax,
+            center,
+            radius,
+            spread: grad.spread,
+            focal_offset,
+        };
     }
 
     // Flat fill

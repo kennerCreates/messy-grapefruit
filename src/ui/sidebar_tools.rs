@@ -1,10 +1,11 @@
 use crate::action::AppAction;
 use crate::model::project::Project;
-use crate::model::sprite::{GradientAlignment, Sprite};
+use crate::model::sprite::{GradientAlignment, GradientStop, SpreadMethod, Sprite};
 use crate::state::editor::{EditorState, FillMode};
 use crate::state::history::History;
 use crate::theme;
 
+use super::gradient_bar;
 use super::icons;
 use super::sidebar_palette::{render_color_palette, render_color_swatch};
 
@@ -14,64 +15,64 @@ pub(super) fn show_fill_tool_options(
     project: &mut Project,
     actions: &mut Vec<AppAction>,
 ) {
-    ui.label("Fill Tool");
-    ui.add_space(4.0);
-
-    // Fill mode toggles
-    render_fill_mode_toggles(ui, editor);
-    ui.add_space(4.0);
-
-    match editor.brush.fill_mode {
-        FillMode::Flat => {
-            // Active fill color
+    // ── Fill section (collapsible) ──
+    egui::CollapsingHeader::new("Fill")
+        .default_open(true)
+        .show(ui, |ui| {
+            // Fill mode toggles (flat / linear gradient / radial gradient)
             ui.horizontal(|ui| {
-                ui.label("Fill");
-                let color = project.palette.get_color(editor.brush.fill_color_index);
-                render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
-                ui.label(format!("idx {}", editor.brush.fill_color_index));
+                let modes = [
+                    (FillMode::Flat, icons::fill_flat(), "Flat Fill"),
+                    (FillMode::LinearGradient, icons::fill_linear(), "Linear Gradient"),
+                    (FillMode::RadialGradient, icons::fill_radial(), "Radial Gradient"),
+                ];
+                for (mode, icon, tooltip) in modes {
+                    let selected = editor.brush.fill_mode == mode;
+                    if ui.add(icons::small_icon_button(icon, ui).selected(selected))
+                        .on_hover_text(tooltip)
+                        .clicked()
+                    {
+                        editor.brush.fill_mode = mode;
+                    }
+                }
             });
 
-            if let Some(new_idx) = render_color_palette(
-                ui,
-                &project.palette.colors,
-                editor.brush.fill_color_index,
-                project.editor_preferences.theme,
-            ) {
-                editor.brush.fill_color_index = new_idx;
-                editor.track_recent_color(new_idx);
+            ui.add_space(4.0);
+
+            match editor.brush.fill_mode {
+                FillMode::Flat => {
+                    ui.horizontal(|ui| {
+                        ui.label("Fill");
+                        let color = project.palette.get_color(editor.brush.fill_color_index);
+                        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+                        ui.label(format!("idx {}", editor.brush.fill_color_index));
+                    });
+
+                    if let Some(new_idx) = render_color_palette(
+                        ui,
+                        &project.palette.colors,
+                        editor.brush.fill_color_index,
+                        project.editor_preferences.theme,
+                    ) {
+                        editor.brush.fill_color_index = new_idx;
+                        editor.track_recent_color(new_idx);
+                    }
+                }
+                FillMode::LinearGradient | FillMode::RadialGradient => {
+                    render_gradient_controls(ui, editor, project, actions);
+                }
             }
-        }
-        FillMode::LinearGradient | FillMode::RadialGradient => {
-            render_gradient_controls(ui, editor, project, actions);
-        }
-        FillMode::Hatch => {
+        });
+
+    // ── Hatch section (collapsible) ──
+    egui::CollapsingHeader::new("Hatch")
+        .default_open(false)
+        .show(ui, |ui| {
             render_hatch_picker(ui, editor, project, actions);
-        }
-    }
+        });
 
-    ui.add_space(8.0);
+    ui.add_space(4.0);
     ui.label("Click closed shape to apply");
-    ui.label("Click empty canvas for background");
-}
-
-fn render_fill_mode_toggles(ui: &mut egui::Ui, editor: &mut EditorState) {
-    ui.horizontal(|ui| {
-        let modes = [
-            (FillMode::Flat, icons::fill_flat(), "Flat Fill"),
-            (FillMode::LinearGradient, icons::fill_linear(), "Linear Gradient"),
-            (FillMode::RadialGradient, icons::fill_radial(), "Radial Gradient"),
-            (FillMode::Hatch, icons::fill_hatch(), "Hatch Pattern"),
-        ];
-        for (mode, icon, tooltip) in modes {
-            let selected = editor.brush.fill_mode == mode;
-            if ui.add(icons::small_icon_button(icon, ui).selected(selected))
-                .on_hover_text(tooltip)
-                .clicked()
-            {
-                editor.brush.fill_mode = mode;
-            }
-        }
-    });
 }
 
 fn render_gradient_controls(
@@ -80,44 +81,98 @@ fn render_gradient_controls(
     project: &mut Project,
     _actions: &mut Vec<AppAction>,
 ) {
-    // Start color
+    // Gradient bar widget
+    gradient_bar::render_gradient_bar(ui, editor, &project.palette, project.editor_preferences.theme);
+
+    ui.add_space(4.0);
+
+    // Selected stop color picker
+    let sel_idx = editor.brush.selected_stop_index.unwrap_or(0);
+    let sel_idx = sel_idx.min(editor.brush.gradient_stops.len().saturating_sub(1));
+    let current_color_idx = editor.brush.gradient_stops.get(sel_idx)
+        .map(|s| s.color_index).unwrap_or(1);
+
     ui.horizontal(|ui| {
-        ui.label("Start");
-        let color = project.palette.get_color(editor.brush.gradient_color_start);
+        ui.label(format!("Stop {}", sel_idx + 1));
+        let color = project.palette.get_color(current_color_idx);
         render_color_swatch(ui, color, 16.0, project.editor_preferences.theme);
     });
     if let Some(new_idx) = render_color_palette(
         ui,
         &project.palette.colors,
-        editor.brush.gradient_color_start,
+        current_color_idx,
         project.editor_preferences.theme,
     ) {
-        editor.brush.gradient_color_start = new_idx;
+        if let Some(stop) = editor.brush.gradient_stops.get_mut(sel_idx) {
+            stop.color_index = new_idx;
+        }
         editor.track_recent_color(new_idx);
     }
 
+    // Stop location and navigation
     ui.add_space(2.0);
+    theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+        ui.horizontal(|ui| {
+            let stop_count = editor.brush.gradient_stops.len();
+            // Previous/next stop buttons
+            if ui.small_button("<").clicked() && sel_idx > 0 {
+                editor.brush.selected_stop_index = Some(sel_idx - 1);
+            }
+            ui.label(format!("{}/{}", sel_idx + 1, stop_count));
+            if ui.small_button(">").clicked() && sel_idx + 1 < stop_count {
+                editor.brush.selected_stop_index = Some(sel_idx + 1);
+            }
 
-    // End color
-    ui.horizontal(|ui| {
-        ui.label("End");
-        let color = project.palette.get_color(editor.brush.gradient_color_end);
-        render_color_swatch(ui, color, 16.0, project.editor_preferences.theme);
+            // Location drag value (as percentage)
+            if let Some(stop) = editor.brush.gradient_stops.get_mut(sel_idx) {
+                let mut pct = stop.position * 100.0;
+                ui.label("Loc");
+                if ui.add(egui::DragValue::new(&mut pct)
+                    .speed(1.0).range(0.0..=100.0).suffix("%").fixed_decimals(0))
+                    .changed()
+                {
+                    stop.position = (pct / 100.0).clamp(0.0, 1.0);
+                }
+            }
+        });
+
+        // Add / Delete stop buttons
+        ui.horizontal(|ui| {
+            if ui.small_button("+ Stop").clicked() && editor.brush.gradient_stops.len() < 16 {
+                // Add a stop at the midpoint of the current segment
+                let new_pos = if sel_idx + 1 < editor.brush.gradient_stops.len() {
+                    (editor.brush.gradient_stops[sel_idx].position
+                        + editor.brush.gradient_stops[sel_idx + 1].position) / 2.0
+                } else {
+                    (editor.brush.gradient_stops[sel_idx].position + 1.0) / 2.0
+                };
+                let new_stop = GradientStop { position: new_pos, color_index: current_color_idx };
+                editor.brush.gradient_stops.push(new_stop);
+                editor.brush.gradient_stops.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap());
+                // Update midpoints to match new stop count
+                editor.brush.gradient_midpoints.resize(
+                    editor.brush.gradient_stops.len().saturating_sub(1), 0.5,
+                );
+                // Select the new stop
+                editor.brush.selected_stop_index = editor.brush.gradient_stops
+                    .iter().position(|s| (s.position - new_pos).abs() < 0.001);
+            }
+            if ui.small_button("Delete").clicked() && editor.brush.gradient_stops.len() > 2 {
+                editor.brush.gradient_stops.remove(sel_idx);
+                editor.brush.gradient_midpoints.resize(
+                    editor.brush.gradient_stops.len().saturating_sub(1), 0.5,
+                );
+                editor.brush.selected_stop_index = Some(sel_idx.min(
+                    editor.brush.gradient_stops.len().saturating_sub(1),
+                ));
+            }
+        });
     });
-    if let Some(new_idx) = render_color_palette(
-        ui,
-        &project.palette.colors,
-        editor.brush.gradient_color_end,
-        project.editor_preferences.theme,
-    ) {
-        editor.brush.gradient_color_end = new_idx;
-        editor.track_recent_color(new_idx);
-    }
 
     ui.add_space(4.0);
 
     if editor.brush.fill_mode == FillMode::LinearGradient {
-        // Alignment presets
+        // Direction presets
         ui.label("Direction");
         ui.horizontal(|ui| {
             let alignments = [
@@ -127,14 +182,28 @@ fn render_gradient_controls(
                 (GradientAlignment::IsoAscending, icons::grad_iso_asc(), "Iso Ascending"),
             ];
             for (align, icon, tooltip) in alignments {
-                let selected = editor.brush.gradient_alignment == align;
+                let angle = align.to_radians();
+                let selected = (editor.brush.gradient_angle - angle).abs() < 0.01;
                 if ui.add(icons::small_icon_button(icon, ui).selected(selected))
                     .on_hover_text(tooltip)
                     .clicked()
                 {
-                    editor.brush.gradient_alignment = align;
+                    editor.brush.gradient_angle = angle;
                 }
             }
+        });
+        // Free angle input (degrees)
+        theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Angle");
+                let mut degrees = editor.brush.gradient_angle.to_degrees();
+                if ui.add(egui::DragValue::new(&mut degrees)
+                    .speed(1.0).range(-180.0..=180.0).suffix("°").fixed_decimals(1))
+                    .changed()
+                {
+                    editor.brush.gradient_angle = degrees.to_radians();
+                }
+            });
         });
     } else {
         // Radial controls
@@ -151,17 +220,32 @@ fn render_gradient_controls(
                 ui.label("Radius");
                 ui.add(egui::Slider::new(&mut editor.brush.radial_radius, 0.1..=1.0).fixed_decimals(2));
             });
+            ui.horizontal(|ui| {
+                ui.label("Focal X");
+                ui.add(egui::DragValue::new(&mut editor.brush.radial_focal_offset.x)
+                    .speed(0.01).range(0.0..=1.0).fixed_decimals(2));
+                ui.label("Y");
+                ui.add(egui::DragValue::new(&mut editor.brush.radial_focal_offset.y)
+                    .speed(0.01).range(0.0..=1.0).fixed_decimals(2));
+            });
         });
     }
 
-    // Sharpness control (applies to both linear and radial)
+    // Spread method
     ui.add_space(4.0);
-    theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
-        ui.horizontal(|ui| {
-            ui.label("Sharpness");
-            ui.add(egui::Slider::new(&mut editor.brush.gradient_sharpness, 0.2..=5.0)
-                .logarithmic(true).fixed_decimals(2));
-        });
+    ui.label("Spread");
+    ui.horizontal(|ui| {
+        let methods = [
+            (SpreadMethod::Pad, "Pad"),
+            (SpreadMethod::Reflect, "Reflect"),
+            (SpreadMethod::Repeat, "Repeat"),
+        ];
+        for (method, label) in methods {
+            let selected = editor.brush.gradient_spread == method;
+            if ui.selectable_label(selected, label).clicked() {
+                editor.brush.gradient_spread = method;
+            }
+        }
     });
 }
 
@@ -171,10 +255,14 @@ fn render_hatch_picker(
     project: &mut Project,
     actions: &mut Vec<AppAction>,
 ) {
+    // Apply toggle
+    ui.checkbox(&mut editor.brush.hatch_apply_enabled, "Apply on click");
+
+    ui.add_space(4.0);
+
     if project.hatch_patterns.is_empty() {
-        ui.label("No hatch patterns");
+        ui.label("No patterns yet");
     } else {
-        ui.label("Patterns");
         let mut selected_idx = project.hatch_patterns.iter().position(|p| {
             editor.selected_hatch_pattern_id.as_deref() == Some(p.id.as_str())
         });
@@ -184,15 +272,6 @@ fn render_hatch_picker(
                 editor.selected_hatch_pattern_id = Some(pattern.id.clone());
                 selected_idx = Some(i);
             }
-        }
-    }
-
-    ui.add_space(4.0);
-
-    // Remove hatch from selected elements
-    if ui.button("Remove Hatch from Selected").clicked() {
-        for id in &editor.selection.selected_ids {
-            actions.push(AppAction::ClearHatchFill { element_id: id.clone() });
         }
     }
 
@@ -208,6 +287,14 @@ fn render_hatch_picker(
             editor.hatch_editor_open = !editor.hatch_editor_open;
         }
     });
+
+    ui.add_space(4.0);
+
+    if ui.button("Remove Hatch from Selected").clicked() {
+        for id in &editor.selection.selected_ids {
+            actions.push(AppAction::ClearHatchFill { element_id: id.clone() });
+        }
+    }
 }
 
 pub(super) fn show_eyedropper_tool_options(

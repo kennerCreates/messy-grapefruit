@@ -45,24 +45,141 @@ impl GradientAlignment {
     }
 }
 
+/// A color stop in a multi-stop gradient.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradientStop {
+    /// Position along the gradient axis (0.0 = start, 1.0 = end).
+    pub position: f32,
+    /// Palette color index.
+    pub color_index: u8,
+}
+
+/// How the gradient extends beyond its defined range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SpreadMethod {
+    #[default]
+    Pad,
+    Reflect,
+    Repeat,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GradientFill {
     pub gradient_type: GradientType,
-    pub color_index_start: u8,
-    pub color_index_end: u8,
-    pub alignment: GradientAlignment,
+    /// Color stops (sorted by position, minimum 2).
+    #[serde(default)]
+    pub stops: Vec<GradientStop>,
+    /// Midpoint values between each pair of adjacent stops (length = stops.len() - 1).
+    /// Each value is 0.0..1.0 where 0.5 = linear blend (default).
+    #[serde(default)]
+    pub midpoints: Vec<f32>,
+    /// Gradient angle in radians (for linear gradients).
+    #[serde(default)]
+    pub angle_rad: f32,
+    /// How the gradient extends beyond its range.
+    #[serde(default)]
+    pub spread: SpreadMethod,
+    /// Radial gradient center (normalized 0..1 within element AABB).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub center: Option<Vec2>,
+    /// Radial gradient radius (normalized 0..1 of AABB max dimension).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub radius: Option<f32>,
-    /// Sharpness of the gradient transition. 1.0 = linear (default),
-    /// <1.0 = softer start, >1.0 = sharper/more abrupt transition.
-    #[serde(default = "default_sharpness")]
-    pub sharpness: f32,
+    /// Radial focal point offset from center (normalized, 0..1 within AABB).
+    /// When None or equal to center, produces a concentric gradient.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focal_offset: Option<Vec2>,
+    /// Gradient line start in element-local normalized coords (0..1 within AABB).
+    /// When present, defines the exact gradient extent placed on canvas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_start: Option<Vec2>,
+    /// Gradient line end in element-local normalized coords.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_end: Option<Vec2>,
+
+    // ── Legacy fields (read for backwards compat, never written) ──
+    #[serde(default, skip_serializing)]
+    color_index_start: Option<u8>,
+    #[serde(default, skip_serializing)]
+    color_index_end: Option<u8>,
+    #[serde(default, skip_serializing)]
+    alignment: Option<GradientAlignment>,
+    #[serde(default, skip_serializing)]
+    sharpness: Option<f32>,
 }
 
-fn default_sharpness() -> f32 { 1.0 }
+impl GradientFill {
+    /// Create a linear gradient with the given stops and angle.
+    pub fn linear(stops: Vec<GradientStop>, angle_rad: f32) -> Self {
+        let midpoints = vec![0.5; stops.len().saturating_sub(1)];
+        Self {
+            gradient_type: GradientType::Linear,
+            stops,
+            midpoints,
+            angle_rad,
+            spread: SpreadMethod::Pad,
+            center: None,
+            radius: None,
+            focal_offset: None,
+            line_start: None,
+            line_end: None,
+            color_index_start: None,
+            color_index_end: None,
+            alignment: None,
+            sharpness: None,
+        }
+    }
+
+    /// Create a radial gradient with the given stops, center, and radius.
+    pub fn radial(stops: Vec<GradientStop>, center: Vec2, radius: f32) -> Self {
+        let midpoints = vec![0.5; stops.len().saturating_sub(1)];
+        Self {
+            gradient_type: GradientType::Radial,
+            stops,
+            midpoints,
+            angle_rad: 0.0,
+            spread: SpreadMethod::Pad,
+            center: Some(center),
+            radius: Some(radius),
+            focal_offset: None,
+            line_start: None,
+            line_end: None,
+            color_index_start: None,
+            color_index_end: None,
+            alignment: None,
+            sharpness: None,
+        }
+    }
+
+    /// Migrate legacy two-color format to multi-stop format.
+    /// Call after deserialization of old files.
+    pub fn normalize_legacy(&mut self) {
+        if self.stops.is_empty()
+            && let (Some(start), Some(end)) = (self.color_index_start, self.color_index_end)
+        {
+            self.stops = vec![
+                GradientStop { position: 0.0, color_index: start },
+                GradientStop { position: 1.0, color_index: end },
+            ];
+        }
+        if self.angle_rad == 0.0
+            && let Some(alignment) = self.alignment
+        {
+            self.angle_rad = alignment.to_radians();
+        }
+        if self.midpoints.is_empty() && self.stops.len() >= 2 {
+            self.midpoints = vec![0.5; self.stops.len() - 1];
+        }
+        // Clear legacy fields
+        self.color_index_start = None;
+        self.color_index_end = None;
+        self.alignment = None;
+        self.sharpness = None;
+    }
+}
 
 /// Bezier control points for a hatch flow curve.
 /// Stored as a sequence of Vec2 positions forming cubic bezier segments
@@ -457,23 +574,58 @@ mod tests {
             vec![PathVertex::new(Vec2::ZERO)],
             2.0, 1, false,
         );
-        elem.gradient_fill = Some(GradientFill {
-            gradient_type: GradientType::Linear,
-            color_index_start: 3,
-            color_index_end: 7,
-            alignment: GradientAlignment::IsoDescending,
-            center: None,
-            radius: None,
-            sharpness: 1.0,
-        });
+        elem.gradient_fill = Some(GradientFill::linear(
+            vec![
+                GradientStop { position: 0.0, color_index: 3 },
+                GradientStop { position: 1.0, color_index: 7 },
+            ],
+            -(2.0_f32.atan()), // IsoDescending angle
+        ));
 
         let json = serde_json::to_string(&elem).unwrap();
         let elem2: StrokeElement = serde_json::from_str(&json).unwrap();
         let grad = elem2.gradient_fill.unwrap();
         assert_eq!(grad.gradient_type, GradientType::Linear);
-        assert_eq!(grad.color_index_start, 3);
-        assert_eq!(grad.color_index_end, 7);
-        assert_eq!(grad.alignment, GradientAlignment::IsoDescending);
+        assert_eq!(grad.stops.len(), 2);
+        assert_eq!(grad.stops[0].color_index, 3);
+        assert_eq!(grad.stops[1].color_index, 7);
+        assert!((grad.angle_rad - (-(2.0_f32.atan()))).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_gradient_legacy_migration() {
+        // Old-format JSON with colorIndexStart/End and alignment
+        let json = r#"{
+            "id": "elem-id",
+            "vertices": [],
+            "closed": true,
+            "curveMode": false,
+            "strokeWidth": 2.0,
+            "strokeColorIndex": 1,
+            "fillColorIndex": 0,
+            "position": {"x": 0, "y": 0},
+            "rotation": 0,
+            "scale": {"x": 1, "y": 1},
+            "origin": {"x": 0, "y": 0},
+            "gradientFill": {
+                "gradientType": "linear",
+                "colorIndexStart": 3,
+                "colorIndexEnd": 7,
+                "alignment": "isoDescending",
+                "sharpness": 1.0
+            }
+        }"#;
+        let mut elem: StrokeElement = serde_json::from_str(json).unwrap();
+        elem.gradient_fill.as_mut().unwrap().normalize_legacy();
+        let grad = elem.gradient_fill.unwrap();
+        assert_eq!(grad.stops.len(), 2);
+        assert_eq!(grad.stops[0].color_index, 3);
+        assert_eq!(grad.stops[0].position, 0.0);
+        assert_eq!(grad.stops[1].color_index, 7);
+        assert_eq!(grad.stops[1].position, 1.0);
+        assert!((grad.angle_rad - GradientAlignment::IsoDescending.to_radians()).abs() < 0.001);
+        assert_eq!(grad.midpoints.len(), 1);
+        assert!((grad.midpoints[0] - 0.5).abs() < 0.001);
     }
 
     #[test]

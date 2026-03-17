@@ -7,6 +7,7 @@ mod canvas_refimage;
 pub mod canvas_render;
 mod canvas_select;
 mod canvas_transform;
+mod gradient_bar;
 pub mod grid;
 pub mod icons;
 pub mod sidebar;
