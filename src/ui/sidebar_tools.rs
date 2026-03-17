@@ -1,5 +1,5 @@
 use crate::action::AppAction;
-use crate::model::project::{HatchPattern, Project};
+use crate::model::project::{HatchPattern, PatternType, Project, Theme};
 use crate::model::sprite::{GradientAlignment, GradientFill, GradientStop, SpreadMethod, Sprite};
 use crate::state::editor::{EditorState, FillMode};
 use crate::state::history::History;
@@ -263,16 +263,16 @@ fn render_hatch_picker(
     if project.hatch_patterns.is_empty() {
         ui.label("No patterns yet");
     } else {
-        let mut selected_idx = project.hatch_patterns.iter().position(|p| {
-            editor.selected_hatch_pattern_id.as_deref() == Some(p.id.as_str())
-        });
-        for (i, pattern) in project.hatch_patterns.iter().enumerate() {
-            let is_selected = selected_idx == Some(i);
-            if ui.selectable_label(is_selected, &pattern.name).clicked() {
-                editor.selected_hatch_pattern_id = Some(pattern.id.clone());
-                selected_idx = Some(i);
+        let theme = project.editor_preferences.theme;
+        ui.horizontal_wrapped(|ui| {
+            for pattern in project.hatch_patterns.iter() {
+                let is_selected = editor.selected_hatch_pattern_id.as_deref() == Some(pattern.id.as_str());
+                let resp = paint_hatch_thumbnail(ui, pattern, is_selected, false, theme, egui::vec2(36.0, 36.0));
+                if resp.on_hover_text(&pattern.name).clicked() {
+                    editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+                }
             }
-        }
+        });
     }
 
     ui.add_space(4.0);
@@ -570,8 +570,19 @@ pub(super) fn show_select_tool_options(
     let is_closed = first_elem.is_some_and(|e| e.closed);
 
     if is_closed {
-        show_select_fill_section(ui, editor, sprite, project, history, actions, &selected);
-        show_select_hatch_section(ui, editor, sprite, project, history, actions, &selected);
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
+        egui::CollapsingHeader::new("Fill")
+            .default_open(false)
+            .show(ui, |ui| {
+                show_select_fill_section(ui, editor, sprite, project, history, actions, &selected);
+            });
+        egui::CollapsingHeader::new("Hatch")
+            .default_open(false)
+            .show(ui, |ui| {
+                show_select_hatch_section(ui, editor, sprite, project, history, actions, &selected);
+            });
     }
 }
 
@@ -586,10 +597,6 @@ fn show_select_fill_section(
     actions: &mut Vec<AppAction>,
     selected: &[String],
 ) {
-    ui.add_space(4.0);
-    ui.separator();
-    ui.add_space(4.0);
-
     // Read current fill state from first selected element
     let first_elem = sprite.layers.iter().flat_map(|l| &l.elements)
         .find(|e| selected.iter().any(|id| id == &e.id));
@@ -667,8 +674,6 @@ fn show_select_hatch_section(
     selected: &[String],
 ) {
     ui.add_space(4.0);
-    ui.separator();
-    ui.add_space(4.0);
 
     // Read current hatch state from first selected element
     let first_elem = sprite.layers.iter().flat_map(|l| &l.elements)
@@ -716,24 +721,155 @@ fn show_select_hatch_section(
             }
         });
     } else {
-        for pattern in &_project.hatch_patterns {
-            let is_applied = current_hatch_id == Some(pattern.id.as_str());
-            let is_selected = editor.selected_hatch_pattern_id.as_deref() == Some(pattern.id.as_str());
-            let label = if is_applied {
-                format!("● {}", pattern.name)
-            } else {
-                pattern.name.clone()
-            };
-            if ui.selectable_label(is_selected, label).clicked() {
-                editor.selected_hatch_pattern_id = Some(pattern.id.clone());
-                // Apply on click
-                for id in selected {
-                    actions.push(AppAction::SetHatchFill {
-                        element_id: id.clone(),
-                        hatch_fill_id: pattern.id.clone(),
-                    });
+        let theme = _project.editor_preferences.theme;
+        ui.horizontal_wrapped(|ui| {
+            for pattern in &_project.hatch_patterns {
+                let is_applied = current_hatch_id == Some(pattern.id.as_str());
+                let is_selected = editor.selected_hatch_pattern_id.as_deref() == Some(pattern.id.as_str());
+                let resp = paint_hatch_thumbnail(ui, pattern, is_selected, is_applied, theme, egui::vec2(36.0, 36.0));
+                if resp.on_hover_text(&pattern.name).clicked() {
+                    editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+                    for id in selected {
+                        actions.push(AppAction::SetHatchFill {
+                            element_id: id.clone(),
+                            hatch_fill_id: pattern.id.clone(),
+                        });
+                    }
                 }
             }
+        });
+    }
+}
+
+// ── Hatch thumbnail rendering ──
+
+/// Draw a small hatch pattern thumbnail preview.
+pub(super) fn paint_hatch_thumbnail(
+    ui: &mut egui::Ui,
+    pattern: &HatchPattern,
+    is_selected: bool,
+    is_applied: bool,
+    theme: Theme,
+    size: egui::Vec2,
+) -> egui::Response {
+    let (response, painter) = ui.allocate_painter(size, egui::Sense::click());
+    let rect = response.rect;
+    let tc = crate::theme::theme_colors(theme);
+
+    // Background
+    painter.rect_filled(rect, 2.0, tc.panel_bg);
+
+    // Clip lines to thumbnail rect
+    let clip = painter.with_clip_rect(painter.clip_rect().intersect(rect));
+    let stroke = egui::Stroke::new(1.0, tc.icon_text);
+
+    match pattern.pattern_type {
+        PatternType::Lines => {
+            let angle = pattern.layers.first().map(|l| l.angle).unwrap_or(45.0);
+            draw_thumb_lines(&clip, rect, angle.to_radians(), 6.0, stroke);
         }
+        PatternType::CrossHatch => {
+            let angle = pattern.layers.first().map(|l| l.angle).unwrap_or(45.0);
+            let angle_rad = angle.to_radians();
+            draw_thumb_lines(&clip, rect, angle_rad, 6.0, stroke);
+            let perp = if pattern.iso_mode {
+                std::f32::consts::FRAC_PI_2
+            } else {
+                angle_rad + std::f32::consts::FRAC_PI_2
+            };
+            draw_thumb_lines(&clip, rect, perp, 6.0, stroke);
+        }
+        PatternType::Brick => {
+            draw_thumb_bricks(&clip, rect, 8.0, 14.0, stroke);
+        }
+    }
+
+    // Border
+    let (border_w, border_color) = if is_selected {
+        (2.0, tc.selected)
+    } else {
+        (1.0, tc.mid)
+    };
+    painter.rect_stroke(rect, 2.0, egui::Stroke::new(border_w, border_color), egui::StrokeKind::Outside);
+
+    // Applied indicator (small dot in top-right corner)
+    if is_applied {
+        let dot_center = rect.right_top() + egui::vec2(-5.0, 5.0);
+        painter.circle_filled(dot_center, 3.0, tc.selected);
+    }
+
+    response
+}
+
+/// Draw parallel lines at a given angle, clipped to a rect.
+fn draw_thumb_lines(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    angle_rad: f32,
+    spacing: f32,
+    stroke: egui::Stroke,
+) {
+    let center = rect.center();
+    let cos_a = angle_rad.cos();
+    let sin_a = angle_rad.sin();
+    let dir = egui::vec2(cos_a, sin_a);
+    let perp = egui::vec2(-sin_a, cos_a);
+
+    let center_v = center.to_vec2();
+    let corners = [
+        rect.left_top().to_vec2(),
+        rect.right_top().to_vec2(),
+        rect.left_bottom().to_vec2(),
+        rect.right_bottom().to_vec2(),
+    ];
+
+    let mut min_perp = f32::INFINITY;
+    let mut max_perp = f32::NEG_INFINITY;
+    let mut max_extent: f32 = 0.0;
+    for c in &corners {
+        let d = *c - center_v;
+        let pd = d.x * perp.x + d.y * perp.y;
+        let dd = (d.x * dir.x + d.y * dir.y).abs();
+        min_perp = min_perp.min(pd);
+        max_perp = max_perp.max(pd);
+        max_extent = max_extent.max(dd);
+    }
+
+    let mut d = (min_perp / spacing).floor() * spacing;
+    while d <= max_perp {
+        let lc = center + perp * d;
+        let p1 = lc - dir * max_extent;
+        let p2 = lc + dir * max_extent;
+        painter.line_segment([p1, p2], stroke);
+        d += spacing;
+    }
+}
+
+/// Draw a brick tiling pattern, clipped to a rect.
+fn draw_thumb_bricks(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    row_h: f32,
+    brick_w: f32,
+    stroke: egui::Stroke,
+) {
+    let left = rect.left();
+    let right = rect.right();
+    let top = rect.top();
+    let bottom = rect.bottom();
+
+    let mut y = top;
+    let mut row = 0;
+    while y <= bottom {
+        painter.line_segment([egui::pos2(left, y), egui::pos2(right, y)], stroke);
+        let next_y = (y + row_h).min(bottom);
+        let offset = if row % 2 == 1 { brick_w / 2.0 } else { 0.0 };
+        let mut x = left + offset;
+        while x <= right {
+            painter.line_segment([egui::pos2(x, y), egui::pos2(x, next_y)], stroke);
+            x += brick_w;
+        }
+        y += row_h;
+        row += 1;
     }
 }

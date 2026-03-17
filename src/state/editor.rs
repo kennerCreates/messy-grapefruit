@@ -300,7 +300,7 @@ impl Default for BrushState {
         Self {
             stroke_width: 2.0,
             color_index: 1, // black
-            fill_color_index: 0, // transparent
+            fill_color_index: 1, // default to first real color
             fill_mode: FillMode::Flat,
             gradient_stops: vec![
                 GradientStop { position: 0.0, color_index: 1 },

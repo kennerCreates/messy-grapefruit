@@ -111,18 +111,49 @@ fn show_collapsed(
 
         // Active color swatch only (no palette)
         let color = project.palette.get_color(editor.brush.color_index);
-        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+        render_color_swatch(ui, color, 40.0, project.editor_preferences.theme);
 
         ui.add_space(4.0);
     } else if matches!(editor.tool, ToolKind::Fill) {
-        // Fill color swatch
-        let color = project.palette.get_color(editor.brush.fill_color_index);
-        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+        // Fill / Hatch mode toggle
+        ui.horizontal(|ui| {
+            let fill_active = !editor.brush.hatch_apply_enabled;
+            if ui.add(icons::small_icon_button(icons::fill_flat(), ui).selected(fill_active))
+                .on_hover_text("Fill")
+                .clicked()
+            {
+                editor.brush.hatch_apply_enabled = false;
+            }
+            if ui.add(icons::small_icon_button(icons::fill_hatch(), ui).selected(!fill_active))
+                .on_hover_text("Hatch")
+                .clicked()
+            {
+                editor.brush.hatch_apply_enabled = true;
+            }
+        });
+        ui.add_space(4.0);
+        if editor.brush.hatch_apply_enabled {
+            let sel_id = editor.selected_hatch_pattern_id.clone();
+            if let Some(pattern) = project.hatch_patterns.iter()
+                .find(|p| sel_id.as_deref() == Some(p.id.as_str()))
+            {
+                sidebar_tools::paint_hatch_thumbnail(
+                    ui, pattern, true, false,
+                    project.editor_preferences.theme,
+                    egui::vec2(40.0, 40.0),
+                );
+            } else {
+                ui.label("No pattern");
+            }
+        } else {
+            let color = project.palette.get_color(editor.brush.fill_color_index);
+            render_color_swatch(ui, color, 40.0, project.editor_preferences.theme);
+        }
         ui.add_space(4.0);
     } else if matches!(editor.tool, ToolKind::Eyedropper) {
         // Stroke color swatch
         let color = project.palette.get_color(editor.brush.color_index);
-        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+        render_color_swatch(ui, color, 40.0, project.editor_preferences.theme);
         ui.add_space(4.0);
     } else if matches!(editor.tool, ToolKind::Select) && !editor.selection.is_empty() {
         // Collapsed select tool: show selected element properties (compact)
@@ -155,9 +186,26 @@ fn show_collapsed(
                 ui.label(format!("{}", elem.stroke_width as u32));
             });
 
-            // Color swatch
+            // Stroke color swatch
             let color = project.palette.get_color(elem.stroke_color_index);
-            render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+            render_color_swatch(ui, color, 40.0, project.editor_preferences.theme);
+
+            // Fill color swatch (if element has a fill)
+            if elem.fill_color_index != 0 {
+                let fill_color = project.palette.get_color(elem.fill_color_index);
+                render_color_swatch(ui, fill_color, 40.0, project.editor_preferences.theme);
+            }
+
+            // Hatch thumbnail (if element has a hatch)
+            if let Some(hatch_id) = &elem.hatch_fill_id {
+                if let Some(pattern) = project.hatch_patterns.iter().find(|p| &p.id == hatch_id) {
+                    sidebar_tools::paint_hatch_thumbnail(
+                        ui, pattern, false, true,
+                        project.editor_preferences.theme,
+                        egui::vec2(40.0, 40.0),
+                    );
+                }
+            }
 
             ui.add_space(4.0);
         }
