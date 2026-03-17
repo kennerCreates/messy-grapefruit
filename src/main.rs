@@ -75,6 +75,7 @@ impl App {
         if let Some(defaults) = io::load_app_defaults() {
             project.palette = defaults.palette;
             project.editor_preferences = defaults.editor_preferences;
+            project.hatch_patterns = defaults.hatch_patterns;
         }
         theme::apply_theme(&cc.egui_ctx, &project);
         let sprite = Sprite::new("Untitled", 256, 256);
@@ -270,13 +271,13 @@ impl App {
             }
             action::AppAction::AddHatchPattern(pattern) => {
                 self.project.hatch_patterns.push(pattern);
-                // Project-level, no sprite undo
+                io::save_app_defaults(&self.project);
             }
             action::AppAction::UpdateHatchPattern(pattern) => {
                 if let Some(p) = self.project.hatch_patterns.iter_mut().find(|p| p.id == pattern.id) {
                     *p = pattern;
                 }
-                // Project-level, no sprite undo
+                io::save_app_defaults(&self.project);
             }
             action::AppAction::DeleteHatchPattern(id) => {
                 self.project.hatch_patterns.retain(|p| p.id != id);
@@ -289,6 +290,7 @@ impl App {
                     }
                 }
                 self.history.push("Delete hatch pattern".into(), before, self.sprite.clone());
+                io::save_app_defaults(&self.project);
             }
             action::AppAction::ImportHatchPatterns(patterns) => {
                 for pattern in patterns {
@@ -297,7 +299,7 @@ impl App {
                         self.project.hatch_patterns.push(pattern);
                     }
                 }
-                // Project-level, no sprite undo
+                io::save_app_defaults(&self.project);
             }
         }
     }

@@ -264,7 +264,7 @@ fn show_expanded(
             sidebar_tools::show_line_tool_options(ui, editor, sprite, project);
         }
         ToolKind::Select => {
-            sidebar_tools::show_select_tool_options(ui, editor, sprite, project, history);
+            sidebar_tools::show_select_tool_options(ui, editor, sprite, project, history, actions);
         }
         ToolKind::Fill => {
             sidebar_tools::show_fill_tool_options(ui, editor, project, actions);
@@ -280,6 +280,8 @@ fn show_expanded(
     // Hatch pattern editor (when open and fill tool is active)
     if editor.hatch_editor_open && editor.tool == ToolKind::Fill {
         sidebar_hatch::show_hatch_editor(ui, editor, project, sprite, actions);
+        // Persist pattern edits (name, angle, spacing, offset are mutated directly)
+        io::save_app_defaults(project);
     }
 
     if matches!(editor.tool, ToolKind::Eyedropper) {

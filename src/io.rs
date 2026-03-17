@@ -75,6 +75,8 @@ pub fn load_project(path: &Path) -> Result<Project, IoError> {
 pub struct AppDefaults {
     pub palette: Palette,
     pub editor_preferences: EditorPreferences,
+    #[serde(default)]
+    pub hatch_patterns: Vec<HatchPattern>,
 }
 
 fn defaults_path() -> Option<PathBuf> {
@@ -91,6 +93,7 @@ pub fn save_app_defaults(project: &Project) {
     let defaults = AppDefaults {
         palette: project.palette.clone(),
         editor_preferences: project.editor_preferences.clone(),
+        hatch_patterns: project.hatch_patterns.clone(),
     };
     if let Ok(json) = serde_json::to_string_pretty(&defaults) {
         let _ = std::fs::write(&path, json);

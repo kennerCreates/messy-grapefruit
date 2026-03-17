@@ -1,6 +1,6 @@
 use crate::action::AppAction;
-use crate::model::project::Project;
-use crate::model::sprite::{GradientAlignment, GradientStop, SpreadMethod, Sprite};
+use crate::model::project::{HatchPattern, Project};
+use crate::model::sprite::{GradientAlignment, GradientFill, GradientStop, SpreadMethod, Sprite};
 use crate::state::editor::{EditorState, FillMode};
 use crate::state::history::History;
 use crate::theme;
@@ -417,6 +417,7 @@ pub(super) fn show_select_tool_options(
     sprite: &mut Sprite,
     project: &mut Project,
     history: &mut History,
+    actions: &mut Vec<AppAction>,
 ) {
     if editor.selection.is_empty() {
         ui.label("Select Tool");
@@ -549,5 +550,166 @@ pub(super) fn show_select_tool_options(
             }
         });
         history.push_coalesced(desc.into(), before, sprite.clone());
+    }
+
+    // ── Fill & Hatch (only for closed elements) ──
+    let first_elem = sprite.layers.iter().flat_map(|l| &l.elements)
+        .find(|e| selected.iter().any(|id| id == &e.id));
+    let is_closed = first_elem.is_some_and(|e| e.closed);
+
+    if is_closed {
+        show_select_fill_section(ui, editor, sprite, project, history, actions, &selected);
+        show_select_hatch_section(ui, editor, sprite, project, history, actions, &selected);
+    }
+}
+
+/// Fill controls within the select tool sidebar.
+#[allow(clippy::too_many_arguments)]
+fn show_select_fill_section(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    sprite: &mut Sprite,
+    project: &mut Project,
+    history: &mut History,
+    actions: &mut Vec<AppAction>,
+    selected: &[String],
+) {
+    ui.add_space(4.0);
+    ui.separator();
+    ui.add_space(4.0);
+
+    // Read current fill state from first selected element
+    let first_elem = sprite.layers.iter().flat_map(|l| &l.elements)
+        .find(|e| selected.iter().any(|id| id == &e.id));
+    let (mut fill_idx, has_gradient) = match first_elem {
+        Some(e) => (e.fill_color_index, e.gradient_fill.is_some()),
+        None => return,
+    };
+
+    if has_gradient {
+        ui.label("Gradient fill active");
+        if ui.button("Clear Gradient").clicked() {
+            for id in selected {
+                actions.push(AppAction::ClearGradientFill { element_id: id.clone() });
+            }
+        }
+    } else {
+        ui.label("Fill");
+        ui.add_space(2.0);
+
+        // Fill color palette
+        if let Some(new_idx) = render_color_palette(
+            ui, &project.palette.colors, fill_idx, project.editor_preferences.theme,
+        ) {
+            fill_idx = new_idx;
+            let before = sprite.clone();
+            crate::engine::transform::for_selected_elements_mut(sprite, selected, |element| {
+                element.fill_color_index = fill_idx;
+            });
+            history.push_coalesced("Edit fill color".into(), before, sprite.clone());
+            editor.track_recent_color(fill_idx);
+        }
+
+        ui.add_space(2.0);
+
+        // Quick gradient apply from brush settings
+        ui.horizontal(|ui| {
+            if ui.button("Linear Grad").clicked() {
+                let gf = GradientFill::linear(
+                    editor.brush.gradient_stops.clone(),
+                    editor.brush.gradient_angle,
+                );
+                for id in selected {
+                    actions.push(AppAction::SetGradientFill {
+                        element_id: id.clone(),
+                        gradient_fill: gf.clone(),
+                    });
+                }
+            }
+            if ui.button("Radial Grad").clicked() {
+                let gf = GradientFill::radial(
+                    editor.brush.gradient_stops.clone(),
+                    editor.brush.radial_center,
+                    editor.brush.radial_radius,
+                );
+                for id in selected {
+                    actions.push(AppAction::SetGradientFill {
+                        element_id: id.clone(),
+                        gradient_fill: gf.clone(),
+                    });
+                }
+            }
+        });
+    }
+}
+
+/// Hatch controls within the select tool sidebar.
+#[allow(clippy::too_many_arguments)]
+fn show_select_hatch_section(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    sprite: &Sprite,
+    _project: &mut Project,
+    _history: &mut History,
+    actions: &mut Vec<AppAction>,
+    selected: &[String],
+) {
+    ui.add_space(4.0);
+    ui.separator();
+    ui.add_space(4.0);
+
+    // Read current hatch state from first selected element
+    let first_elem = sprite.layers.iter().flat_map(|l| &l.elements)
+        .find(|e| selected.iter().any(|id| id == &e.id));
+    let current_hatch_id = first_elem.and_then(|e| e.hatch_fill_id.as_deref());
+
+    ui.label("Hatch");
+    ui.add_space(2.0);
+
+    if let Some(hatch_id) = current_hatch_id {
+        // Show current hatch name
+        let pattern_name = _project.hatch_patterns.iter()
+            .find(|p| p.id == hatch_id)
+            .map(|p| p.name.as_str())
+            .unwrap_or("(unknown)");
+        ui.label(format!("Pattern: {pattern_name}"));
+
+        if ui.button("Remove Hatch").clicked() {
+            for id in selected {
+                actions.push(AppAction::ClearHatchFill { element_id: id.clone() });
+            }
+        }
+    }
+
+    ui.add_space(2.0);
+
+    // Pattern picker
+    if _project.hatch_patterns.is_empty() {
+        ui.label("No patterns");
+        if ui.button("+ New Pattern").clicked() {
+            let pattern = HatchPattern::new("Hatch");
+            editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+            actions.push(AppAction::AddHatchPattern(pattern));
+        }
+    } else {
+        for pattern in &_project.hatch_patterns {
+            let is_applied = current_hatch_id == Some(pattern.id.as_str());
+            let is_selected = editor.selected_hatch_pattern_id.as_deref() == Some(pattern.id.as_str());
+            let label = if is_applied {
+                format!("● {}", pattern.name)
+            } else {
+                pattern.name.clone()
+            };
+            if ui.selectable_label(is_selected, label).clicked() {
+                editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+                // Apply on click
+                for id in selected {
+                    actions.push(AppAction::SetHatchFill {
+                        element_id: id.clone(),
+                        hatch_fill_id: pattern.id.clone(),
+                    });
+                }
+            }
+        }
     }
 }
