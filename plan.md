@@ -560,20 +560,20 @@ src/
 │   ├── state/
 │   │   └── project.rs       (ProjectState, OpenSprite, tab management)    [Phase 15]
 │   ├── ui/
-│   │   ├── timeline.rs      (animation timeline, pose keyframes, playhead) [Phase 8]
+│   │   ├── timeline.rs      (animation timeline, pose keyframes, playhead) [Phase 7]
 │   │   ├── export_dialog.rs (export preview dialog with atlas image)       [Phase 14]
 │   │   ├── new_sprite_dialog.rs (new sprite creation dialog)               [Phase 15]
 │   │   └── project_overview.rs  (project dashboard with previews)          [Phase 15]
 │   ├── engine/
-│   │   ├── animation.rs     (pose interpolation, FK evaluation)            [Phase 8]
-│   │   ├── socket.rs        (socket chain transforms, cycle detection)     [Phase 10]
-│   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)           [Phase 12]
-│   │   ├── physics.rs       (spring simulation, gravity, wind)             [Phase 13]
-│   │   ├── constraints.rs   (look-at, volume preserve, procedural)         [Phase 13]
+│   │   ├── animation.rs     (pose interpolation, FK evaluation)            [Phase 7]
+│   │   ├── socket.rs        (socket chain transforms, cycle detection)     [Phase 9]
+│   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)           [Phase 11]
+│   │   ├── physics.rs       (spring simulation, gravity, wind)             [Phase 12]
+│   │   ├── constraints.rs   (look-at, volume preserve, procedural)         [Phase 12]
 │   │   └── hatch.rs         (hatch pattern generation, flow curves)        [Phase 6]
 │   └── export/
-│       ├── svg_gen.rs        (Sprite + time → SVG string)                  [Phase 7]
-│       ├── rasterize.rs      (SVG → PNG via resvg)                         [Phase 7]
+│       ├── svg_gen.rs        (Sprite + time → SVG string)                  [Phase 13]
+│       ├── rasterize.rs      (SVG → PNG via resvg)                         [Phase 13]
 │       ├── bone_export.rs    (element → part PNGs + animation RON)         [Phase 14]
 │       ├── ron_meta.rs       (Bevy-compatible RON metadata)                [Phase 14]
 │       ├── spritesheet.rs    (frame atlas packing)                         [Phase 14]
@@ -922,19 +922,7 @@ All planned features implemented. Key additions beyond the original plan:
 
 **Artist test:** Apply a linear gradient to a copper pot → create a wood-grain hatch pattern → apply with flow curve to a barrel → export pattern to another project.
 
-### Phase 7: Import & Basic Export — "I can get art in and out"
-
-**Icons needed:**
-- Import SVG, Export
-
-- Import SVG: parse `<path>` elements, scale modifier, stroke width normalization (1/2/4/8), CIELAB palette matching, preview before confirming
-- SVG generation (`svg_gen.rs`): Sprite → SVG string
-- PNG rasterization (`rasterize.rs`): SVG → PNG via resvg
-- Export preview dialog: atlas preview + settings (FPS, layout, trim, padding), adjust and re-preview
-
-**Artist test:** Import an Inkscape SVG → verify normalized strokes and palette matching → edit imported paths → export as PNG.
-
-### Phase 8: Animation Core — "I can animate my sprites"
+### Phase 7: Animation Core — "I can animate my sprites"
 
 **Icons needed:**
 - Player controls: play/pause, start over, skip backward, skip forward, loop toggle
@@ -951,7 +939,7 @@ All planned features implemented. Key additions beyond the original plan:
 
 **Artist test:** Create a 3-pose animation → play it back → verify smooth interpolation → create a second animation sequence → switch between them.
 
-### Phase 9: Animation Workflow — "I can animate efficiently"
+### Phase 8: Animation Workflow — "I can animate efficiently"
 
 **Icons needed:**
 - Auto-key toggle
@@ -971,7 +959,7 @@ All planned features implemented. Key additions beyond the original plan:
 
 **Artist test:** Enable auto-key → pose a walk cycle → mirror left-foot to right-foot → adjust easing curves → add "footstep" event markers → use onion skinning to verify flow.
 
-### Phase 10: Layer Sockets — "Child layers follow parent bones"
+### Phase 9: Layer Sockets — "Child layers follow parent bones"
 
 **Icons needed:**
 - Socket attach, socket detach
@@ -982,7 +970,7 @@ All planned features implemented. Key additions beyond the original plan:
 
 **Artist test:** Draw an arm → draw a weapon on another layer → socket weapon to hand vertex → animate arm → verify weapon follows → chain 3+ layers.
 
-### Phase 11: Skins — "I can create visual variants"
+### Phase 10: Skins — "I can create visual variants"
 
 **Icons needed:**
 - Skin: create, duplicate, delete
@@ -995,7 +983,7 @@ All planned features implemented. Key additions beyond the original plan:
 
 **Artist test:** Create a "red team" skin → override colors → switch between default and skin → export → verify separate atlases, shared animation.
 
-### Phase 12: Inverse Kinematics — "Limbs solve automatically"
+### Phase 11: Inverse Kinematics — "Limbs solve automatically"
 
 **Icons needed:**
 - IK chain, IK target (crosshair)
@@ -1010,7 +998,7 @@ All planned features implemented. Key additions beyond the original plan:
 
 **Artist test:** Set up arm IK chain → drag hand target → verify elbow solves → flip bend direction → animate IK target across poses → blend FK↔IK.
 
-### Phase 13: Constraints & Dynamics — "My sprites feel alive"
+### Phase 12: Constraints & Dynamics — "My sprites feel alive"
 
 **Icons needed:**
 - Quick-add: Breathing (lungs/wave), Sway (wind/curve), Jiggle (vibration), Eye Track (eye), Tail Follow (arc), Bounce (spring)
@@ -1026,6 +1014,18 @@ All planned features implemented. Key additions beyond the original plan:
 - Visual debug overlays, unit tests
 
 **Artist test:** Click "+ Sway" on hair → see it move immediately → adjust Bounciness → click "Try it" → add Breathing to torso → add Eye Track → play full animation.
+
+### Phase 13: Import & Basic Export — "I can get art in and out"
+
+**Icons needed:**
+- Import SVG, Export
+
+- Import SVG: parse `<path>` elements, scale modifier, stroke width normalization (1/2/4/8), CIELAB palette matching, preview before confirming
+- SVG generation (`svg_gen.rs`): Sprite → SVG string
+- PNG rasterization (`rasterize.rs`): SVG → PNG via resvg
+- Export preview dialog: atlas preview + settings (FPS, layout, trim, padding), adjust and re-preview
+
+**Artist test:** Import an Inkscape SVG → verify normalized strokes and palette matching → edit imported paths → export as PNG.
 
 ### Phase 14: Export Pipeline — "I can ship to Bevy"
 
@@ -1066,7 +1066,7 @@ All planned features implemented. Key additions beyond the original plan:
 ## Testing Strategy
 
 - **Unit tests on engine math**: IK solvers (law of cosines, FABRIK convergence, angle constraints, bend direction), spring integrator (convergence, energy conservation), angle wrapping (±π), Catmull-Rom → cubic bezier conversion, procedural waveform generators. These are pure functions — easy to test, high regression value.
-- **Visual debug overlays**: Toggleable canvas overlays that render bone chains, IK targets, constraint gizmos, and spring targets. Not automated, but essential for authoring and debugging procedural animation. Built during Phase 7.
+- **Visual debug overlays**: Toggleable canvas overlays that render bone chains, IK targets, constraint gizmos, and spring targets. Not automated, but essential for authoring and debugging procedural animation. Built during Phase 12.
 - **Round-trip save/load tests**: If serialization bugs appear, add targeted tests for `.sprite` / `.spriteproj` round-trips via serde.
 
 ---
