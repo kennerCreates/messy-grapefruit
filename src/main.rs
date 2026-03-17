@@ -268,26 +268,6 @@ impl App {
                 }
                 self.history.push("Clear hatch fill".into(), before, self.sprite.clone());
             }
-            action::AppAction::SetFlowCurve { element_id, flow_curve } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.hatch_flow_curve = Some(flow_curve.clone());
-                        }
-                    }
-                }
-                self.history.push("Set flow curve".into(), before, self.sprite.clone());
-            }
-            action::AppAction::ClearFlowCurve { element_id } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.hatch_flow_curve = None;
-                        }
-                    }
-                }
-                self.history.push("Clear flow curve".into(), before, self.sprite.clone());
-            }
             action::AppAction::AddHatchPattern(pattern) => {
                 self.project.hatch_patterns.push(pattern);
                 // Project-level, no sprite undo
@@ -305,7 +285,6 @@ impl App {
                     for elem in &mut layer.elements {
                         if elem.hatch_fill_id.as_deref() == Some(id.as_str()) {
                             elem.hatch_fill_id = None;
-                            elem.hatch_flow_curve = None;
                         }
                     }
                 }

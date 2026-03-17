@@ -181,15 +181,6 @@ impl GradientFill {
     }
 }
 
-/// Bezier control points for a hatch flow curve.
-/// Stored as a sequence of Vec2 positions forming cubic bezier segments
-/// (groups of 4: anchor, cp1, cp2, anchor).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FlowCurve {
-    pub control_points: Vec<Vec2>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PathVertex {
@@ -236,8 +227,6 @@ pub struct StrokeElement {
     pub gradient_fill: Option<GradientFill>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hatch_fill_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hatch_flow_curve: Option<FlowCurve>,
     /// Mask regions where hatch lines are suppressed.
     /// Each mask is a polygon (list of Vec2 points) in local element coordinates.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -261,7 +250,6 @@ impl StrokeElement {
             origin: Vec2::ZERO,
             gradient_fill: None,
             hatch_fill_id: None,
-            hatch_flow_curve: None,
             hatch_masks: Vec::new(),
         }
     }
@@ -564,7 +552,7 @@ mod tests {
         let elem: StrokeElement = serde_json::from_str(json).unwrap();
         assert!(elem.gradient_fill.is_none());
         assert!(elem.hatch_fill_id.is_none());
-        assert!(elem.hatch_flow_curve.is_none());
+        assert!(elem.hatch_fill_id.is_none());
         assert_eq!(elem.fill_color_index, 5);
     }
 

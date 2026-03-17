@@ -424,17 +424,6 @@ pub struct EditorState {
     pub selected_hatch_pattern_id: Option<String>,
     /// Whether the hatch pattern editor panel is visible.
     pub hatch_editor_open: bool,
-    /// Flow curve editing state (when editing control points on canvas).
-    pub editing_flow_curve: Option<FlowCurveEditState>,
-}
-
-/// State for on-canvas flow curve editing.
-#[derive(Debug, Clone)]
-pub struct FlowCurveEditState {
-    pub element_id: String,
-    pub dragging_cp_index: Option<usize>,
-    pub drag_start_world: Vec2,
-    pub initial_cp_pos: Vec2,
 }
 
 impl Default for EditorState {
@@ -473,7 +462,6 @@ impl Default for EditorState {
             dragging_ref_image: None,
             selected_hatch_pattern_id: None,
             hatch_editor_open: false,
-            editing_flow_curve: None,
         }
     }
 }

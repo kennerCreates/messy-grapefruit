@@ -144,7 +144,6 @@ fn make_child_element(parent: &StrokeElement, vertices: Vec<crate::model::sprite
     e.origin = parent.origin;
     e.gradient_fill = parent.gradient_fill.clone();
     e.hatch_fill_id = parent.hatch_fill_id.clone();
-    e.hatch_flow_curve = parent.hatch_flow_curve.clone();
     e.hatch_masks = parent.hatch_masks.clone();
     e
 }

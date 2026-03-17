@@ -565,15 +565,15 @@ src/
 │   │   ├── new_sprite_dialog.rs (new sprite creation dialog)               [Phase 15]
 │   │   └── project_overview.rs  (project dashboard with previews)          [Phase 15]
 │   ├── engine/
-│   │   ├── animation.rs     (pose interpolation, FK evaluation)            [Phase 7]
-│   │   ├── socket.rs        (socket chain transforms, cycle detection)     [Phase 9]
-│   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)           [Phase 11]
-│   │   ├── physics.rs       (spring simulation, gravity, wind)             [Phase 12]
-│   │   ├── constraints.rs   (look-at, volume preserve, procedural)         [Phase 12]
+│   │   ├── animation.rs     (pose interpolation, FK evaluation)            [Phase 8]
+│   │   ├── socket.rs        (socket chain transforms, cycle detection)     [Phase 10]
+│   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)           [Phase 12]
+│   │   ├── physics.rs       (spring simulation, gravity, wind)             [Phase 13]
+│   │   ├── constraints.rs   (look-at, volume preserve, procedural)         [Phase 13]
 │   │   └── hatch.rs         (hatch pattern generation, flow curves)        [Phase 6]
 │   └── export/
-│       ├── svg_gen.rs        (Sprite + time → SVG string)                  [Phase 13]
-│       ├── rasterize.rs      (SVG → PNG via resvg)                         [Phase 13]
+│       ├── svg_gen.rs        (Sprite + time → SVG string)                  [Phase 7]
+│       ├── rasterize.rs      (SVG → PNG via resvg)                         [Phase 7]
 │       ├── bone_export.rs    (element → part PNGs + animation RON)         [Phase 14]
 │       ├── ron_meta.rs       (Bevy-compatible RON metadata)                [Phase 14]
 │       ├── spritesheet.rs    (frame atlas packing)                         [Phase 14]
@@ -1066,7 +1066,7 @@ All planned features implemented. Key additions beyond the original plan:
 ## Testing Strategy
 
 - **Unit tests on engine math**: IK solvers (law of cosines, FABRIK convergence, angle constraints, bend direction), spring integrator (convergence, energy conservation), angle wrapping (±π), Catmull-Rom → cubic bezier conversion, procedural waveform generators. These are pure functions — easy to test, high regression value.
-- **Visual debug overlays**: Toggleable canvas overlays that render bone chains, IK targets, constraint gizmos, and spring targets. Not automated, but essential for authoring and debugging procedural animation. Built during Phase 12.
+- **Visual debug overlays**: Toggleable canvas overlays that render bone chains, IK targets, constraint gizmos, and spring targets. Not automated, but essential for authoring and debugging procedural animation. Built during Phase 7.
 - **Round-trip save/load tests**: If serialization bugs appear, add targeted tests for `.sprite` / `.spriteproj` round-trips via serde.
 
 ---

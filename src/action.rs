@@ -1,5 +1,5 @@
 use crate::model::project::{HatchPattern, PaletteColor};
-use crate::model::sprite::{FlowCurve, GradientFill, StrokeElement};
+use crate::model::sprite::{GradientFill, StrokeElement};
 
 /// A single merge entry: replace one element with a merged version.
 pub struct MergeEntry {
@@ -73,15 +73,6 @@ pub enum AppAction {
     },
     /// Remove hatch fill from an element.
     ClearHatchFill {
-        element_id: String,
-    },
-    /// Set or update the flow curve on an element.
-    SetFlowCurve {
-        element_id: String,
-        flow_curve: FlowCurve,
-    },
-    /// Remove flow curve from an element.
-    ClearFlowCurve {
         element_id: String,
     },
     /// Add a new hatch pattern to the project library (project-level, no sprite undo).

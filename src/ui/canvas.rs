@@ -95,23 +95,6 @@ pub fn show_canvas(
         &project.hatch_patterns,
     );
 
-    // --- Flow curve rendering (if editing a hatched element with flow curve) ---
-    if let Some(ref fc_state) = editor.editing_flow_curve {
-        // Find the element being edited
-        if let Some(element) = sprite.layers.iter().flat_map(|l| &l.elements)
-            .find(|e| e.id == fc_state.element_id)
-        {
-            canvas_render::render_flow_curve(
-                &painter,
-                element,
-                &editor.viewport,
-                canvas_rect,
-                theme_mode,
-                fc_state.dragging_cp_index,
-            );
-        }
-    }
-
     // --- Symmetry axis rendering (always, if active) ---
     if editor.symmetry.active {
         canvas_render::render_symmetry_axis(
@@ -143,13 +126,8 @@ pub fn show_canvas(
         theme_mode,
     );
 
-    // --- Flow curve interaction (drag control points) ---
-    let flow_curve_consumed = handle_flow_curve_input(
-        &response, editor, sprite, canvas_rect, &mut actions,
-    );
-
     // --- Tool-specific: input, hit testing, preview ---
-    if !ref_image_consumed && !flow_curve_consumed { match editor.tool {
+    if !ref_image_consumed { match editor.tool {
         ToolKind::Select => {
             canvas_select::handle_select_tool(
                 &response,
@@ -224,104 +202,6 @@ pub fn show_canvas(
     render_selection_stack_popup(ui, editor, project);
 
     actions
-}
-
-/// Handle flow curve control point dragging.
-/// Returns true if the interaction was consumed (to prevent tool dispatch).
-fn handle_flow_curve_input(
-    response: &egui::Response,
-    editor: &mut EditorState,
-    sprite: &mut Sprite,
-    canvas_rect: egui::Rect,
-    actions: &mut Vec<AppAction>,
-) -> bool {
-    // Only active when editing a flow curve
-    let fc_state = match &editor.editing_flow_curve {
-        Some(s) => s.clone(),
-        None => return false,
-    };
-
-    let canvas_center = canvas_rect.center();
-
-    // Find the element
-    let element = match sprite.layers.iter().flat_map(|l| &l.elements)
-        .find(|e| e.id == fc_state.element_id)
-    {
-        Some(e) => e,
-        None => {
-            editor.editing_flow_curve = None;
-            return false;
-        }
-    };
-
-    // Start drag: click on a control point
-    if response.drag_started() {
-        if let Some(pointer_pos) = response.interact_pointer_pos() {
-            if let Some(cp_idx) = canvas_render::hit_test_flow_curve_cp(
-                pointer_pos, element, &editor.viewport, canvas_center, 10.0,
-            ) {
-                let cps = &element.hatch_flow_curve.as_ref().unwrap().control_points;
-                editor.editing_flow_curve = Some(crate::state::editor::FlowCurveEditState {
-                    element_id: fc_state.element_id.clone(),
-                    dragging_cp_index: Some(cp_idx),
-                    drag_start_world: editor.viewport.screen_to_world(pointer_pos, canvas_center),
-                    initial_cp_pos: cps[cp_idx],
-                });
-                return true;
-            }
-        }
-    }
-
-    // Continue drag
-    if response.dragged() {
-        if let Some(cp_idx) = fc_state.dragging_cp_index {
-            if let Some(pointer_pos) = response.interact_pointer_pos() {
-                let current_world = editor.viewport.screen_to_world(pointer_pos, canvas_center);
-                let delta = current_world - fc_state.drag_start_world;
-                let new_pos = fc_state.initial_cp_pos + delta;
-
-                // Update the control point directly on the sprite for live preview
-                for layer in &mut sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == fc_state.element_id {
-                            if let Some(ref mut fc) = elem.hatch_flow_curve {
-                                if cp_idx < fc.control_points.len() {
-                                    fc.control_points[cp_idx] = new_pos;
-                                }
-                            }
-                        }
-                    }
-                }
-                return true;
-            }
-        }
-    }
-
-    // End drag: commit the change via action for undo tracking
-    if response.drag_stopped() {
-        if fc_state.dragging_cp_index.is_some() {
-            // Read the current flow curve state and commit it
-            if let Some(element) = sprite.layers.iter().flat_map(|l| &l.elements)
-                .find(|e| e.id == fc_state.element_id)
-            {
-                if let Some(ref fc) = element.hatch_flow_curve {
-                    actions.push(AppAction::SetFlowCurve {
-                        element_id: fc_state.element_id.clone(),
-                        flow_curve: fc.clone(),
-                    });
-                }
-            }
-            editor.editing_flow_curve = Some(crate::state::editor::FlowCurveEditState {
-                element_id: fc_state.element_id.clone(),
-                dragging_cp_index: None,
-                drag_start_world: Vec2::ZERO,
-                initial_cp_pos: Vec2::ZERO,
-            });
-            return true;
-        }
-    }
-
-    false
 }
 
 /// Render the selection stack popup as a floating area.

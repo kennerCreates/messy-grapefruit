@@ -140,7 +140,6 @@ pub fn try_join_symmetric(
         m.fill_color_index = element.fill_color_index;
         m.gradient_fill = element.gradient_fill.as_ref().map(|g| mirror_gradient(g, axis));
         m.hatch_fill_id = element.hatch_fill_id.clone();
-        m.hatch_flow_curve = element.hatch_flow_curve.clone();
         m.hatch_masks = element.hatch_masks.clone();
         crate::math::recompute_auto_curves(&mut m.vertices, m.closed, m.curve_mode, min_corner_radius);
         return SymmetryResult::Separate(vec![m]);
@@ -154,7 +153,6 @@ pub fn try_join_symmetric(
         m.fill_color_index = element.fill_color_index;
         m.gradient_fill = element.gradient_fill.as_ref().map(|g| mirror_gradient(g, axis));
         m.hatch_fill_id = element.hatch_fill_id.clone();
-        m.hatch_flow_curve = element.hatch_flow_curve.clone();
         m.hatch_masks = element.hatch_masks.clone();
         crate::math::recompute_auto_curves(&mut m.vertices, m.closed, m.curve_mode, min_corner_radius);
         return SymmetryResult::Separate(vec![m]);
@@ -219,7 +217,6 @@ pub fn try_join_symmetric(
     result.fill_color_index = element.fill_color_index;
     result.gradient_fill = element.gradient_fill.clone();
     result.hatch_fill_id = element.hatch_fill_id.clone();
-    result.hatch_flow_curve = element.hatch_flow_curve.clone();
     result.hatch_masks = element.hatch_masks.clone();
     crate::math::recompute_auto_curves(&mut result.vertices, result.closed, result.curve_mode, min_corner_radius);
     SymmetryResult::Joined(result)

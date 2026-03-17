@@ -49,51 +49,51 @@ pub(super) fn handle_fill_tool(
 
         match hit {
             Some((element_id, true)) => {
-                // Apply fill color (flat or gradient)
-                match editor.brush.fill_mode {
-                    FillMode::Flat => {
-                        actions.push(AppAction::SetFillColor {
-                            element_id: element_id.clone(),
-                            fill_color_index: editor.brush.fill_color_index,
-                        });
-                        editor.track_recent_color(editor.brush.fill_color_index);
-                    }
-                    FillMode::LinearGradient => {
-                        let mut gf = GradientFill::linear(
-                            editor.brush.gradient_stops.clone(),
-                            editor.brush.gradient_angle,
-                        );
-                        gf.spread = editor.brush.gradient_spread;
-                        gf.midpoints = editor.brush.gradient_midpoints.clone();
-                        actions.push(AppAction::SetGradientFill {
-                            element_id: element_id.clone(),
-                            gradient_fill: gf,
+                if editor.brush.hatch_apply_enabled {
+                    // Hatch-only mode: apply hatch without changing fill
+                    if let Some(ref pattern_id) = editor.selected_hatch_pattern_id {
+                        actions.push(AppAction::SetHatchFill {
+                            element_id,
+                            hatch_fill_id: pattern_id.clone(),
                         });
                     }
-                    FillMode::RadialGradient => {
-                        let mut gf = GradientFill::radial(
-                            editor.brush.gradient_stops.clone(),
-                            editor.brush.radial_center,
-                            editor.brush.radial_radius,
-                        );
-                        gf.spread = editor.brush.gradient_spread;
-                        gf.midpoints = editor.brush.gradient_midpoints.clone();
-                        gf.focal_offset = Some(editor.brush.radial_focal_offset);
-                        actions.push(AppAction::SetGradientFill {
-                            element_id: element_id.clone(),
-                            gradient_fill: gf,
-                        });
+                } else {
+                    // Apply fill color (flat or gradient)
+                    match editor.brush.fill_mode {
+                        FillMode::Flat => {
+                            actions.push(AppAction::SetFillColor {
+                                element_id: element_id.clone(),
+                                fill_color_index: editor.brush.fill_color_index,
+                            });
+                            editor.track_recent_color(editor.brush.fill_color_index);
+                        }
+                        FillMode::LinearGradient => {
+                            let mut gf = GradientFill::linear(
+                                editor.brush.gradient_stops.clone(),
+                                editor.brush.gradient_angle,
+                            );
+                            gf.spread = editor.brush.gradient_spread;
+                            gf.midpoints = editor.brush.gradient_midpoints.clone();
+                            actions.push(AppAction::SetGradientFill {
+                                element_id: element_id.clone(),
+                                gradient_fill: gf,
+                            });
+                        }
+                        FillMode::RadialGradient => {
+                            let mut gf = GradientFill::radial(
+                                editor.brush.gradient_stops.clone(),
+                                editor.brush.radial_center,
+                                editor.brush.radial_radius,
+                            );
+                            gf.spread = editor.brush.gradient_spread;
+                            gf.midpoints = editor.brush.gradient_midpoints.clone();
+                            gf.focal_offset = Some(editor.brush.radial_focal_offset);
+                            actions.push(AppAction::SetGradientFill {
+                                element_id: element_id.clone(),
+                                gradient_fill: gf,
+                            });
+                        }
                     }
-                }
-
-                // Also apply hatch if enabled
-                if editor.brush.hatch_apply_enabled
-                    && let Some(ref pattern_id) = editor.selected_hatch_pattern_id
-                {
-                    actions.push(AppAction::SetHatchFill {
-                        element_id,
-                        hatch_fill_id: pattern_id.clone(),
-                    });
                 }
             }
             Some((_, false)) => {

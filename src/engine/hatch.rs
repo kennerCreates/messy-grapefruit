@@ -1,5 +1,5 @@
 use crate::model::project::HatchPattern;
-use crate::model::sprite::{FlowCurve, StrokeElement};
+use crate::model::sprite::StrokeElement;
 use crate::model::vec2::Vec2;
 
 /// Output data for rendering one hatch layer.
@@ -170,11 +170,10 @@ fn segment_is_masked(a: Vec2, b: Vec2, masks: &[Vec<Vec2>]) -> bool {
     masks.iter().any(|mask| point_in_polygon(mid, mask))
 }
 
-/// Generate full hatch fill data for an element given a pattern and optional flow curve.
+/// Generate full hatch fill data for an element given a pattern.
 pub fn generate_element_hatch(
     element: &StrokeElement,
     pattern: &HatchPattern,
-    flow_curve: Option<&FlowCurve>,
 ) -> Vec<HatchRenderData> {
     let polygon = build_element_polygon(element);
     if polygon.len() < 3 {
@@ -192,123 +191,16 @@ pub fn generate_element_hatch(
         );
 
         // Filter out segments whose midpoints fall inside mask polygons
-        let filtered_pairs: Vec<(Vec2, Vec2)> = line_pairs
+        let segments: Vec<Vec<Vec2>> = line_pairs
             .into_iter()
             .filter(|(a, b)| !segment_is_masked(*a, *b, &element.hatch_masks))
+            .map(|(a, b)| vec![a, b])
             .collect();
-
-        let segments: Vec<Vec<Vec2>> = if let Some(curve) = flow_curve {
-            warp_hatch_lines(&filtered_pairs, curve, &polygon)
-        } else {
-            filtered_pairs.into_iter().map(|(a, b)| vec![a, b]).collect()
-        };
 
         result.push(HatchRenderData { segments });
     }
 
     result
-}
-
-/// Warp hatch lines according to a flow curve using spine-perpendicular mapping.
-///
-/// The flow curve acts as a "spine". Hatch lines are mapped as cross-sections
-/// perpendicular to the spine, producing wood-grain-like warping.
-pub fn warp_hatch_lines(
-    lines: &[(Vec2, Vec2)],
-    flow_curve: &FlowCurve,
-    polygon: &[Vec2],
-) -> Vec<Vec<Vec2>> {
-    use crate::math::{cubic_bezier_eval, approximate_bezier_length};
-
-    let cps = &flow_curve.control_points;
-    if cps.len() < 4 {
-        // Not enough control points — return unwarped
-        return lines.iter().map(|(a, b)| vec![*a, *b]).collect();
-    }
-
-    // Compute polygon AABB for normalization
-    let (bbox_min, bbox_max) = polygon_bounds(polygon);
-    let bbox_height = bbox_max.y - bbox_min.y;
-    let bbox_width = bbox_max.x - bbox_min.x;
-    if bbox_height < 0.01 || bbox_width < 0.01 {
-        return lines.iter().map(|(a, b)| vec![*a, *b]).collect();
-    }
-
-    // Sample the flow curve at N evenly-spaced points
-    let (p0, cp1, cp2, p3) = (cps[0], cps[1], cps[2], cps[3]);
-    let n_samples = 32usize;
-    let total_len = approximate_bezier_length(p0, cp1, cp2, p3, 64);
-    if total_len < 0.01 {
-        return lines.iter().map(|(a, b)| vec![*a, *b]).collect();
-    }
-
-    // Build sample table: (position, tangent, cumulative_length)
-    let mut samples: Vec<(Vec2, Vec2, f32)> = Vec::with_capacity(n_samples + 1);
-    let mut cum_len = 0.0;
-    let mut prev_pos = cubic_bezier_eval(p0, cp1, cp2, p3, 0.0);
-    for i in 0..=n_samples {
-        let t = i as f32 / n_samples as f32;
-        let pos = cubic_bezier_eval(p0, cp1, cp2, p3, t);
-        let dt = 0.001;
-        let pos_dt = cubic_bezier_eval(p0, cp1, cp2, p3, (t + dt).min(1.0));
-        let tangent = (pos_dt - pos).normalized();
-        if i > 0 {
-            cum_len += pos.distance(prev_pos);
-        }
-        samples.push((pos, tangent, cum_len));
-        prev_pos = pos;
-    }
-
-    let mut result = Vec::with_capacity(lines.len());
-    let subdivisions = 8;
-
-    for (line_a, line_b) in lines {
-        let mut warped_points = Vec::with_capacity(subdivisions + 1);
-
-        for step in 0..=subdivisions {
-            let frac = step as f32 / subdivisions as f32;
-            let orig = line_a.lerp(*line_b, frac);
-
-            // Find the nearest sample on the curve
-            let mut best_idx = 0;
-            let mut best_dist = f32::MAX;
-            for (idx, (spos, _, _)) in samples.iter().enumerate() {
-                let d = orig.distance(*spos);
-                if d < best_dist {
-                    best_dist = d;
-                    best_idx = idx;
-                }
-            }
-
-            let (spine_pos, tangent, _) = samples[best_idx];
-            let normal = Vec2::new(-tangent.y, tangent.x);
-
-            // Project the original point relative to the spine
-            let offset_from_spine = orig - spine_pos;
-            let perp_dist = offset_from_spine.dot(normal);
-            let along_dist = offset_from_spine.dot(tangent);
-
-            // Reconstruct with the warped tangent direction
-            let warped = spine_pos + tangent * along_dist + normal * perp_dist;
-            warped_points.push(warped);
-        }
-
-        result.push(warped_points);
-    }
-
-    result
-}
-
-fn polygon_bounds(polygon: &[Vec2]) -> (Vec2, Vec2) {
-    let mut min = Vec2::new(f32::MAX, f32::MAX);
-    let mut max = Vec2::new(f32::MIN, f32::MIN);
-    for p in polygon {
-        min.x = min.x.min(p.x);
-        min.y = min.y.min(p.y);
-        max.x = max.x.max(p.x);
-        max.y = max.y.max(p.y);
-    }
-    (min, max)
 }
 
 #[cfg(test)]
@@ -383,48 +275,4 @@ mod tests {
         assert!(lines.is_empty(), "Spacing below 0.1 should produce no lines");
     }
 
-    #[test]
-    fn test_warp_produces_output() {
-        let poly = square_polygon();
-        let lines = generate_hatch_lines(&poly, 0.0, 20.0, 0.0);
-        assert!(!lines.is_empty());
-        // Straight horizontal flow curve through center
-        let flow = FlowCurve {
-            control_points: vec![
-                Vec2::new(0.0, 50.0),
-                Vec2::new(33.0, 50.0),
-                Vec2::new(66.0, 50.0),
-                Vec2::new(100.0, 50.0),
-            ],
-        };
-        let warped = warp_hatch_lines(&lines, &flow, &poly);
-        assert_eq!(warped.len(), lines.len());
-        // Each warped line should have multiple points (subdivided)
-        for w in &warped {
-            assert!(w.len() >= 2, "Warped line should have at least 2 points");
-        }
-    }
-
-    #[test]
-    fn test_warp_curved_produces_output() {
-        let poly = square_polygon();
-        // Use vertical lines so they cross the horizontal spine at different points
-        let lines = generate_hatch_lines(&poly, 90.0, 25.0, 0.0);
-        assert!(!lines.is_empty());
-
-        // Curved flow curve (bowed upward)
-        let flow = FlowCurve {
-            control_points: vec![
-                Vec2::new(0.0, 50.0),
-                Vec2::new(33.0, 10.0),
-                Vec2::new(66.0, 10.0),
-                Vec2::new(100.0, 50.0),
-            ],
-        };
-        let warped = warp_hatch_lines(&lines, &flow, &poly);
-        assert_eq!(warped.len(), lines.len());
-        for w in &warped {
-            assert!(w.len() >= 2);
-        }
-    }
 }
