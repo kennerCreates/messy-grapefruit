@@ -251,8 +251,10 @@ fn render_filled_path(
             }
         }
 
-        let triangles = ear_clip_triangulate(&deduped);
-        if !triangles.is_empty() {
+        // Triangulate using earcutr (robust MapBox earcut port)
+        let coords: Vec<f64> = deduped.iter().flat_map(|p| [p.x as f64, p.y as f64]).collect();
+        let indices = earcutr::earcut(&coords, &[], 2).unwrap_or_default();
+        if !indices.is_empty() {
             let mut mesh = egui::Mesh::default();
             for &pt in &deduped {
                 mesh.vertices.push(egui::epaint::Vertex {
@@ -261,10 +263,8 @@ fn render_filled_path(
                     color: fill_color,
                 });
             }
-            for [a, b, c] in &triangles {
-                mesh.indices.push(*a as u32);
-                mesh.indices.push(*b as u32);
-                mesh.indices.push(*c as u32);
+            for idx in &indices {
+                mesh.indices.push(*idx as u32);
             }
             painter.add(egui::Shape::mesh(mesh));
         }
@@ -279,100 +279,6 @@ fn render_filled_path(
     }));
 }
 
-/// Ear-clipping polygon triangulation for simple (non-self-intersecting) polygons.
-/// Returns triangle index triples. Works for both convex and concave polygons.
-/// Uses epsilon tolerance to handle near-collinear points from curve flattening.
-fn ear_clip_triangulate(points: &[Pos2]) -> Vec<[usize; 3]> {
-    let n = points.len();
-    if n < 3 {
-        return vec![];
-    }
-
-    let mut indices: Vec<usize> = (0..n).collect();
-    let mut triangles = Vec::with_capacity(n - 2);
-
-    // Determine winding direction
-    let ccw = signed_polygon_area(points) > 0.0;
-
-    // Epsilon for convexity check — near-collinear points (from curve flattening)
-    // should be treated as convex so they can be clipped.
-    let convex_eps = 1e-2;
-
-    let mut safety = n * n;
-    while indices.len() > 2 && safety > 0 {
-        safety -= 1;
-        let len = indices.len();
-        let mut found_ear = false;
-
-        for i in 0..len {
-            let prev = indices[(i + len - 1) % len];
-            let curr = indices[i];
-            let next = indices[(i + 1) % len];
-
-            let a = points[prev];
-            let b = points[curr];
-            let c = points[next];
-
-            // Check if this vertex forms a convex (or collinear) angle
-            let cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-            let is_convex = if ccw { cross > -convex_eps } else { cross < convex_eps };
-            if !is_convex {
-                continue;
-            }
-
-            // Check no other vertex lies strictly inside this triangle
-            let has_point_inside = indices.iter().any(|&idx| {
-                idx != prev && idx != curr && idx != next
-                    && point_in_triangle_strict(points[idx], a, b, c)
-            });
-            if has_point_inside {
-                continue;
-            }
-
-            // Clip this ear
-            triangles.push([prev, curr, next]);
-            indices.remove(i);
-            found_ear = true;
-            break;
-        }
-
-        if !found_ear {
-            break;
-        }
-    }
-
-    triangles
-}
-
-/// Signed area of a polygon (positive = CCW, negative = CW).
-fn signed_polygon_area(points: &[Pos2]) -> f32 {
-    let n = points.len();
-    let mut area = 0.0;
-    for i in 0..n {
-        let j = (i + 1) % n;
-        area += points[i].x * points[j].y;
-        area -= points[j].x * points[i].y;
-    }
-    area * 0.5
-}
-
-/// Check if point p is strictly inside triangle (a, b, c).
-/// Points on the edge are NOT considered inside — this prevents
-/// near-collinear curve points from blocking ear clipping.
-fn point_in_triangle_strict(p: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {
-    let d1 = tri_sign(p, a, b);
-    let d2 = tri_sign(p, b, c);
-    let d3 = tri_sign(p, c, a);
-    // Require all signs to be strictly same-sign (with tolerance for edge points)
-    let eps = 0.1; // screen pixels
-    let has_neg = d1 < -eps || d2 < -eps || d3 < -eps;
-    let has_pos = d1 > eps || d2 > eps || d3 > eps;
-    has_neg != has_pos
-}
-
-fn tri_sign(p1: Pos2, p2: Pos2, p3: Pos2) -> f32 {
-    (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y)
-}
 
 /// Render hover highlight for an element.
 pub fn render_hover_highlight(
