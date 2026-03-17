@@ -355,28 +355,22 @@ fn build_merge_actions(
             }
 
             if let Some(mirror_existing) = layer.elements.iter().find(|e| e.id == mirror_target.element_id) {
-                // Mirror the new stroke vertices
-                let mirrored_verts = symmetry::mirror_vertices(new_vertices, axis, axis_pos);
+                // Mirror vertex positions without reversing order — the merge logic
+                // handles vertex ordering via the endpoint designations.
+                let mirrored_verts = symmetry::mirror_vertices_in_place(new_vertices, axis, axis_pos);
 
-                // The mirrored new_end is the same (start stays start, end stays end)
-                // but the mirrored vertices are already reversed by mirror_vertices,
-                // so we need to flip the end designation.
-                let mirrored_new_end = match new_end {
-                    merge::VertexEnd::Start => merge::VertexEnd::End,
-                    merge::VertexEnd::End => merge::VertexEnd::Start,
-                };
-
+                // new_end stays the same: if the primary's start was the merge point,
+                // the mirrored start (same index) is the merge point too.
                 let mut mirror_merged = merge::merge_elements(
                     mirror_existing,
                     mirror_target.end,
                     &mirrored_verts,
-                    mirrored_new_end,
+                    new_end,
                     mirror_existing.stroke_width,
                     mirror_existing.stroke_color_index,
                     mirror_existing.curve_mode,
                     project.min_corner_radius,
                 );
-                // Recompute curves
                 math::recompute_auto_curves(
                     &mut mirror_merged.vertices,
                     mirror_merged.closed,

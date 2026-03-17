@@ -94,7 +94,8 @@ pub fn merge_elements(
         }
         (VertexEnd::Start, VertexEnd::Start) => {
             // new [...] -> existing [...]  (new stroke starts at existing's start)
-            merged_verts.extend(new_vertices.iter().rev().skip(1).cloned());
+            // new[0] overlaps with existing[0] — skip new[0], then reverse the rest
+            merged_verts.extend(new_vertices.iter().skip(1).rev().cloned());
             merged_verts.extend(existing.vertices.iter().cloned());
         }
     }

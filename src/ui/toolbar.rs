@@ -193,17 +193,34 @@ pub fn show_toolbar(
                 crate::state::editor::SymmetryAxis::Horizontal => icons::symmetry_horizontal(),
                 crate::state::editor::SymmetryAxis::Both => icons::symmetry_both(),
             };
+            let hover_text = if !editor.symmetry.active {
+                "Symmetry: Off (S)"
+            } else {
+                match editor.symmetry.axis {
+                    crate::state::editor::SymmetryAxis::Vertical => "Symmetry: Vertical (S)",
+                    crate::state::editor::SymmetryAxis::Horizontal => "Symmetry: Horizontal (S)",
+                    crate::state::editor::SymmetryAxis::Both => "Symmetry: Both (S)",
+                }
+            };
             if ui
                 .add(icons::icon_button(sym_icon, ui).selected(editor.symmetry.active))
-                .on_hover_text("Symmetry (S)")
+                .on_hover_text(hover_text)
                 .clicked()
             {
-                editor.symmetry.active = !editor.symmetry.active;
-                if editor.symmetry.active {
+                use crate::state::editor::SymmetryAxis;
+                if !editor.symmetry.active {
+                    editor.symmetry.active = true;
+                    editor.symmetry.axis = SymmetryAxis::Vertical;
                     editor.symmetry.axis_position = crate::model::vec2::Vec2::new(
                         sprite.canvas_width as f32 / 2.0,
                         sprite.canvas_height as f32 / 2.0,
                     );
+                } else {
+                    match editor.symmetry.axis {
+                        SymmetryAxis::Vertical => editor.symmetry.axis = SymmetryAxis::Horizontal,
+                        SymmetryAxis::Horizontal => editor.symmetry.axis = SymmetryAxis::Both,
+                        SymmetryAxis::Both => editor.symmetry.active = false,
+                    }
                 }
             }
         }
