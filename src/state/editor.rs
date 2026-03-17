@@ -318,23 +318,6 @@ impl Default for BrushState {
     }
 }
 
-/// What kind of gradient drag is in progress on the canvas.
-#[derive(Debug, Clone)]
-pub enum GradientDragKind {
-    /// Dragging to define gradient start/end line on canvas.
-    DefineLine {
-        element_id: String,
-        start_world: Vec2,
-    },
-}
-
-/// Active gradient drag state on the canvas.
-#[derive(Debug, Clone)]
-pub struct GradientDragState {
-    pub kind: GradientDragKind,
-    /// Whether angle snapping is active (true by default, Alt disables).
-    pub snap_active: bool,
-}
 
 /// Drag-reorder state for a layer being dragged in the layer panel.
 #[derive(Debug, Clone)]
@@ -443,8 +426,6 @@ pub struct EditorState {
     pub hatch_editor_open: bool,
     /// Flow curve editing state (when editing control points on canvas).
     pub editing_flow_curve: Option<FlowCurveEditState>,
-    /// Active gradient drag state (on-canvas gradient line placement).
-    pub gradient_drag: Option<GradientDragState>,
 }
 
 /// State for on-canvas flow curve editing.
@@ -493,7 +474,6 @@ impl Default for EditorState {
             selected_hatch_pattern_id: None,
             hatch_editor_open: false,
             editing_flow_curve: None,
-            gradient_drag: None,
         }
     }
 }

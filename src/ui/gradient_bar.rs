@@ -15,6 +15,8 @@ const MIDPOINT_AREA_HEIGHT: f32 = 10.0;
 const STOP_HANDLE_SIZE: f32 = 8.0;
 /// Size of midpoint handle diamonds.
 const MIDPOINT_HANDLE_SIZE: f32 = 6.0;
+/// Hit radius for midpoint handles (larger than visual size for easier targeting).
+const MIDPOINT_HIT_RADIUS: f32 = 10.0;
 /// Vertical distance to drag a stop off the bar to delete it.
 const DELETE_DRAG_THRESHOLD: f32 = 30.0;
 
@@ -103,29 +105,36 @@ pub(super) fn render_gradient_bar(
     // === INTERACTION PHASE (mutable access) ===
     let pointer_pos = response.interact_pointer_pos();
 
-    // Click to select stop or add new stop
+    // Click to select stop or add new stop (but not if we hit a midpoint)
     if response.clicked()
         && let Some(pos) = pointer_pos
     {
-        let hit_stop = hit_test_stop(pos, &editor.brush.gradient_stops, bar_rect, stop_area_top);
-        if let Some(hit_idx) = hit_stop {
-            editor.brush.selected_stop_index = Some(hit_idx);
-        } else if pos.y >= bar_rect.min.y && pos.y <= stop_area_top + HANDLE_AREA_HEIGHT {
-            let t = ((pos.x - bar_rect.min.x) / bar_rect.width()).clamp(0.0, 1.0);
-            let nearest_color = nearest_stop_color(t, &editor.brush.gradient_stops);
-            let new_stop = GradientStop { position: t, color_index: nearest_color };
-            editor.brush.gradient_stops.push(new_stop);
-            editor.brush.gradient_stops.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap());
-            editor.brush.gradient_midpoints.resize(
-                editor.brush.gradient_stops.len().saturating_sub(1), 0.5,
-            );
-            editor.brush.selected_stop_index = editor.brush.gradient_stops
-                .iter().position(|s| (s.position - t).abs() < 0.001);
-            changed = true;
+        // Check midpoint first — clicking a midpoint shouldn't add a stop
+        let hit_mid = hit_test_midpoint(
+            pos, &editor.brush.gradient_stops, &editor.brush.gradient_midpoints,
+            bar_rect, midpoint_area_top,
+        );
+        if hit_mid.is_none() {
+            let hit_stop = hit_test_stop(pos, &editor.brush.gradient_stops, bar_rect, stop_area_top);
+            if let Some(hit_idx) = hit_stop {
+                editor.brush.selected_stop_index = Some(hit_idx);
+            } else if pos.y >= bar_rect.min.y && pos.y <= stop_area_top + HANDLE_AREA_HEIGHT {
+                let t = ((pos.x - bar_rect.min.x) / bar_rect.width()).clamp(0.0, 1.0);
+                let nearest_color = nearest_stop_color(t, &editor.brush.gradient_stops);
+                let new_stop = GradientStop { position: t, color_index: nearest_color };
+                editor.brush.gradient_stops.push(new_stop);
+                editor.brush.gradient_stops.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap());
+                editor.brush.gradient_midpoints.resize(
+                    editor.brush.gradient_stops.len().saturating_sub(1), 0.5,
+                );
+                editor.brush.selected_stop_index = editor.brush.gradient_stops
+                    .iter().position(|s| (s.position - t).abs() < 0.001);
+                changed = true;
+            }
         }
     }
 
-    // Drag start
+    // Drag start — check stops then midpoints
     if response.drag_started()
         && let Some(pos) = pointer_pos
     {
@@ -140,8 +149,28 @@ pub(super) fn render_gradient_bar(
         }
     }
 
-    // Drag update
-    if response.dragged()
+    // Also detect midpoint interaction on pointer-down (before drag threshold is met).
+    // This ensures midpoints respond immediately without requiring movement past egui's drag threshold.
+    if response.is_pointer_button_down_on()
+        && let Some(pos) = pointer_pos
+    {
+        let drag_kind: Option<BarDrag> = ui.memory(|mem| mem.data.get_temp(response.id));
+        if drag_kind.is_none() {
+            // No drag established yet — try to detect midpoint on initial press
+            if let Some(hit_idx) = hit_test_midpoint(
+                pos, &editor.brush.gradient_stops, &editor.brush.gradient_midpoints,
+                bar_rect, midpoint_area_top,
+            ) {
+                ui.memory_mut(|mem| mem.data.insert_temp(response.id, BarDrag::Midpoint(hit_idx)));
+            } else if let Some(hit_idx) = hit_test_stop(pos, &editor.brush.gradient_stops, bar_rect, stop_area_top) {
+                editor.brush.selected_stop_index = Some(hit_idx);
+                ui.memory_mut(|mem| mem.data.insert_temp(response.id, BarDrag::Stop(hit_idx)));
+            }
+        }
+    }
+
+    // Drag update — applies to both stop and midpoint drags
+    if response.is_pointer_button_down_on()
         && let Some(pos) = pointer_pos
     {
         let drag_kind: Option<BarDrag> = ui.memory(|mem| mem.data.get_temp(response.id));
@@ -174,25 +203,37 @@ pub(super) fn render_gradient_bar(
         }
     }
 
-    // Drag end
-    if response.drag_stopped()
-        && let Some(pos) = pointer_pos
-    {
+    // Drag/interaction end — clean up on pointer release
+    let pointer_released = !response.is_pointer_button_down_on() && {
+        let has_drag: Option<BarDrag> = ui.memory(|mem| mem.data.get_temp(response.id));
+        has_drag.is_some()
+    };
+    if pointer_released {
         let drag_kind: Option<BarDrag> = ui.memory(|mem| mem.data.get_temp(response.id));
         if let Some(BarDrag::Stop(idx)) = drag_kind {
-            let dy = (pos.y - (stop_area_top + HANDLE_AREA_HEIGHT * 0.5)).abs();
-            if dy > DELETE_DRAG_THRESHOLD && editor.brush.gradient_stops.len() > 2
-                && idx < editor.brush.gradient_stops.len()
-            {
-                editor.brush.gradient_stops.remove(idx);
-                editor.brush.gradient_midpoints.resize(
-                    editor.brush.gradient_stops.len().saturating_sub(1), 0.5,
-                );
-                editor.brush.selected_stop_index = Some(
-                    idx.min(editor.brush.gradient_stops.len().saturating_sub(1)),
-                );
-                changed = true;
+            if let Some(pos) = pointer_pos {
+                let dy = (pos.y - (stop_area_top + HANDLE_AREA_HEIGHT * 0.5)).abs();
+                if dy > DELETE_DRAG_THRESHOLD && editor.brush.gradient_stops.len() > 2
+                    && idx < editor.brush.gradient_stops.len()
+                {
+                    editor.brush.gradient_stops.remove(idx);
+                    editor.brush.gradient_midpoints.resize(
+                        editor.brush.gradient_stops.len().saturating_sub(1), 0.5,
+                    );
+                    editor.brush.selected_stop_index = Some(
+                        idx.min(editor.brush.gradient_stops.len().saturating_sub(1)),
+                    );
+                    changed = true;
+                } else {
+                    let selected_pos = editor.brush.gradient_stops.get(idx).map(|s| s.position);
+                    editor.brush.gradient_stops.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap());
+                    if let Some(sp) = selected_pos {
+                        editor.brush.selected_stop_index = editor.brush.gradient_stops
+                            .iter().position(|s| (s.position - sp).abs() < 0.001);
+                    }
+                }
             } else {
+                // No pointer position — just re-sort
                 let selected_pos = editor.brush.gradient_stops.get(idx).map(|s| s.position);
                 editor.brush.gradient_stops.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap());
                 if let Some(sp) = selected_pos {
@@ -250,7 +291,7 @@ fn hit_test_midpoint(
             if *i + 1 >= stops.len() { return false; }
             let mp_pos = stops[*i].position + **mp * (stops[*i + 1].position - stops[*i].position);
             let x = bar_rect.min.x + mp_pos * bar_rect.width();
-            (pos.x - x).abs() < MIDPOINT_HANDLE_SIZE && (pos.y - y_center).abs() < MIDPOINT_HANDLE_SIZE
+            (pos.x - x).abs() < MIDPOINT_HIT_RADIUS && (pos.y - y_center).abs() < MIDPOINT_HIT_RADIUS
         })
         .map(|(i, _)| i)
 }

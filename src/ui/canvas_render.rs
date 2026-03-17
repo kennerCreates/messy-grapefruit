@@ -453,6 +453,70 @@ fn render_rounded_path(
     render_filled_path(painter, &screen_points, closed, stroke, fill_info);
 }
 
+/// Subdivide a triangle into a grid and add to the mesh with per-vertex gradient colors.
+/// Uses barycentric coordinates to generate a regular grid of points within the triangle,
+/// then triangulates the grid. Each vertex gets its gradient color sampled at its position.
+fn subdivide_triangle_gradient(
+    mesh: &mut egui::Mesh,
+    p0: Pos2,
+    p1: Pos2,
+    p2: Pos2,
+    subdivisions: u32,
+    fill_info: &FillInfo,
+) {
+    let n = subdivisions;
+    let base_idx = mesh.vertices.len() as u32;
+
+    // Generate grid vertices using barycentric coordinates.
+    // For each (i, j) where i+j <= n, the barycentric coords are (i/n, j/n, 1-i/n-j/n).
+    for i in 0..=n {
+        for j in 0..=(n - i) {
+            let u = i as f32 / n as f32;
+            let v = j as f32 / n as f32;
+            let w = 1.0 - u - v;
+            let pt = Pos2::new(
+                p0.x * w + p1.x * u + p2.x * v,
+                p0.y * w + p1.y * u + p2.y * v,
+            );
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: pt,
+                uv: egui::epaint::WHITE_UV,
+                color: gradient_color_at(pt, fill_info),
+            });
+        }
+    }
+
+    // Triangulate the grid. Vertices are laid out row by row:
+    // Row i has (n - i + 1) vertices, starting at offset sum(n-k+1, k=0..i-1).
+    let row_start = |i: u32| -> u32 {
+        // Sum of (n+1) + n + (n-1) + ... + (n-i+1) = i*(2n-i+3)/2... easier to compute iteratively
+        let mut s = 0u32;
+        for k in 0..i {
+            s += n - k + 1;
+        }
+        s
+    };
+
+    for i in 0..n {
+        let row_len = n - i + 1;
+        let r0 = row_start(i);
+        let r1 = row_start(i + 1);
+        for j in 0..(row_len - 1) {
+            // Upper triangle: (i,j), (i+1,j), (i,j+1)
+            mesh.indices.push(base_idx + r0 + j);
+            mesh.indices.push(base_idx + r1 + j);
+            mesh.indices.push(base_idx + r0 + j + 1);
+
+            // Lower triangle (if exists): (i+1,j), (i+1,j+1), (i,j+1)
+            if j + 1 < (n - i) {
+                mesh.indices.push(base_idx + r1 + j);
+                mesh.indices.push(base_idx + r1 + j + 1);
+                mesh.indices.push(base_idx + r0 + j + 1);
+            }
+        }
+    }
+}
+
 /// Render a polygon with proper fill (using ear-clipping triangulation for concave shapes)
 /// and stroke as separate shapes so the fill follows the curve geometry exactly.
 fn render_filled_path(
@@ -488,18 +552,37 @@ fn render_filled_path(
         let coords: Vec<f64> = deduped.iter().flat_map(|p| [p.x as f64, p.y as f64]).collect();
         let indices = earcutr::earcut(&coords, &[], 2).unwrap_or_default();
         if !indices.is_empty() {
-            let mut mesh = egui::Mesh::default();
-            for &pt in &deduped {
-                mesh.vertices.push(egui::epaint::Vertex {
-                    pos: pt,
-                    uv: egui::epaint::WHITE_UV,
-                    color: gradient_color_at(pt, fill_info),
-                });
+            let is_gradient = matches!(fill_info, FillInfo::Gradient { .. });
+
+            if is_gradient {
+                // For gradient fills, subdivide each triangle into a grid so that
+                // per-vertex gradient sampling produces accurate narrow transition bands.
+                // Without subdivision, GPU interpolation smooths across large triangles.
+                let subdivisions = 8_u32; // 8x8 grid per triangle = 64 sub-tris
+                let mut mesh = egui::Mesh::default();
+                for tri in indices.chunks(3) {
+                    let (i0, i1, i2) = (tri[0], tri[1], tri[2]);
+                    let p0 = deduped[i0];
+                    let p1 = deduped[i1];
+                    let p2 = deduped[i2];
+                    subdivide_triangle_gradient(&mut mesh, p0, p1, p2, subdivisions, fill_info);
+                }
+                painter.add(egui::Shape::mesh(mesh));
+            } else {
+                // Flat fill: simple mesh, no subdivision needed
+                let mut mesh = egui::Mesh::default();
+                for &pt in &deduped {
+                    mesh.vertices.push(egui::epaint::Vertex {
+                        pos: pt,
+                        uv: egui::epaint::WHITE_UV,
+                        color: gradient_color_at(pt, fill_info),
+                    });
+                }
+                for idx in &indices {
+                    mesh.indices.push(*idx as u32);
+                }
+                painter.add(egui::Shape::mesh(mesh));
             }
-            for idx in &indices {
-                mesh.indices.push(*idx as u32);
-            }
-            painter.add(egui::Shape::mesh(mesh));
         }
     }
 
