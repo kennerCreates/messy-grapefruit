@@ -118,7 +118,6 @@ pub fn merge_elements(
         origin: existing.origin,
         gradient_fill: existing.gradient_fill.clone(),
         hatch_fill_id: existing.hatch_fill_id.clone(),
-        hatch_masks: existing.hatch_masks.clone(),
     }
 }
 
@@ -256,6 +255,5 @@ pub fn join_elements(
         origin: target.origin,
         gradient_fill: target.gradient_fill.clone(),
         hatch_fill_id: target.hatch_fill_id.clone(),
-        hatch_masks: target.hatch_masks.clone(),
     }
 }

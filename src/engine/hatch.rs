@@ -140,36 +140,6 @@ pub fn build_element_polygon(element: &StrokeElement) -> Vec<Vec2> {
     polygon
 }
 
-/// Test if a point is inside a polygon using ray casting.
-fn point_in_polygon(point: Vec2, polygon: &[Vec2]) -> bool {
-    let n = polygon.len();
-    if n < 3 {
-        return false;
-    }
-    let mut inside = false;
-    let mut j = n - 1;
-    for i in 0..n {
-        let pi = polygon[i];
-        let pj = polygon[j];
-        if (pi.y > point.y) != (pj.y > point.y)
-            && point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y) + pi.x
-        {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
-}
-
-/// Check if a line segment midpoint falls inside any mask polygon.
-fn segment_is_masked(a: Vec2, b: Vec2, masks: &[Vec<Vec2>]) -> bool {
-    if masks.is_empty() {
-        return false;
-    }
-    let mid = a.lerp(b, 0.5);
-    masks.iter().any(|mask| point_in_polygon(mid, mask))
-}
-
 /// Generate full hatch fill data for an element given a pattern.
 pub fn generate_element_hatch(
     element: &StrokeElement,
@@ -190,10 +160,8 @@ pub fn generate_element_hatch(
             hatch_layer.offset,
         );
 
-        // Filter out segments whose midpoints fall inside mask polygons
         let segments: Vec<Vec<Vec2>> = line_pairs
             .into_iter()
-            .filter(|(a, b)| !segment_is_masked(*a, *b, &element.hatch_masks))
             .map(|(a, b)| vec![a, b])
             .collect();
 
@@ -274,5 +242,4 @@ mod tests {
         let lines = generate_hatch_lines(&poly, 0.0, 0.05, 0.0);
         assert!(lines.is_empty(), "Spacing below 0.1 should produce no lines");
     }
-
 }

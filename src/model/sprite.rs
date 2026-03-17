@@ -227,10 +227,6 @@ pub struct StrokeElement {
     pub gradient_fill: Option<GradientFill>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hatch_fill_id: Option<String>,
-    /// Mask regions where hatch lines are suppressed.
-    /// Each mask is a polygon (list of Vec2 points) in local element coordinates.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hatch_masks: Vec<Vec<Vec2>>,
 }
 
 impl StrokeElement {
@@ -250,7 +246,6 @@ impl StrokeElement {
             origin: Vec2::ZERO,
             gradient_fill: None,
             hatch_fill_id: None,
-            hatch_masks: Vec::new(),
         }
     }
 

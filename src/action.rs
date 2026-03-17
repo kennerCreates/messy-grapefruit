@@ -84,15 +84,4 @@ pub enum AppAction {
     DeleteHatchPattern(String),
     /// Import hatch patterns from a .hatchpatterns file (project-level).
     ImportHatchPatterns(Vec<HatchPattern>),
-    /// Add a hatch mask polygon to an element (suppresses hatch lines in that region).
-    #[allow(dead_code)]
-    AddHatchMask {
-        element_id: String,
-        mask_polygon: Vec<crate::model::vec2::Vec2>,
-    },
-    /// Clear all hatch masks from an element.
-    #[allow(dead_code)]
-    ClearHatchMasks {
-        element_id: String,
-    },
 }

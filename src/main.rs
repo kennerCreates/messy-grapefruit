@@ -299,26 +299,6 @@ impl App {
                 }
                 // Project-level, no sprite undo
             }
-            action::AppAction::AddHatchMask { element_id, mask_polygon } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.hatch_masks.push(mask_polygon.clone());
-                        }
-                    }
-                }
-                self.history.push("Add hatch mask".into(), before, self.sprite.clone());
-            }
-            action::AppAction::ClearHatchMasks { element_id } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.hatch_masks.clear();
-                        }
-                    }
-                }
-                self.history.push("Clear hatch masks".into(), before, self.sprite.clone());
-            }
         }
     }
 
