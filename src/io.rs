@@ -96,6 +96,24 @@ pub fn load_app_defaults() -> Option<AppDefaults> {
     serde_json::from_str(&data).ok()
 }
 
+/// Load an image file (PNG/JPG) and create an egui texture handle.
+/// Returns the texture handle and the image dimensions (width, height).
+pub fn load_image_texture(
+    ctx: &egui::Context,
+    path: &Path,
+) -> Result<(egui::TextureHandle, u32, u32), String> {
+    let img = image::open(path).map_err(|e| format!("Failed to load image: {e}"))?;
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [w as usize, h as usize],
+        rgba.as_raw(),
+    );
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("ref_image");
+    let tex = ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR);
+    Ok((tex, w, h))
+}
+
 /// Fetch a palette from Lospec by slug (e.g., "endesga-32").
 /// Returns the colors parsed from the API JSON response.
 /// Uses blocking HTTP — UI will freeze briefly during the fetch.

@@ -205,6 +205,36 @@ pub fn handle_color(theme: Theme) -> Color32 {
     theme_colors(theme).icon_text
 }
 
+/// Vertex snap indicator color (blue tint, distinct from green merge).
+pub fn vertex_snap_color(theme: Theme) -> Color32 {
+    match theme {
+        Theme::Dark => Color32::from_rgba_unmultiplied(0x64, 0xb5, 0xf6, 200),  // light blue
+        Theme::Light => Color32::from_rgba_unmultiplied(0x1e, 0x88, 0xe5, 200), // blue
+    }
+}
+
+/// Eraser hover highlight color (red tint for deletion preview).
+pub fn eraser_highlight_color(theme: Theme) -> Color32 {
+    match theme {
+        Theme::Dark => Color32::from_rgba_unmultiplied(0xef, 0x53, 0x50, 200),  // red
+        Theme::Light => Color32::from_rgba_unmultiplied(0xc6, 0x28, 0x28, 200), // dark red
+    }
+}
+
+/// Symmetry axis line color.
+pub fn symmetry_axis_color(theme: Theme) -> Color32 {
+    match theme {
+        Theme::Dark => Color32::from_rgba_unmultiplied(0xce, 0x93, 0xd8, 140),  // light purple
+        Theme::Light => Color32::from_rgba_unmultiplied(0x8e, 0x24, 0xaa, 140), // purple
+    }
+}
+
+/// Symmetry ghost preview color.
+pub fn symmetry_ghost_color(theme: Theme) -> Color32 {
+    let tc = theme_colors(theme);
+    Color32::from_rgba_unmultiplied(tc.icon_text.r(), tc.icon_text.g(), tc.icon_text.b(), 70)
+}
+
 /// Origin crosshair color.
 #[allow(dead_code)] // Phase 3+: origin point handle rendering
 pub fn origin_color(theme: Theme) -> Color32 {

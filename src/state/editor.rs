@@ -7,6 +7,51 @@ pub enum ToolKind {
     Line,
     Fill,
     Eyedropper,
+    Eraser,
+}
+
+/// Eraser tool hover target: vertex or segment.
+#[derive(Debug, Clone)]
+pub enum EraserHover {
+    Vertex { element_id: String, vertex_id: String, layer_id: String },
+    Segment { element_id: String, segment_index: usize, layer_id: String },
+}
+
+/// Symmetry axis mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymmetryAxis {
+    Vertical,
+    Horizontal,
+    Both,
+}
+
+/// Symmetry drawing state.
+#[derive(Debug, Clone)]
+pub struct SymmetryState {
+    pub active: bool,
+    pub axis: SymmetryAxis,
+    /// Axis position in world space (x for vertical, y for horizontal, both for Both).
+    pub axis_position: Vec2,
+    pub dragging_axis: bool,
+}
+
+impl Default for SymmetryState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            axis: SymmetryAxis::Vertical,
+            axis_position: Vec2::new(128.0, 128.0),
+            dragging_axis: false,
+        }
+    }
+}
+
+/// Drag state for repositioning a reference image.
+#[derive(Debug, Clone)]
+pub struct RefImageDragState {
+    pub image_id: String,
+    pub start_world: Vec2,
+    pub initial_position: Vec2,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -310,6 +355,18 @@ pub struct EditorState {
     pub theme_settings_open: bool,
     /// Which theme role swatch has its palette picker open (0..5), if any.
     pub theme_role_picker: Option<usize>,
+    /// Vertex snap toggle (magnetic snap to existing vertices).
+    pub vertex_snap_enabled: bool,
+    /// World position of the vertex snap target (for rendering indicator).
+    pub snap_vertex_target: Option<Vec2>,
+    /// Eraser tool hover target.
+    pub eraser_hover: Option<EraserHover>,
+    /// Symmetry drawing state.
+    pub symmetry: SymmetryState,
+    /// Selected reference image ID (for drag/properties).
+    pub selected_ref_image_id: Option<String>,
+    /// Active reference image drag state.
+    pub dragging_ref_image: Option<RefImageDragState>,
 }
 
 impl Default for EditorState {
@@ -339,6 +396,12 @@ impl Default for EditorState {
             lospec_popup_open: false,
             theme_settings_open: false,
             theme_role_picker: None,
+            vertex_snap_enabled: true,
+            snap_vertex_target: None,
+            eraser_hover: None,
+            symmetry: SymmetryState::default(),
+            selected_ref_image_id: None,
+            dragging_ref_image: None,
         }
     }
 }

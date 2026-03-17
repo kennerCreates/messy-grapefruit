@@ -1,5 +1,48 @@
+use crate::engine::transform;
 use crate::model::project::GridMode;
+use crate::model::sprite::Sprite;
 use crate::model::vec2::Vec2;
+
+/// Snap to the nearest existing vertex on any visible, unlocked layer.
+/// Returns the world-space position and vertex ID if within threshold.
+pub fn snap_to_vertex(
+    pos: Vec2,
+    sprite: &Sprite,
+    threshold_world: f32,
+    exclude_element_id: Option<&str>,
+    solo_layer_id: Option<&str>,
+) -> Option<(Vec2, String)> {
+    let mut best: Option<(f32, Vec2, String)> = None;
+
+    for layer in &sprite.layers {
+        if !layer.visible || layer.locked {
+            continue;
+        }
+        if let Some(solo_id) = solo_layer_id
+            && layer.id != solo_id
+        {
+            continue;
+        }
+        for element in &layer.elements {
+            if let Some(exclude_id) = exclude_element_id
+                && element.id == exclude_id
+            {
+                continue;
+            }
+            for vertex in &element.vertices {
+                let world_pos = transform::vertex_world_pos(vertex, element);
+                let dist = pos.distance(world_pos);
+                if dist < threshold_world
+                    && (best.is_none() || dist < best.as_ref().unwrap().0)
+                {
+                    best = Some((dist, world_pos, vertex.id.clone()));
+                }
+            }
+        }
+    }
+
+    best.map(|(_, pos, id)| (pos, id))
+}
 
 /// Snap a world-space position to the nearest grid point.
 pub fn snap_to_grid(pos: Vec2, grid_size: u32, grid_mode: GridMode) -> Vec2 {

@@ -8,6 +8,8 @@ mod state;
 mod theme;
 mod ui;
 
+use std::collections::HashMap;
+
 use eframe::egui;
 use model::project::Project;
 use model::sprite::{Sprite, StrokeElement};
@@ -36,6 +38,8 @@ pub struct App {
     pub sprite_path: Option<std::path::PathBuf>,
     /// Internal clipboard fallback (in case system clipboard fails).
     pub internal_clipboard: Option<Vec<StrokeElement>>,
+    /// Cached textures for reference images, keyed by reference image ID.
+    pub ref_image_textures: HashMap<String, egui::TextureHandle>,
 }
 
 impl App {
@@ -83,6 +87,7 @@ impl App {
             history: History::new(200),
             sprite_path: None,
             internal_clipboard: None,
+            ref_image_textures: HashMap::new(),
         }
     }
 }
@@ -103,6 +108,12 @@ impl App {
                 layer.elements.push(merged_element);
                 self.history.push("Merge stroke".into(), before, self.sprite.clone());
             }
+            action::AppAction::CommitSymmetricStrokes(elements) => {
+                for elem in elements {
+                    self.sprite.layers[layer_idx].elements.push(elem);
+                }
+                self.history.push("Draw symmetric strokes".into(), before, self.sprite.clone());
+            }
             action::AppAction::SetFillColor { element_id, fill_color_index } => {
                 for layer in &mut self.sprite.layers {
                     for elem in &mut layer.elements {
@@ -116,6 +127,28 @@ impl App {
             action::AppAction::SetBackgroundColor { background_color_index } => {
                 self.sprite.background_color_index = background_color_index;
                 self.history.push("Set background color".into(), before, self.sprite.clone());
+            }
+            action::AppAction::EraseVertex { element_id, vertex_id } => {
+                if let Some((layer_idx, elem_idx)) = find_element_location(&self.sprite, &element_id) {
+                    let element = &self.sprite.layers[layer_idx].elements[elem_idx];
+                    let result = engine::eraser::erase_vertex(element, &vertex_id, self.project.min_corner_radius);
+                    self.sprite.layers[layer_idx].elements.remove(elem_idx);
+                    for (i, new_elem) in result.new_elements.into_iter().enumerate() {
+                        self.sprite.layers[layer_idx].elements.insert(elem_idx + i, new_elem);
+                    }
+                    self.history.push("Erase vertex".into(), before, self.sprite.clone());
+                }
+            }
+            action::AppAction::EraseSegment { element_id, segment_index } => {
+                if let Some((layer_idx, elem_idx)) = find_element_location(&self.sprite, &element_id) {
+                    let element = &self.sprite.layers[layer_idx].elements[elem_idx];
+                    let result = engine::eraser::erase_segment(element, segment_index, self.project.min_corner_radius);
+                    self.sprite.layers[layer_idx].elements.remove(elem_idx);
+                    for (i, new_elem) in result.new_elements.into_iter().enumerate() {
+                        self.sprite.layers[layer_idx].elements.insert(elem_idx + i, new_elem);
+                    }
+                    self.history.push("Erase segment".into(), before, self.sprite.clone());
+                }
             }
             action::AppAction::AddPaletteColor(color) => {
                 if self.project.palette.colors.len() < 256 {
@@ -168,8 +201,54 @@ impl App {
                 io::save_app_defaults(&self.project);
                 // Project-level, no sprite undo
             }
+            action::AppAction::AddReferenceImage(ref_image) => {
+                self.sprite.reference_images.push(ref_image);
+                self.history.push("Add reference image".into(), before, self.sprite.clone());
+            }
+            action::AppAction::RemoveReferenceImage(id) => {
+                self.sprite.reference_images.retain(|r| r.id != id);
+                self.ref_image_textures.remove(&id);
+                self.history.push("Remove reference image".into(), before, self.sprite.clone());
+            }
         }
     }
+
+    /// Load reference image textures that are missing from the cache.
+    fn sync_ref_image_textures(&mut self, ctx: &egui::Context) {
+        let base_path = self.sprite_path.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+        for ref_img in &mut self.sprite.reference_images {
+            if self.ref_image_textures.contains_key(&ref_img.id) {
+                continue;
+            }
+            // Resolve absolute path
+            let path = if let Some(base) = &base_path {
+                base.join(&ref_img.path)
+            } else {
+                std::path::PathBuf::from(&ref_img.path)
+            };
+            if let Ok((tex, w, h)) = io::load_image_texture(ctx, &path) {
+                ref_img.image_size = Some((w, h));
+                self.ref_image_textures.insert(ref_img.id.clone(), tex);
+            }
+        }
+
+        // Remove textures for deleted reference images
+        let valid_ids: Vec<String> = self.sprite.reference_images.iter().map(|r| r.id.clone()).collect();
+        self.ref_image_textures.retain(|id, _| valid_ids.contains(id));
+    }
+}
+
+/// Find the layer index and element index of an element by ID.
+fn find_element_location(sprite: &Sprite, element_id: &str) -> Option<(usize, usize)> {
+    for (li, layer) in sprite.layers.iter().enumerate() {
+        for (ei, elem) in layer.elements.iter().enumerate() {
+            if elem.id == element_id {
+                return Some((li, ei));
+            }
+        }
+    }
+    None
 }
 
 /// Remap a color index after a palette color has been deleted.
@@ -188,6 +267,22 @@ fn remap_color_index(index: u8, deleted: u8) -> u8 {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         theme::apply_theme(ctx, &self.project);
+
+        // Sync reference image textures
+        self.sync_ref_image_textures(ctx);
+
+        // Handle drag-and-drop for reference images
+        let dropped_files: Vec<_> = ctx.input(|i| i.raw.dropped_files.clone());
+        for file in dropped_files {
+            if let Some(path) = &file.path {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                if matches!(ext.as_str(), "png" | "jpg" | "jpeg") {
+                    let path_str = path.to_string_lossy().to_string();
+                    let ref_image = model::sprite::ReferenceImage::new(path_str);
+                    self.dispatch_action(action::AppAction::AddReferenceImage(ref_image));
+                }
+            }
+        }
 
         // Handle undo/redo and copy/paste globally
         let (undo, redo, copy, paste, cut) = ctx.input(|i| {
@@ -237,6 +332,7 @@ impl eframe::App for App {
                     &mut self.sprite,
                     &self.project,
                     &mut self.history,
+                    &self.ref_image_textures,
                 );
                 for action in actions {
                     self.dispatch_action(action);
@@ -259,6 +355,7 @@ impl eframe::App for App {
                     &mut self.sprite,
                     &mut self.history,
                     &mut self.sprite_path,
+                    &mut self.ref_image_textures,
                 );
             });
 

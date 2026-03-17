@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::model::project::{GridMode, Project};
 use crate::model::sprite::Sprite;
 use crate::state::editor::EditorState;
@@ -12,6 +14,7 @@ pub fn show_toolbar(
     sprite: &mut Sprite,
     history: &mut History,
     sprite_path: &mut Option<std::path::PathBuf>,
+    ref_image_textures: &mut HashMap<String, egui::TextureHandle>,
 ) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
@@ -160,6 +163,70 @@ pub fn show_toolbar(
         {
             editor.clear_vertex_selection();
             editor.tool = crate::state::editor::ToolKind::Eyedropper;
+        }
+
+        let is_eraser = matches!(editor.tool, crate::state::editor::ToolKind::Eraser);
+        if ui
+            .add(icons::icon_button(icons::tool_eraser(), ui).selected(is_eraser))
+            .on_hover_text("Eraser (E)")
+            .clicked()
+        {
+            editor.clear_vertex_selection();
+            editor.tool = crate::state::editor::ToolKind::Eraser;
+        }
+
+        ui.separator();
+
+        // Vertex snap toggle
+        if ui
+            .add(icons::icon_button(icons::tool_snap_vertex(), ui).selected(editor.vertex_snap_enabled))
+            .on_hover_text("Snap to Vertices")
+            .clicked()
+        {
+            editor.vertex_snap_enabled = !editor.vertex_snap_enabled;
+        }
+
+        // Symmetry toggle
+        {
+            let sym_icon = match editor.symmetry.axis {
+                crate::state::editor::SymmetryAxis::Vertical => icons::symmetry_vertical(),
+                crate::state::editor::SymmetryAxis::Horizontal => icons::symmetry_horizontal(),
+                crate::state::editor::SymmetryAxis::Both => icons::symmetry_both(),
+            };
+            if ui
+                .add(icons::icon_button(sym_icon, ui).selected(editor.symmetry.active))
+                .on_hover_text("Symmetry (S)")
+                .clicked()
+            {
+                editor.symmetry.active = !editor.symmetry.active;
+                if editor.symmetry.active {
+                    editor.symmetry.axis_position = crate::model::vec2::Vec2::new(
+                        sprite.canvas_width as f32 / 2.0,
+                        sprite.canvas_height as f32 / 2.0,
+                    );
+                }
+            }
+        }
+
+        // Reference image import
+        if ui
+            .add(icons::icon_button(icons::ref_image_import(), ui))
+            .on_hover_text("Import Reference Image")
+            .clicked()
+            && let Some(path) = rfd::FileDialog::new()
+                .add_filter("Images", &["png", "jpg", "jpeg"])
+                .pick_file()
+        {
+            let path_str = path.to_string_lossy().to_string();
+            let mut ref_image = crate::model::sprite::ReferenceImage::new(path_str);
+            // Try to load the texture immediately
+            if let Ok((tex, w, h)) = crate::io::load_image_texture(ui.ctx(), &path) {
+                ref_image.image_size = Some((w, h));
+                ref_image_textures.insert(ref_image.id.clone(), tex);
+            }
+            let before = sprite.clone();
+            sprite.reference_images.push(ref_image);
+            history.push("Add reference image".into(), before, sprite.clone());
         }
 
         ui.separator();

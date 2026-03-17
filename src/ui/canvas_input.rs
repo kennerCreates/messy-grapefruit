@@ -5,7 +5,9 @@ use crate::math;
 use crate::model::project::Project;
 use crate::model::sprite::{PathVertex, Sprite, StrokeElement};
 use crate::model::vec2::Vec2;
-use crate::state::editor::EditorState;
+use crate::state::editor::{EditorState, SymmetryAxis};
+
+use super::canvas::HIT_TEST_THRESHOLD;
 
 /// Handle viewport input (pan, zoom, flip, zoom-to-fit).
 pub fn handle_viewport_input(
@@ -89,6 +91,33 @@ pub fn handle_viewport_input(
         editor.tool = crate::state::editor::ToolKind::Eyedropper;
     }
 
+    // E key = switch to eraser tool
+    if !text_has_focus && ui.input(|i| i.key_pressed(egui::Key::E)) && !ui.input(|i| i.modifiers.ctrl) {
+        editor.clear_vertex_selection();
+        editor.tool = crate::state::editor::ToolKind::Eraser;
+    }
+
+    // S key = cycle symmetry mode (off → vertical → horizontal → both → off)
+    if !text_has_focus && ui.input(|i| i.key_pressed(egui::Key::S)) && !ui.input(|i| i.modifiers.ctrl) {
+        if !editor.symmetry.active {
+            editor.symmetry.active = true;
+            editor.symmetry.axis = SymmetryAxis::Vertical;
+            // Default axis to canvas center
+            editor.symmetry.axis_position = Vec2::new(
+                sprite.canvas_width as f32 / 2.0,
+                sprite.canvas_height as f32 / 2.0,
+            );
+        } else {
+            match editor.symmetry.axis {
+                SymmetryAxis::Vertical => editor.symmetry.axis = SymmetryAxis::Horizontal,
+                SymmetryAxis::Horizontal => editor.symmetry.axis = SymmetryAxis::Both,
+                SymmetryAxis::Both => {
+                    editor.symmetry.active = false;
+                }
+            }
+        }
+    }
+
     // Alt+click = temporary eyedropper (from Line and Fill tools only)
     if ui.input(|i| i.modifiers.alt && i.pointer.primary_pressed())
         && matches!(editor.tool, crate::state::editor::ToolKind::Line | crate::state::editor::ToolKind::Fill)
@@ -98,25 +127,18 @@ pub fn handle_viewport_input(
     }
 }
 
-/// Handle line tool input. Returns an action if a stroke was committed.
+/// Handle line tool input. Returns actions if strokes were committed.
 pub fn handle_line_tool_input(
     response: &egui::Response,
     editor: &mut EditorState,
     sprite: &Sprite,
     project: &Project,
     canvas_rect: egui::Rect,
-) -> (Option<AppAction>, Option<Vec2>) {
-    let canvas_center = canvas_rect.center();
+) -> (Vec<AppAction>, Option<Vec2>) {
     let mut merge_target_pos: Option<Vec2> = None;
 
-    // Get cursor world position
-    let cursor_screen = response.hover_pos().unwrap_or(canvas_rect.center());
-    let cursor_world = editor.viewport.screen_to_world(cursor_screen, canvas_center);
-    let snap_pos = snap::snap_to_grid(
-        cursor_world,
-        project.editor_preferences.grid_size,
-        project.editor_preferences.grid_mode,
-    );
+    // Get cursor world position with snap
+    let snap_pos = get_snap_pos_with_vertex_snap(editor, sprite, project, canvas_rect, response.hover_pos());
 
     // Check for merge target
     let layer = sprite.layers.get(editor.layer.resolve_active_idx(sprite));
@@ -131,17 +153,17 @@ pub fn handle_line_tool_input(
     let escape_pressed = response.ctx.input(|i| i.key_pressed(egui::Key::Escape));
     if escape_pressed && editor.line_tool.is_drawing {
         editor.line_tool.clear();
-        return (None, merge_target_pos);
+        return (vec![], merge_target_pos);
     }
 
     // Right-click = commit stroke (if enough vertices)
     if response.secondary_clicked() {
         if editor.line_tool.vertices.len() >= 2 {
-            let action = commit_stroke(editor, sprite, project);
-            return (Some(action), merge_target_pos);
+            let actions = commit_stroke(editor, sprite, project);
+            return (actions, merge_target_pos);
         } else {
             editor.line_tool.clear();
-            return (None, merge_target_pos);
+            return (vec![], merge_target_pos);
         }
     }
 
@@ -149,7 +171,7 @@ pub fn handle_line_tool_input(
     if let Some(layer) = sprite.layers.get(editor.layer.resolve_active_idx(sprite))
         && layer.locked
     {
-        return (None, merge_target_pos);
+        return (vec![], merge_target_pos);
     }
 
     // Left click = place vertex or finish
@@ -158,8 +180,8 @@ pub fn handle_line_tool_input(
 
         if is_double_click && editor.line_tool.vertices.len() >= 2 {
             // Double-click finishes the stroke
-            let action = commit_stroke(editor, sprite, project);
-            return (Some(action), merge_target_pos);
+            let actions = commit_stroke(editor, sprite, project);
+            return (actions, merge_target_pos);
         }
 
         // Place a vertex
@@ -179,19 +201,20 @@ pub fn handle_line_tool_input(
     // Enter key also finishes the stroke
     let enter_pressed = response.ctx.input(|i| i.key_pressed(egui::Key::Enter));
     if enter_pressed && editor.line_tool.vertices.len() >= 2 {
-        let action = commit_stroke(editor, sprite, project);
-        return (Some(action), merge_target_pos);
+        let actions = commit_stroke(editor, sprite, project);
+        return (actions, merge_target_pos);
     }
 
-    (None, merge_target_pos)
+    (vec![], merge_target_pos)
 }
 
-/// Commit the current line tool stroke as a StrokeElement.
+/// Commit the current line tool stroke as StrokeElement(s).
+/// Returns multiple actions when symmetry is active.
 fn commit_stroke(
     editor: &mut EditorState,
     sprite: &Sprite,
     project: &Project,
-) -> AppAction {
+) -> Vec<AppAction> {
     let mut vertices = std::mem::take(&mut editor.line_tool.vertices);
     editor.line_tool.is_drawing = false;
 
@@ -208,9 +231,16 @@ fn commit_stroke(
             project.min_corner_radius,
         );
         let mut element =
-            StrokeElement::new(vertices, editor.brush.stroke_width, editor.brush.color_index, editor.line_tool.curve_mode);
+            StrokeElement::new(vertices.clone(), editor.brush.stroke_width, editor.brush.color_index, editor.line_tool.curve_mode);
         element.closed = true;
-        return AppAction::CommitStroke(element);
+
+        if editor.symmetry.active {
+            let mirrored = create_mirrored_elements(&element, &editor.symmetry, project);
+            let mut all = vec![element];
+            all.extend(mirrored);
+            return vec![AppAction::CommitSymmetricStrokes(all)];
+        }
+        return vec![AppAction::CommitStroke(element)];
     }
 
     // Check for merge at start and end
@@ -234,10 +264,11 @@ fn commit_stroke(
                     editor.line_tool.curve_mode,
                     project.min_corner_radius,
                 );
-                return AppAction::MergeStroke {
+                // Symmetry doesn't apply to merges — only the primary stroke merges
+                return vec![AppAction::MergeStroke {
                     merged_element: merged,
                     replace_element_id: target.element_id,
-                };
+                }];
             }
         }
 
@@ -254,19 +285,83 @@ fn commit_stroke(
                 editor.line_tool.curve_mode,
                 project.min_corner_radius,
             );
-            return AppAction::MergeStroke {
+            return vec![AppAction::MergeStroke {
                 merged_element: merged,
                 replace_element_id: target.element_id,
-            };
+            }];
         }
     }
 
-    // No merge — create new element
+    // No merge — create new element (with symmetry if active)
     let element = StrokeElement::new(vertices, editor.brush.stroke_width, editor.brush.color_index, editor.line_tool.curve_mode);
-    AppAction::CommitStroke(element)
+
+    if editor.symmetry.active {
+        let mirrored = create_mirrored_elements(&element, &editor.symmetry, project);
+        let mut all = vec![element];
+        all.extend(mirrored);
+        return vec![AppAction::CommitSymmetricStrokes(all)];
+    }
+
+    vec![AppAction::CommitStroke(element)]
 }
 
-/// Get the current snap position for the cursor.
+/// Create mirrored copies of an element for symmetry drawing.
+fn create_mirrored_elements(
+    element: &StrokeElement,
+    symmetry: &crate::state::editor::SymmetryState,
+    project: &Project,
+) -> Vec<StrokeElement> {
+    use crate::engine::symmetry;
+    let mut results = Vec::new();
+
+    match symmetry.axis {
+        SymmetryAxis::Vertical => {
+            let mirrored_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Vertical, &symmetry.axis_position);
+            let mut m = StrokeElement::new(mirrored_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
+            m.closed = element.closed;
+            m.fill_color_index = element.fill_color_index;
+            math::recompute_auto_curves(&mut m.vertices, m.closed, m.curve_mode, project.min_corner_radius);
+            results.push(m);
+        }
+        SymmetryAxis::Horizontal => {
+            let mirrored_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Horizontal, &symmetry.axis_position);
+            let mut m = StrokeElement::new(mirrored_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
+            m.closed = element.closed;
+            m.fill_color_index = element.fill_color_index;
+            math::recompute_auto_curves(&mut m.vertices, m.closed, m.curve_mode, project.min_corner_radius);
+            results.push(m);
+        }
+        SymmetryAxis::Both => {
+            // V-mirrored
+            let v_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Vertical, &symmetry.axis_position);
+            let mut mv = StrokeElement::new(v_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
+            mv.closed = element.closed;
+            mv.fill_color_index = element.fill_color_index;
+            math::recompute_auto_curves(&mut mv.vertices, mv.closed, mv.curve_mode, project.min_corner_radius);
+            results.push(mv);
+
+            // H-mirrored
+            let h_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Horizontal, &symmetry.axis_position);
+            let mut mh = StrokeElement::new(h_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
+            mh.closed = element.closed;
+            mh.fill_color_index = element.fill_color_index;
+            math::recompute_auto_curves(&mut mh.vertices, mh.closed, mh.curve_mode, project.min_corner_radius);
+            results.push(mh);
+
+            // V+H mirrored (both axes)
+            let vh_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Both, &symmetry.axis_position);
+            let mut mvh = StrokeElement::new(vh_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
+            mvh.closed = element.closed;
+            mvh.fill_color_index = element.fill_color_index;
+            math::recompute_auto_curves(&mut mvh.vertices, mvh.closed, mvh.curve_mode, project.min_corner_radius);
+            results.push(mvh);
+        }
+    }
+
+    results
+}
+
+/// Get the current snap position for the cursor (grid + optional vertex snap).
 pub fn get_snap_pos(
     editor: &EditorState,
     project: &Project,
@@ -281,4 +376,32 @@ pub fn get_snap_pos(
         project.editor_preferences.grid_size,
         project.editor_preferences.grid_mode,
     )
+}
+
+/// Get snap position with vertex snap applied (updates editor.snap_vertex_target).
+fn get_snap_pos_with_vertex_snap(
+    editor: &mut EditorState,
+    sprite: &Sprite,
+    project: &Project,
+    canvas_rect: egui::Rect,
+    hover_pos: Option<egui::Pos2>,
+) -> Vec2 {
+    let grid_snapped = get_snap_pos(editor, project, canvas_rect, hover_pos);
+
+    if editor.vertex_snap_enabled {
+        let threshold = HIT_TEST_THRESHOLD / editor.viewport.zoom;
+        if let Some((vertex_pos, _vertex_id)) = snap::snap_to_vertex(
+            grid_snapped,
+            sprite,
+            threshold,
+            None,
+            editor.layer.solo_layer_id.as_deref(),
+        ) {
+            editor.snap_vertex_target = Some(vertex_pos);
+            return vertex_pos;
+        }
+    }
+
+    editor.snap_vertex_target = None;
+    grid_snapped
 }

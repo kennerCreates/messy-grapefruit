@@ -13,6 +13,18 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &Sprite,
             ui.separator();
         }
 
+        // Symmetry axis indicator
+        if editor.symmetry.active {
+            let sym_icon = match editor.symmetry.axis {
+                crate::state::editor::SymmetryAxis::Vertical => icons::symmetry_vertical(),
+                crate::state::editor::SymmetryAxis::Horizontal => icons::symmetry_horizontal(),
+                crate::state::editor::SymmetryAxis::Both => icons::symmetry_both(),
+            };
+            let tint = crate::theme::symmetry_axis_color(project.editor_preferences.theme);
+            ui.add(icons::small_icon_tinted(sym_icon, tint, ui));
+            ui.separator();
+        }
+
         // Sprite metrics: icon then count, left-to-right
         ui.add(icons::small_icon(icons::metric_element(), ui));
         ui.label(format!("{}", sprite.element_count()));

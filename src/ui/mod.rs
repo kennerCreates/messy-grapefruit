@@ -1,4 +1,5 @@
 pub mod canvas;
+mod canvas_eraser;
 mod canvas_eyedropper;
 mod canvas_fill;
 pub mod canvas_input;
@@ -10,6 +11,7 @@ pub mod icons;
 pub mod sidebar;
 mod sidebar_layers;
 mod sidebar_palette;
+mod sidebar_reference;
 mod sidebar_tools;
 pub mod status_bar;
 pub mod toolbar;

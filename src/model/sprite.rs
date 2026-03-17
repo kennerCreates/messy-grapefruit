@@ -128,6 +128,46 @@ impl Layer {
     }
 }
 
+/// A reference image overlay (not exported, editing aid only).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceImage {
+    pub id: String,
+    /// Path relative to the sprite file directory.
+    pub path: String,
+    pub position: Vec2,
+    #[serde(default = "default_ref_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub locked: bool,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default = "default_one")]
+    pub scale: f32,
+    /// Loaded image dimensions (width, height) in pixels. Not serialized.
+    #[serde(skip)]
+    pub image_size: Option<(u32, u32)>,
+}
+
+fn default_ref_opacity() -> f32 { 0.3 }
+fn default_true() -> bool { true }
+fn default_one() -> f32 { 1.0 }
+
+impl ReferenceImage {
+    pub fn new(path: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            path,
+            position: Vec2::ZERO,
+            opacity: 0.3,
+            locked: false,
+            visible: true,
+            scale: 1.0,
+            image_size: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Sprite {
@@ -140,6 +180,8 @@ pub struct Sprite {
     pub layers: Vec<Layer>,
     #[serde(default)]
     pub layer_groups: Vec<LayerGroup>,
+    #[serde(default)]
+    pub reference_images: Vec<ReferenceImage>,
 }
 
 impl Sprite {
@@ -153,6 +195,7 @@ impl Sprite {
             background_color_index: 0,
             layers: vec![Layer::new("Layer 1")],
             layer_groups: Vec::new(),
+            reference_images: Vec::new(),
         }
     }
 

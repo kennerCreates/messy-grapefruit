@@ -271,6 +271,9 @@ fn show_expanded(
         ToolKind::Eyedropper => {
             sidebar_tools::show_eyedropper_tool_options(ui, editor, project);
         }
+        ToolKind::Eraser => {
+            // Minimal — eraser has no configurable options
+        }
     }
 
     if matches!(editor.tool, ToolKind::Eyedropper) {
@@ -296,6 +299,13 @@ fn show_expanded(
     ui.label("Layers");
     ui.add_space(4.0);
     sidebar_layers::show_layer_list(ui, sprite, editor, project, history);
+
+    // Reference images panel
+    super::sidebar_reference::show_reference_images(
+        ui, editor, sprite,
+        project.editor_preferences.theme,
+        &mut Vec::new(), // actions handled via direct mutation + undo
+    );
 }
 
 /// Show theme color role settings: 5 swatches per theme mode, clickable to reassign.

@@ -7,7 +7,7 @@ use crate::state::editor::{EditorState, ToolKind};
 use crate::state::history::History;
 use crate::theme;
 
-use super::{canvas_eyedropper, canvas_fill, canvas_input, canvas_render, canvas_select, grid};
+use super::{canvas_eraser, canvas_eyedropper, canvas_fill, canvas_input, canvas_render, canvas_select, grid};
 
 /// Base hit-test threshold in world units (divided by zoom at use site).
 pub(super) const HIT_TEST_THRESHOLD: f32 = 8.0;
@@ -18,6 +18,7 @@ pub fn show_canvas(
     sprite: &mut Sprite,
     project: &Project,
     history: &mut History,
+    ref_image_textures: &std::collections::HashMap<String, egui::TextureHandle>,
 ) -> Vec<AppAction> {
     let mut actions = Vec::new();
     let theme_mode = project.editor_preferences.theme;
@@ -47,7 +48,7 @@ pub fn show_canvas(
         zoom_to_fit(editor, sprite, canvas_rect);
     }
 
-    // --- Shared: render grid, boundary, elements ---
+    // --- Shared: render grid, boundary, reference images, elements ---
     grid::render_grid(
         &painter,
         &editor.viewport,
@@ -73,6 +74,17 @@ pub fn show_canvas(
         canvas_rect,
     );
 
+    // Reference images render behind all layers
+    canvas_render::render_reference_images(
+        &painter,
+        &editor.viewport,
+        sprite,
+        ref_image_textures,
+        canvas_rect,
+        editor.selected_ref_image_id.as_deref(),
+        theme_mode,
+    );
+
     canvas_render::render_elements(
         &painter,
         &editor.viewport,
@@ -81,6 +93,18 @@ pub fn show_canvas(
         canvas_rect,
         editor.layer.solo_layer_id.as_deref(),
     );
+
+    // --- Symmetry axis rendering (always, if active) ---
+    if editor.symmetry.active {
+        canvas_render::render_symmetry_axis(
+            &painter,
+            &editor.viewport,
+            &editor.symmetry,
+            sprite,
+            canvas_rect,
+            theme_mode,
+        );
+    }
 
     // --- Tool-specific: input, hit testing, preview ---
     match editor.tool {
@@ -130,6 +154,28 @@ pub fn show_canvas(
                 theme_mode,
             );
         }
+        ToolKind::Eraser => {
+            canvas_eraser::handle_eraser_tool(
+                &response,
+                &painter,
+                editor,
+                sprite,
+                canvas_rect,
+                theme_mode,
+                &mut actions,
+            );
+        }
+    }
+
+    // --- Vertex snap indicator ---
+    if let Some(snap_target) = editor.snap_vertex_target {
+        canvas_render::render_vertex_snap_indicator(
+            &painter,
+            &editor.viewport,
+            snap_target,
+            canvas_rect,
+            theme_mode,
+        );
     }
 
     // --- Selection stack popup (Alt+click) ---
@@ -240,17 +286,15 @@ fn handle_line_tool(
         );
     }
 
-    // Handle line tool input
-    let (line_action, merge_target) = canvas_input::handle_line_tool_input(
+    // Handle line tool input (returns Vec<AppAction> now for symmetry support)
+    let (line_actions, merge_target) = canvas_input::handle_line_tool_input(
         response,
         editor,
         sprite,
         project,
         canvas_rect,
     );
-    if let Some(action) = line_action {
-        actions.push(action);
-    }
+    actions.extend(line_actions);
 
     // Render line tool preview
     if editor.line_tool.is_drawing && !editor.line_tool.vertices.is_empty() {
@@ -274,6 +318,20 @@ fn handle_line_tool(
             merge_target,
             editor.line_tool.curve_mode,
         );
+
+        // Render symmetry ghost preview
+        if editor.symmetry.active {
+            canvas_render::render_symmetry_ghost(
+                painter,
+                &editor.line_tool.vertices,
+                snap_pos,
+                &editor.symmetry,
+                &editor.viewport,
+                canvas_rect,
+                editor.brush.stroke_width,
+                theme_mode,
+            );
+        }
     }
 }
 

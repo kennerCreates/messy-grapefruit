@@ -730,3 +730,171 @@ pub fn render_cp_handles(
         }
     }
 }
+
+// ── Phase 5: Snap indicator, symmetry, reference images ──────────────
+
+/// Render a vertex snap indicator (blue diamond ring) at the snap target.
+pub fn render_vertex_snap_indicator(
+    painter: &Painter,
+    viewport: &ViewportState,
+    world_pos: Vec2,
+    canvas_rect: egui::Rect,
+    theme_mode: Theme,
+) {
+    let canvas_center = canvas_rect.center();
+    let screen = viewport.world_to_screen(world_pos, canvas_center);
+    let color = theme::vertex_snap_color(theme_mode);
+
+    // Diamond shape (rotated square)
+    let size = 8.0;
+    let points = [
+        Pos2::new(screen.x, screen.y - size),
+        Pos2::new(screen.x + size, screen.y),
+        Pos2::new(screen.x, screen.y + size),
+        Pos2::new(screen.x - size, screen.y),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        points.to_vec(),
+        Color32::TRANSPARENT,
+        Stroke::new(2.0, color),
+    ));
+    // Inner dot
+    painter.circle_filled(screen, 3.0, color);
+}
+
+/// Render symmetry axis line(s) on the canvas.
+pub fn render_symmetry_axis(
+    painter: &Painter,
+    viewport: &ViewportState,
+    symmetry: &crate::state::editor::SymmetryState,
+    sprite: &crate::model::sprite::Sprite,
+    canvas_rect: egui::Rect,
+    theme_mode: Theme,
+) {
+    let canvas_center = canvas_rect.center();
+    let color = theme::symmetry_axis_color(theme_mode);
+    let stroke = Stroke::new(1.5, color);
+    let cw = sprite.canvas_width as f32;
+    let ch = sprite.canvas_height as f32;
+
+    match symmetry.axis {
+        crate::state::editor::SymmetryAxis::Vertical | crate::state::editor::SymmetryAxis::Both => {
+            let x = symmetry.axis_position.x;
+            let top = viewport.world_to_screen(Vec2::new(x, -ch), canvas_center);
+            let bot = viewport.world_to_screen(Vec2::new(x, ch * 2.0), canvas_center);
+            draw_dashed_line(painter, top, bot, stroke, 8.0, 4.0);
+        }
+        _ => {}
+    }
+    match symmetry.axis {
+        crate::state::editor::SymmetryAxis::Horizontal | crate::state::editor::SymmetryAxis::Both => {
+            let y = symmetry.axis_position.y;
+            let left = viewport.world_to_screen(Vec2::new(-cw, y), canvas_center);
+            let right = viewport.world_to_screen(Vec2::new(cw * 2.0, y), canvas_center);
+            draw_dashed_line(painter, left, right, stroke, 8.0, 4.0);
+        }
+        _ => {}
+    }
+}
+
+/// Render symmetry ghost preview of in-progress line tool stroke.
+#[allow(clippy::too_many_arguments)]
+pub fn render_symmetry_ghost(
+    painter: &Painter,
+    vertices: &[PathVertex],
+    cursor_snap_pos: Vec2,
+    symmetry: &crate::state::editor::SymmetryState,
+    viewport: &ViewportState,
+    canvas_rect: egui::Rect,
+    stroke_width: f32,
+    theme_mode: Theme,
+) {
+    use crate::engine::symmetry as sym;
+    use crate::state::editor::SymmetryAxis;
+
+    let canvas_center = canvas_rect.center();
+    let ghost_color = theme::symmetry_ghost_color(theme_mode);
+    let ghost_stroke = Stroke::new(stroke_width * viewport.zoom, ghost_color);
+
+    // Build the axes to mirror across
+    let axes = match symmetry.axis {
+        SymmetryAxis::Vertical => vec![SymmetryAxis::Vertical],
+        SymmetryAxis::Horizontal => vec![SymmetryAxis::Horizontal],
+        SymmetryAxis::Both => vec![SymmetryAxis::Vertical, SymmetryAxis::Horizontal, SymmetryAxis::Both],
+    };
+
+    for axis in axes {
+        // Mirror committed vertices
+        let mut screen_points: Vec<Pos2> = Vec::new();
+        for v in vertices {
+            let mirrored = sym::mirror_point(v.pos, axis, &symmetry.axis_position);
+            screen_points.push(viewport.world_to_screen(mirrored, canvas_center));
+        }
+        // Mirror the rubber-band cursor position
+        let mirrored_cursor = sym::mirror_point(cursor_snap_pos, axis, &symmetry.axis_position);
+        screen_points.push(viewport.world_to_screen(mirrored_cursor, canvas_center));
+
+        // Draw as simple polyline (ghost doesn't need full curve rendering)
+        if screen_points.len() >= 2 {
+            for i in 0..screen_points.len() - 1 {
+                painter.line_segment([screen_points[i], screen_points[i + 1]], ghost_stroke);
+            }
+        }
+    }
+}
+
+/// Render reference images behind all layers.
+pub fn render_reference_images(
+    painter: &Painter,
+    viewport: &ViewportState,
+    sprite: &crate::model::sprite::Sprite,
+    ref_textures: &std::collections::HashMap<String, egui::TextureHandle>,
+    canvas_rect: egui::Rect,
+    selected_ref_id: Option<&str>,
+    theme_mode: Theme,
+) {
+    let canvas_center = canvas_rect.center();
+
+    for ref_img in &sprite.reference_images {
+        if !ref_img.visible {
+            continue;
+        }
+        let tex = match ref_textures.get(&ref_img.id) {
+            Some(t) => t,
+            None => continue,
+        };
+        let (w, h) = ref_img.image_size.unwrap_or((
+            tex.size()[0] as u32,
+            tex.size()[1] as u32,
+        ));
+
+        let world_min = ref_img.position;
+        let world_max = Vec2::new(
+            ref_img.position.x + w as f32 * ref_img.scale,
+            ref_img.position.y + h as f32 * ref_img.scale,
+        );
+
+        let screen_min = viewport.world_to_screen(world_min, canvas_center);
+        let screen_max = viewport.world_to_screen(world_max, canvas_center);
+        let rect = egui::Rect::from_two_pos(screen_min, screen_max);
+
+        let alpha = (ref_img.opacity * 255.0) as u8;
+        let tint = Color32::from_rgba_unmultiplied(255, 255, 255, alpha);
+
+        painter.image(
+            tex.id(),
+            rect,
+            egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            tint,
+        );
+
+        // Selection border
+        if selected_ref_id == Some(ref_img.id.as_str()) {
+            let border_color = theme::selection_highlight_color(theme_mode);
+            draw_dashed_line(painter, rect.left_top(), rect.right_top(), Stroke::new(1.0, border_color), 4.0, 3.0);
+            draw_dashed_line(painter, rect.right_top(), rect.right_bottom(), Stroke::new(1.0, border_color), 4.0, 3.0);
+            draw_dashed_line(painter, rect.right_bottom(), rect.left_bottom(), Stroke::new(1.0, border_color), 4.0, 3.0);
+            draw_dashed_line(painter, rect.left_bottom(), rect.left_top(), Stroke::new(1.0, border_color), 4.0, 3.0);
+        }
+    }
+}

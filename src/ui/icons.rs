@@ -17,6 +17,20 @@ pub fn tool_select() -> ImageSource<'static> { egui::include_image!("../../asset
 pub fn tool_line() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_line.svg") }
 pub fn tool_fill() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_fill.svg") }
 pub fn tool_eyedropper() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_eyedropper.svg") }
+pub fn tool_eraser() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_eraser.svg") }
+pub fn tool_snap_vertex() -> ImageSource<'static> { egui::include_image!("../../assets/icons/tool_snap_vertex.svg") }
+
+// Symmetry icons
+pub fn symmetry_vertical() -> ImageSource<'static> { egui::include_image!("../../assets/icons/symmetry_vertical.svg") }
+pub fn symmetry_horizontal() -> ImageSource<'static> { egui::include_image!("../../assets/icons/symmetry_horizontal.svg") }
+pub fn symmetry_both() -> ImageSource<'static> { egui::include_image!("../../assets/icons/symmetry_both.svg") }
+
+// Reference image icons
+pub fn ref_image_import() -> ImageSource<'static> { egui::include_image!("../../assets/icons/ref_image_import.svg") }
+#[allow(dead_code)] // reserved for dedicated ref image UI
+pub fn ref_image_lock() -> ImageSource<'static> { egui::include_image!("../../assets/icons/ref_image_lock.svg") }
+#[allow(dead_code)] // reserved for dedicated ref image UI
+pub fn ref_image_visible() -> ImageSource<'static> { egui::include_image!("../../assets/icons/ref_image_visible.svg") }
 
 // Palette icons
 pub fn palette_add() -> ImageSource<'static> { egui::include_image!("../../assets/icons/palette_add.svg") }

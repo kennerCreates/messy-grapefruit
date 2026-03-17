@@ -376,3 +376,113 @@ pub fn hit_test_handle(
     }
     None
 }
+
+/// Hit-test a specific segment index on an element.
+/// Returns the segment index (between vertex i and i+1) if the world position is close enough.
+pub fn hit_test_segment(
+    world_pos: Vec2,
+    element: &StrokeElement,
+    threshold: f32,
+) -> Option<usize> {
+    if element.vertices.len() < 2 {
+        return None;
+    }
+
+    let local_pos = if transform::has_transform(element) {
+        transform::inverse_transform_point(
+            world_pos, element.origin, element.position, element.rotation, element.scale,
+        )
+    } else {
+        world_pos
+    };
+
+    let n = element.vertices.len();
+    let seg_count = if element.closed { n } else { n - 1 };
+    let mut best_dist = f32::MAX;
+    let mut best_idx = None;
+    let mut polyline = Vec::new();
+
+    for seg in 0..seg_count {
+        let next = (seg + 1) % n;
+        let v0 = &element.vertices[seg];
+        let v1 = &element.vertices[next];
+
+        polyline.clear();
+        polyline.push(v0.pos);
+
+        // Flatten the segment (bezier or straight)
+        if element.curve_mode && (v0.cp2.is_some() || v1.cp1.is_some()) {
+            let cp1 = v0.cp2.unwrap_or(v0.pos);
+            let cp2 = v1.cp1.unwrap_or(v1.pos);
+            math::flatten_cubic_bezier(v0.pos, cp1, cp2, v1.pos, 1.0, &mut polyline);
+        }
+        polyline.push(v1.pos);
+
+        // Find minimum distance to this segment's polyline
+        for i in 0..polyline.len() - 1 {
+            let d = point_to_segment_distance(local_pos, polyline[i], polyline[i + 1]);
+            if d < best_dist {
+                best_dist = d;
+                best_idx = Some(seg);
+            }
+        }
+    }
+
+    if best_dist <= threshold + element.stroke_width / 2.0 {
+        best_idx
+    } else {
+        None
+    }
+}
+
+/// Eraser hit test: first tries vertex hit, then segment hit.
+/// Returns EraserHover enum variant or None.
+#[allow(clippy::too_many_arguments)]
+pub fn hit_test_eraser(
+    world_pos: Vec2,
+    sprite: &Sprite,
+    threshold: f32,
+    solo_layer_id: Option<&str>,
+    viewport: &ViewportState,
+    canvas_center: egui::Pos2,
+    screen_pos: egui::Pos2,
+    vertex_radius_px: f32,
+) -> Option<crate::state::editor::EraserHover> {
+    use crate::state::editor::EraserHover;
+
+    // First pass: try to hit a vertex (higher priority)
+    for layer in sprite.layers.iter().rev() {
+        if !is_layer_interactive(layer, solo_layer_id) {
+            continue;
+        }
+        for element in layer.elements.iter().rev() {
+            if let Some(vid) = hit_test_vertex(
+                screen_pos, element, viewport, canvas_center, vertex_radius_px,
+            ) {
+                return Some(EraserHover::Vertex {
+                    element_id: element.id.clone(),
+                    vertex_id: vid,
+                    layer_id: layer.id.clone(),
+                });
+            }
+        }
+    }
+
+    // Second pass: try to hit a segment
+    for layer in sprite.layers.iter().rev() {
+        if !is_layer_interactive(layer, solo_layer_id) {
+            continue;
+        }
+        for element in layer.elements.iter().rev() {
+            if let Some(seg_idx) = hit_test_segment(world_pos, element, threshold) {
+                return Some(EraserHover::Segment {
+                    element_id: element.id.clone(),
+                    segment_index: seg_idx,
+                    layer_id: layer.id.clone(),
+                });
+            }
+        }
+    }
+
+    None
+}

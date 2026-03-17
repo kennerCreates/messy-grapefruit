@@ -841,6 +841,7 @@ All planned features implemented. Key additions beyond the original plan:
 - **Theme settings UI**: settings icon button next to dark/light toggles in expanded sidebar. Opens role customization panel: 5 role swatches (20×20) in a row, click to open palette picker for that role. "Auto" button for intelligent reassignment
 - **Theme application**: `apply_theme()` sets all egui visuals from resolved palette colors — panel backgrounds, canvas background, text/icons, hover/active/selection states, grid dots, transform handles
 - **Keyboard shortcut safety**: all single-key shortcuts (tool switching, etc.) check `text_has_focus` to prevent triggering while typing in text fields
+- **App defaults persistence**: palette + editor preferences (theme mode, dark/light theme color indices) saved to `<config_dir>/messy-grapefruit/defaults.json` via `dirs` crate. Auto-saved on palette import/add/edit/delete, theme mode toggle, and theme role color changes. Loaded on startup so new projects inherit the last configured palette and theme
 
 **Files added:**
 - `src/ui/canvas_fill.rs` — fill tool click/hover logic
@@ -851,31 +852,60 @@ All planned features implemented. Key additions beyond the original plan:
 - `src/model/sprite.rs` — `fill_color_index` on `StrokeElement`, `background_color_index` on `Sprite`
 - `src/state/editor.rs` — `BrushState` (color_index, fill_color_index), recent_colors, lospec state, theme_settings_open, theme_role_picker, eyedropper_return_tool
 - `src/action.rs` — `SetFillColor`, `SetBackgroundColor`, `AddPaletteColor`, `DeletePaletteColor`, `EditPaletteColor`, `ImportPalette`
-- `src/main.rs` — action dispatch for all palette/fill actions, color remapping on delete, auto theme on import
+- `src/main.rs` — action dispatch for all palette/fill actions, color remapping on delete, auto theme on import, app defaults load on startup + save on palette/theme changes
 - `src/theme.rs` — `ThemeColors` cache, `resolve_from_palette()`, `apply_theme()`, thread-local active theme storage, canvas/grid/handle color getters
-- `src/ui/sidebar.rs` — theme toggle buttons + settings icon, theme role swatch row + palette picker, auto-pick button
+- `src/ui/sidebar.rs` — theme toggle buttons + settings icon, theme role swatch row + palette picker, auto-pick button, saves app defaults on theme changes
 - `src/ui/sidebar_palette.rs` — full palette grid, add/delete/import buttons, RGB editor, recent colors bar, Lospec import dialog
 - `src/ui/sidebar_tools.rs` — fill tool options (swatch + mini picker), eyedropper options (stroke/fill display)
 - `src/ui/canvas_render.rs` — `render_filled_path()`, ear-clipping triangulation, fill mesh rendering
 - `src/ui/canvas_input.rs` — `G`/`I` key shortcuts, Alt+click eyedropper, `text_has_focus` guard
 - `src/ui/icons.rs` — 6 new icon functions (tool_fill, tool_eyedropper, palette_add/remove/import, settings)
-- `src/io.rs` — `fetch_lospec_palette()` HTTP fetch + JSON parsing
+- `src/io.rs` — `fetch_lospec_palette()` HTTP fetch + JSON parsing, `AppDefaults` struct, `save_app_defaults()` / `load_app_defaults()` persistence
 - `src/engine/hit_test.rs` — `hit_test_fill()` for fill tool targeting
 - `src/ui/canvas.rs` — fill/eyedropper tool rendering integration
 
-**Artist test:** Build a palette → fill shapes with color → sample colors with eyedropper → import a Lospec palette → verify all art updates on palette color change → customize theme role colors → switch dark/light mode → verify theme follows palette.
+**Artist test:** Build a palette → fill shapes with color → sample colors with eyedropper → import a Lospec palette → verify all art updates on palette color change → customize theme role colors → switch dark/light mode → verify theme follows palette → close and reopen app → verify palette and theme persisted.
 
-### Phase 5: Drawing Refinement — "I can draw complex art efficiently"
+### Phase 5: Drawing Refinement — "I can draw complex art efficiently" ✅
 
-**Icons needed:**
-- Eraser tool
-- Symmetry: toggle, vertical axis, horizontal axis, cross (V+H) — status bar icons
-- Snap to vertices toggle
-- Reference image: import, lock, visibility
+**Status:** Complete.
 
-- Eraser: click vertex (delete + split) or segment (delete segment, clean up islands)
-- Symmetry drawing (`S`): mirror axis (V/H/V+H), draggable guide, ghost preview
-- Reference image overlay: import PNG/JPG, position, opacity, lock, visibility. Not exported
+**Icons added** (`assets/icons/`):
+- `tool_eraser`, `tool_snap_vertex` — tool icons
+- `symmetry_vertical`, `symmetry_horizontal`, `symmetry_both` — symmetry axis status bar indicators
+- `ref_image_import`, `ref_image_lock`, `ref_image_visible` — reference image controls
+
+**What was built:**
+
+- **Snap to vertices**: Magnetic snap to existing vertices on visible/unlocked layers. Applied after grid snap in `get_snap_pos_with_vertex_snap()`. Threshold = `HIT_TEST_THRESHOLD / zoom`. Blue diamond indicator at snap target. Toggle in toolbar. Respects solo mode.
+- **Eraser tool** (`E`): Two modes — click vertex (delete + split) or click segment (delete segment, clean up islands). Vertex hit takes priority over segment hit. Red highlight preview on hover. Both resulting elements inherit position/rotation/scale/origin/colors from original. Closed path erase opens the path. Interior vertex erase splits into two elements (first keeps original ID). 6 unit tests for all erase cases.
+- **Symmetry drawing** (`S`): Mirror axis (V/H/V+H), dashed guide line on canvas, ghost preview of mirrored stroke at 50% opacity. Cycles via S hotkey: off → V → H → Both → off. Axis defaults to canvas center. Mirrored strokes committed atomically via `CommitSymmetricStrokes` action (single undo step). Vertices reversed for proper winding direction. Status bar shows axis indicator icon. 4 unit tests for mirror math.
+- **Reference image overlay**: Import PNG/JPG via toolbar button or drag-and-drop. Renders behind all layers. Per-image controls: position, opacity slider (default 30%), visibility toggle, lock toggle, delete. `ReferenceImage` struct on `Sprite` with `#[serde(default)]` for backward compat. Textures cached in `App.ref_image_textures` HashMap, synced each frame. Selection border shown when selected.
+
+**Files added:**
+- `src/engine/eraser.rs` — vertex/segment erase + element splitting logic
+- `src/engine/symmetry.rs` — mirror point/vertex/vertices math
+- `src/ui/canvas_eraser.rs` — eraser tool UI (hover, click, preview)
+- `src/ui/sidebar_reference.rs` — reference image list panel
+
+**Files modified:**
+- `src/state/editor.rs` — `Eraser` in `ToolKind`, `EraserHover` enum, `SymmetryAxis`/`SymmetryState`, `RefImageDragState`, new fields on `EditorState` (vertex_snap_enabled, snap_vertex_target, eraser_hover, symmetry, selected_ref_image_id, dragging_ref_image)
+- `src/action.rs` — `CommitSymmetricStrokes`, `EraseVertex`, `EraseSegment`, `AddReferenceImage`, `RemoveReferenceImage` actions
+- `src/main.rs` — dispatch for all new actions, `ref_image_textures` HashMap on `App`, `sync_ref_image_textures()`, drag-and-drop file handling, `find_element_location()` helper
+- `src/engine/mod.rs` — added `eraser`, `symmetry` modules
+- `src/engine/snap.rs` — `snap_to_vertex()` function
+- `src/engine/hit_test.rs` — `hit_test_segment()`, `hit_test_eraser()` functions
+- `src/model/sprite.rs` — `ReferenceImage` struct, `reference_images` field on `Sprite`
+- `src/ui/mod.rs` — added `canvas_eraser`, `sidebar_reference` modules
+- `src/ui/canvas.rs` — eraser tool dispatch, symmetry axis rendering, ghost preview, vertex snap indicator, ref image rendering, `ref_image_textures` parameter
+- `src/ui/canvas_input.rs` — `E`/`S` hotkeys, `handle_line_tool_input` returns `Vec<AppAction>`, `commit_stroke` supports symmetry via `create_mirrored_elements`, `get_snap_pos_with_vertex_snap`
+- `src/ui/canvas_render.rs` — `render_vertex_snap_indicator`, `render_symmetry_axis`, `render_symmetry_ghost`, `render_reference_images`
+- `src/ui/toolbar.rs` — eraser, vertex snap, symmetry, ref image import buttons
+- `src/ui/sidebar.rs` — eraser match arm, reference images panel
+- `src/ui/status_bar.rs` — symmetry axis indicator
+- `src/ui/icons.rs` — 8 new icon functions
+- `src/theme.rs` — `vertex_snap_color`, `eraser_highlight_color`, `symmetry_axis_color`, `symmetry_ghost_color`
+- `src/io.rs` — `load_image_texture()` for PNG/JPG via `image` crate
 
 **Artist test:** Import a reference image → draw a symmetrical character over it → use eraser to fix mistakes → verify snap aligns vertices across layers.
 
