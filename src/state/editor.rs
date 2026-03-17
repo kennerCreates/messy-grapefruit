@@ -46,12 +46,21 @@ impl Default for SymmetryState {
     }
 }
 
-/// Drag state for repositioning a reference image.
+/// What kind of ref image drag is in progress.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RefImageDragKind {
+    Move,
+    Resize,
+}
+
+/// Drag state for repositioning or resizing a reference image.
 #[derive(Debug, Clone)]
 pub struct RefImageDragState {
     pub image_id: String,
+    pub kind: RefImageDragKind,
     pub start_world: Vec2,
     pub initial_position: Vec2,
+    pub initial_scale: f32,
 }
 
 #[derive(Debug, Clone, Default)]

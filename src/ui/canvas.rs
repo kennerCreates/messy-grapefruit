@@ -7,7 +7,7 @@ use crate::state::editor::{EditorState, ToolKind};
 use crate::state::history::History;
 use crate::theme;
 
-use super::{canvas_eraser, canvas_eyedropper, canvas_fill, canvas_input, canvas_render, canvas_select, grid};
+use super::{canvas_eraser, canvas_eyedropper, canvas_fill, canvas_input, canvas_refimage, canvas_render, canvas_select, grid};
 
 /// Base hit-test threshold in world units (divided by zoom at use site).
 pub(super) const HIT_TEST_THRESHOLD: f32 = 8.0;
@@ -106,8 +106,27 @@ pub fn show_canvas(
         );
     }
 
+    // --- Reference image interaction (move/resize) — runs before tools ---
+    let ref_image_consumed = canvas_refimage::handle_ref_image_input(
+        &response,
+        editor,
+        sprite,
+        history,
+        canvas_rect,
+        &mut actions,
+    );
+
+    // Render resize handle on selected ref image
+    canvas_refimage::render_ref_image_handles(
+        &painter,
+        editor,
+        sprite,
+        canvas_rect,
+        theme_mode,
+    );
+
     // --- Tool-specific: input, hit testing, preview ---
-    match editor.tool {
+    if !ref_image_consumed { match editor.tool {
         ToolKind::Select => {
             canvas_select::handle_select_tool(
                 &response,
@@ -165,7 +184,7 @@ pub fn show_canvas(
                 &mut actions,
             );
         }
-    }
+    } }
 
     // --- Vertex snap indicator ---
     if let Some(snap_target) = editor.snap_vertex_target {

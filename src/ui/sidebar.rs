@@ -304,7 +304,7 @@ fn show_expanded(
     super::sidebar_reference::show_reference_images(
         ui, editor, sprite,
         project.editor_preferences.theme,
-        &mut Vec::new(), // actions handled via direct mutation + undo
+        actions,
     );
 }
 

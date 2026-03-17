@@ -3,6 +3,7 @@ mod canvas_eraser;
 mod canvas_eyedropper;
 mod canvas_fill;
 pub mod canvas_input;
+mod canvas_refimage;
 pub mod canvas_render;
 mod canvas_select;
 mod canvas_transform;
