@@ -278,11 +278,23 @@ fn render_hatch_picker(
     ui.add_space(4.0);
 
     ui.horizontal(|ui| {
-        if ui.button("+ New").clicked() {
-            let pattern = crate::model::project::HatchPattern::new("Hatch");
+        if ui.button("+ Lines").clicked() {
+            let pattern = HatchPattern::new("Lines");
             editor.selected_hatch_pattern_id = Some(pattern.id.clone());
             actions.push(AppAction::AddHatchPattern(pattern));
         }
+        if ui.button("+ Cross").clicked() {
+            let pattern = HatchPattern::new_cross_hatch("Cross-Hatch");
+            editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+            actions.push(AppAction::AddHatchPattern(pattern));
+        }
+        if ui.button("+ Brick").clicked() {
+            let pattern = HatchPattern::new_brick("Brick");
+            editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+            actions.push(AppAction::AddHatchPattern(pattern));
+        }
+    });
+    ui.horizontal(|ui| {
         if ui.button("Edit").clicked() {
             editor.hatch_editor_open = !editor.hatch_editor_open;
         }
@@ -686,11 +698,23 @@ fn show_select_hatch_section(
     // Pattern picker
     if _project.hatch_patterns.is_empty() {
         ui.label("No patterns");
-        if ui.button("+ New Pattern").clicked() {
-            let pattern = HatchPattern::new("Hatch");
-            editor.selected_hatch_pattern_id = Some(pattern.id.clone());
-            actions.push(AppAction::AddHatchPattern(pattern));
-        }
+        ui.horizontal(|ui| {
+            if ui.small_button("+ Lines").clicked() {
+                let pattern = HatchPattern::new("Lines");
+                editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+                actions.push(AppAction::AddHatchPattern(pattern));
+            }
+            if ui.small_button("+ Cross").clicked() {
+                let pattern = HatchPattern::new_cross_hatch("Cross-Hatch");
+                editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+                actions.push(AppAction::AddHatchPattern(pattern));
+            }
+            if ui.small_button("+ Brick").clicked() {
+                let pattern = HatchPattern::new_brick("Brick");
+                editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+                actions.push(AppAction::AddHatchPattern(pattern));
+            }
+        });
     } else {
         for pattern in &_project.hatch_patterns {
             let is_applied = current_hatch_id == Some(pattern.id.as_str());

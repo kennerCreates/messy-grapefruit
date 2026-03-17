@@ -238,26 +238,83 @@ pub struct HatchLayer {
     pub offset: f32,
 }
 
-/// A hatch pattern: one or more layers of parallel lines.
-/// Multi-layer patterns produce cross-hatch effects.
+/// The type of hatch pattern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PatternType {
+    /// Parallel lines (one or more layers at independent angles).
+    #[default]
+    Lines,
+    /// Two perpendicular sets of lines that rotate together.
+    CrossHatch,
+    /// Staggered brick tiling — horizontal courses with alternating vertical joints.
+    Brick,
+}
+
+/// A hatch pattern definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HatchPattern {
     pub id: String,
     pub name: String,
     pub layers: Vec<HatchLayer>,
+    #[serde(default)]
+    pub pattern_type: PatternType,
+    /// Brick width (only used when pattern_type == Brick).
+    #[serde(default = "default_brick_width")]
+    pub brick_width: f32,
+    /// When true, the cross/joint direction is locked to vertical (90°)
+    /// instead of rotating perpendicular to the main angle.
+    /// Used for isometric faces where joints should appear truly vertical.
+    #[serde(default)]
+    pub iso_mode: bool,
 }
+
+fn default_brick_width() -> f32 { 24.0 }
 
 impl HatchPattern {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.into(),
+            pattern_type: PatternType::Lines,
             layers: vec![HatchLayer {
                 angle: 45.0,
                 spacing: 8.0,
                 offset: 0.0,
             }],
+            brick_width: default_brick_width(),
+            iso_mode: false,
+        }
+    }
+
+    pub fn new_cross_hatch(name: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.into(),
+            pattern_type: PatternType::CrossHatch,
+            layers: vec![HatchLayer {
+                angle: 45.0,
+                spacing: 8.0,
+                offset: 0.0,
+            }],
+            brick_width: default_brick_width(),
+            iso_mode: false,
+        }
+    }
+
+    pub fn new_brick(name: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.into(),
+            pattern_type: PatternType::Brick,
+            layers: vec![HatchLayer {
+                angle: 0.0,
+                spacing: 10.0,
+                offset: 0.0,
+            }],
+            brick_width: default_brick_width(),
+            iso_mode: false,
         }
     }
 }
