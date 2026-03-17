@@ -1,4 +1,5 @@
 mod action;
+mod action_handler;
 mod clipboard;
 mod engine;
 mod io;
@@ -95,213 +96,7 @@ impl App {
 
 impl App {
     fn dispatch_action(&mut self, action: action::AppAction) {
-        let before = self.sprite.clone();
-        let layer_idx = self.editor.layer.resolve_active_idx(&self.sprite);
-
-        match action {
-            action::AppAction::CommitStroke(element) => {
-                self.sprite.layers[layer_idx].elements.push(element);
-                self.history.push("Draw stroke".into(), before, self.sprite.clone());
-            }
-            action::AppAction::MergeStroke { merged_element, replace_element_id } => {
-                let layer = &mut self.sprite.layers[layer_idx];
-                layer.elements.retain(|e| e.id != replace_element_id);
-                layer.elements.push(merged_element);
-                self.history.push("Merge stroke".into(), before, self.sprite.clone());
-            }
-            action::AppAction::MergeSymmetricStrokes(entries) => {
-                let layer = &mut self.sprite.layers[layer_idx];
-                for entry in entries {
-                    layer.elements.retain(|e| e.id != entry.replace_element_id);
-                    layer.elements.push(entry.merged_element);
-                }
-                self.history.push("Merge symmetric strokes".into(), before, self.sprite.clone());
-            }
-            action::AppAction::CommitSymmetricStrokes(elements) => {
-                for elem in elements {
-                    self.sprite.layers[layer_idx].elements.push(elem);
-                }
-                self.history.push("Draw symmetric strokes".into(), before, self.sprite.clone());
-            }
-            action::AppAction::SetFillColor { element_id, fill_color_index } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.fill_color_index = fill_color_index;
-                            // Flat fill replaces gradient fill
-                            elem.gradient_fill = None;
-                        }
-                    }
-                }
-                self.history.push("Set fill color".into(), before, self.sprite.clone());
-            }
-            action::AppAction::SetBackgroundColor { background_color_index } => {
-                self.sprite.background_color_index = background_color_index;
-                self.history.push("Set background color".into(), before, self.sprite.clone());
-            }
-            action::AppAction::EraseVertex { element_id, vertex_id } => {
-                if let Some((layer_idx, elem_idx)) = find_element_location(&self.sprite, &element_id) {
-                    let element = &self.sprite.layers[layer_idx].elements[elem_idx];
-                    let result = engine::eraser::erase_vertex(element, &vertex_id, self.project.min_corner_radius);
-                    self.sprite.layers[layer_idx].elements.remove(elem_idx);
-                    for (i, new_elem) in result.new_elements.into_iter().enumerate() {
-                        self.sprite.layers[layer_idx].elements.insert(elem_idx + i, new_elem);
-                    }
-                    self.history.push("Erase vertex".into(), before, self.sprite.clone());
-                }
-            }
-            action::AppAction::EraseSegment { element_id, segment_index } => {
-                if let Some((layer_idx, elem_idx)) = find_element_location(&self.sprite, &element_id) {
-                    let element = &self.sprite.layers[layer_idx].elements[elem_idx];
-                    let result = engine::eraser::erase_segment(element, segment_index, self.project.min_corner_radius);
-                    self.sprite.layers[layer_idx].elements.remove(elem_idx);
-                    for (i, new_elem) in result.new_elements.into_iter().enumerate() {
-                        self.sprite.layers[layer_idx].elements.insert(elem_idx + i, new_elem);
-                    }
-                    self.history.push("Erase segment".into(), before, self.sprite.clone());
-                }
-            }
-            action::AppAction::AddPaletteColor(color) => {
-                if self.project.palette.colors.len() < 256 {
-                    self.project.palette.colors.push(color);
-                    io::save_app_defaults(&self.project);
-                }
-                // Project-level, no sprite undo
-            }
-            action::AppAction::DeletePaletteColor(index) => {
-                if index == 0 || index as usize >= self.project.palette.colors.len() {
-                    return;
-                }
-                self.project.palette.colors.remove(index as usize);
-                // Remap all sprite color indices
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        elem.stroke_color_index = remap_color_index(elem.stroke_color_index, index);
-                        elem.fill_color_index = remap_color_index(elem.fill_color_index, index);
-                        if let Some(ref mut grad) = elem.gradient_fill {
-                            for stop in &mut grad.stops {
-                                stop.color_index = remap_color_index(stop.color_index, index);
-                            }
-                        }
-                    }
-                }
-                self.sprite.background_color_index = remap_color_index(self.sprite.background_color_index, index);
-                self.history.push("Delete palette color".into(), before, self.sprite.clone());
-                io::save_app_defaults(&self.project);
-            }
-            action::AppAction::EditPaletteColor { index, color } => {
-                if let Some(c) = self.project.palette.colors.get_mut(index as usize) {
-                    *c = color;
-                }
-                io::save_app_defaults(&self.project);
-                // Project-level, no sprite undo
-            }
-            action::AppAction::ImportPalette(colors) => {
-                self.project.palette.colors = colors;
-                // Ensure index 0 is transparent
-                if self.project.palette.colors.is_empty()
-                    || self.project.palette.colors[0].a != 0
-                {
-                    self.project.palette.colors.insert(
-                        0,
-                        model::project::PaletteColor::transparent(),
-                    );
-                }
-                // Truncate to 256
-                self.project.palette.colors.truncate(256);
-                // Auto-pick theme colors from the new palette
-                let (dark, light) = model::project::auto_pick_theme_colors(&self.project.palette);
-                self.project.editor_preferences.dark_theme_colors = dark;
-                self.project.editor_preferences.light_theme_colors = light;
-                // Save as application defaults
-                io::save_app_defaults(&self.project);
-                // Project-level, no sprite undo
-            }
-            action::AppAction::AddReferenceImage(ref_image) => {
-                self.sprite.reference_images.push(ref_image);
-                self.history.push("Add reference image".into(), before, self.sprite.clone());
-            }
-            action::AppAction::RemoveReferenceImage(id) => {
-                self.sprite.reference_images.retain(|r| r.id != id);
-                self.ref_image_textures.remove(&id);
-                self.history.push("Remove reference image".into(), before, self.sprite.clone());
-            }
-
-            // ── Phase 6: Gradient & Hatch Fills ─────────────────────────
-
-            action::AppAction::SetGradientFill { element_id, gradient_fill } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.gradient_fill = Some(gradient_fill.clone());
-                        }
-                    }
-                }
-                self.history.push("Set gradient fill".into(), before, self.sprite.clone());
-            }
-            action::AppAction::ClearGradientFill { element_id } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.gradient_fill = None;
-                        }
-                    }
-                }
-                self.history.push("Clear gradient fill".into(), before, self.sprite.clone());
-            }
-            action::AppAction::SetHatchFill { element_id, hatch_fill_id } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.hatch_fill_id = Some(hatch_fill_id.clone());
-                        }
-                    }
-                }
-                self.history.push("Set hatch fill".into(), before, self.sprite.clone());
-            }
-            action::AppAction::ClearHatchFill { element_id } => {
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.id == element_id {
-                            elem.hatch_fill_id = None;
-                        }
-                    }
-                }
-                self.history.push("Clear hatch fill".into(), before, self.sprite.clone());
-            }
-            action::AppAction::AddHatchPattern(pattern) => {
-                self.project.hatch_patterns.push(pattern);
-                io::save_app_defaults(&self.project);
-            }
-            action::AppAction::UpdateHatchPattern(pattern) => {
-                if let Some(p) = self.project.hatch_patterns.iter_mut().find(|p| p.id == pattern.id) {
-                    *p = pattern;
-                }
-                io::save_app_defaults(&self.project);
-            }
-            action::AppAction::DeleteHatchPattern(id) => {
-                self.project.hatch_patterns.retain(|p| p.id != id);
-                // Clear references on all elements
-                for layer in &mut self.sprite.layers {
-                    for elem in &mut layer.elements {
-                        if elem.hatch_fill_id.as_deref() == Some(id.as_str()) {
-                            elem.hatch_fill_id = None;
-                        }
-                    }
-                }
-                self.history.push("Delete hatch pattern".into(), before, self.sprite.clone());
-                io::save_app_defaults(&self.project);
-            }
-            action::AppAction::ImportHatchPatterns(patterns) => {
-                for pattern in patterns {
-                    // Skip duplicates by name
-                    if !self.project.hatch_patterns.iter().any(|p| p.name == pattern.name) {
-                        self.project.hatch_patterns.push(pattern);
-                    }
-                }
-                io::save_app_defaults(&self.project);
-            }
-        }
+        action_handler::dispatch(self, action);
     }
 
     /// Load reference image textures that are missing from the cache.
@@ -330,30 +125,6 @@ impl App {
     }
 }
 
-/// Find the layer index and element index of an element by ID.
-fn find_element_location(sprite: &Sprite, element_id: &str) -> Option<(usize, usize)> {
-    for (li, layer) in sprite.layers.iter().enumerate() {
-        for (ei, elem) in layer.elements.iter().enumerate() {
-            if elem.id == element_id {
-                return Some((li, ei));
-            }
-        }
-    }
-    None
-}
-
-/// Remap a color index after a palette color has been deleted.
-/// If the index equals the deleted index, it becomes 0 (transparent).
-/// If the index is above the deleted index, it decrements by 1.
-fn remap_color_index(index: u8, deleted: u8) -> u8 {
-    if index == deleted {
-        0
-    } else if index > deleted {
-        index - 1
-    } else {
-        index
-    }
-}
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -361,6 +132,37 @@ impl eframe::App for App {
 
         // Sync reference image textures
         self.sync_ref_image_textures(ctx);
+
+        // Animation playback tick
+        if self.editor.playback.playing {
+            let now = ctx.input(|i| i.time);
+            if let Some(last) = self.editor.playback.last_frame_time {
+                let delta = (now - last) as f32 * self.editor.playback.speed;
+                self.editor.timeline.playhead_time += delta;
+                // Handle end of animation
+                if let Some(seq_id) = self.editor.timeline.selected_sequence_id.clone() {
+                    if let Some(seq) = self.sprite.animations.iter().find(|s| s.id == seq_id) {
+                        if self.editor.timeline.playhead_time >= seq.duration_secs {
+                            if self.editor.playback.loop_mode && seq.looping {
+                                if seq.duration_secs > 0.0 {
+                                    self.editor.timeline.playhead_time %= seq.duration_secs;
+                                } else {
+                                    self.editor.timeline.playhead_time = 0.0;
+                                }
+                            } else {
+                                self.editor.timeline.playhead_time = seq.duration_secs;
+                                self.editor.playback.playing = false;
+                                self.editor.playback.last_frame_time = None;
+                            }
+                        }
+                    }
+                }
+            }
+            if self.editor.playback.playing {
+                self.editor.playback.last_frame_time = Some(now);
+            }
+            ctx.request_repaint();
+        }
 
         // Handle drag-and-drop for reference images
         let dropped_files: Vec<_> = ctx.input(|i| i.raw.dropped_files.clone());
@@ -451,7 +253,7 @@ impl eframe::App for App {
             });
 
         // Floating sidebar (right side) — width depends on collapsed/expanded
-        let sidebar_width = if self.editor.sidebar_expanded { 220.0 } else { 64.0 };
+        let sidebar_width = if self.editor.ui.sidebar_expanded { 220.0 } else { 64.0 };
         let sidebar_resp = egui::Window::new("sidebar")
             .title_bar(false)
             .resizable(false)
@@ -489,5 +291,37 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 ui::status_bar::show_status_bar(ui, &self.editor, &self.sprite, &self.project);
             });
+
+        // Floating timeline (bottom center, above status bar)
+        if self.editor.timeline.is_timeline_visible {
+            const TIMELINE_HEIGHT: f32 = 160.0;
+            const STATUS_BAR_HEIGHT: f32 = 36.0;
+            let timeline_resp = egui::Window::new("timeline")
+                .title_bar(false)
+                .resizable(false)
+                .movable(false)
+                .collapsible(false)
+                .anchor(
+                    egui::Align2::CENTER_BOTTOM,
+                    [0.0, -(STATUS_BAR_HEIGHT + TIMELINE_HEIGHT + 12.0)],
+                )
+                .frame(floating_frame)
+                .min_width(600.0)
+                .show(ctx, |ui| {
+                    ui::timeline::show_timeline(
+                        ui,
+                        &mut self.editor,
+                        &mut self.sprite,
+                        &self.project,
+                    )
+                });
+            if let Some(resp) = timeline_resp
+                && let Some(actions) = resp.inner
+            {
+                for action in actions {
+                    self.dispatch_action(action);
+                }
+            }
+        }
     }
 }

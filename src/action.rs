@@ -84,4 +84,32 @@ pub enum AppAction {
     DeleteHatchPattern(String),
     /// Import hatch patterns from a .hatchpatterns file (project-level).
     ImportHatchPatterns(Vec<HatchPattern>),
+
+    // ── Phase 7: Animation ───────────────────────────────────────────────────
+
+    /// Create a new animation sequence.
+    CreateSequence { name: String },
+    /// Delete an animation sequence by ID.
+    DeleteSequence { sequence_id: String },
+    /// Rename an animation sequence.
+    RenameSequence { sequence_id: String, name: String },
+    /// Select (or deselect) an animation sequence. Resets playhead to 0 and stops playback.
+    SelectSequence { sequence_id: Option<String> },
+    /// Insert a pose keyframe at the current playhead time.
+    /// Captures all visible elements (if selected_ids is None) or only the given elements.
+    InsertPose { sequence_id: String, selected_ids: Option<Vec<String>> },
+    /// Delete a keyframe from a sequence.
+    DeleteKeyframe { sequence_id: String, keyframe_id: String },
+    /// Set the playhead time (navigation — no undo).
+    SetPlayheadTime { time_secs: f32 },
+    /// Set the duration of a sequence.
+    SetSequenceDuration { sequence_id: String, duration_secs: f32 },
+    /// Set whether a sequence loops.
+    SetSequenceLooping { sequence_id: String, looping: bool },
+    /// Set the easing curve on a keyframe.
+    SetEasingCurve {
+        sequence_id: String,
+        keyframe_id: String,
+        easing: crate::model::animation::EasingCurve,
+    },
 }

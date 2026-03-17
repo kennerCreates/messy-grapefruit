@@ -182,6 +182,8 @@ pub struct ViewportState {
     pub offset: Vec2,
     pub zoom: f32,
     pub flipped: bool,
+    /// Request a zoom-to-fit on the next frame (set by toolbar / file open).
+    pub zoom_to_fit_requested: bool,
 }
 
 impl Default for ViewportState {
@@ -190,6 +192,7 @@ impl Default for ViewportState {
             offset: Vec2::ZERO,
             zoom: 1.0,
             flipped: false,
+            zoom_to_fit_requested: true,
         }
     }
 }
@@ -376,6 +379,95 @@ impl LayerState {
     }
 }
 
+/// Transient UI panel / popup state (sidebar toggles, color pickers, popups).
+/// Grouped separately so animation can add its own UI toggles in `TimelineState`.
+#[derive(Debug, Clone)]
+pub struct UIState {
+    pub sidebar_expanded: bool,
+    /// Lospec palette import: slug text input.
+    pub lospec_slug: String,
+    /// Lospec import error message, if any.
+    pub lospec_error: Option<String>,
+    /// Whether the Lospec import popup is open.
+    pub lospec_popup_open: bool,
+    /// Whether the theme color settings panel is expanded.
+    pub theme_settings_open: bool,
+    /// Which theme role swatch has its palette picker open (0..5), if any.
+    pub theme_role_picker: Option<usize>,
+    /// Whether the hatch pattern editor panel is visible.
+    pub hatch_editor_open: bool,
+}
+
+impl Default for UIState {
+    fn default() -> Self {
+        Self {
+            sidebar_expanded: false,
+            lospec_slug: String::new(),
+            lospec_error: None,
+            lospec_popup_open: false,
+            theme_settings_open: false,
+            theme_role_picker: None,
+            hatch_editor_open: false,
+        }
+    }
+}
+
+/// Timeline/animation editor state.
+#[derive(Debug, Clone)]
+pub struct TimelineState {
+    /// ID of the animation sequence currently open in the timeline.
+    pub selected_sequence_id: Option<String>,
+    /// Current playhead position in seconds.
+    pub playhead_time: f32,
+    /// Auto-key mode: create/update keyframes automatically on edit (Phase 8).
+    pub auto_key: bool,
+    /// Show ghost of adjacent keyframes while editing (Phase 8).
+    pub onion_skin_enabled: bool,
+    /// ID of the currently selected keyframe diamond.
+    pub selected_keyframe_id: Option<String>,
+    /// Whether the timeline panel is visible.
+    pub is_timeline_visible: bool,
+    /// Inline rename: sequence ID being renamed, if any.
+    pub renaming_sequence_id: Option<String>,
+}
+
+impl Default for TimelineState {
+    fn default() -> Self {
+        Self {
+            selected_sequence_id: None,
+            playhead_time: 0.0,
+            auto_key: false,
+            onion_skin_enabled: false,
+            selected_keyframe_id: None,
+            is_timeline_visible: false,
+            renaming_sequence_id: None,
+        }
+    }
+}
+
+/// Animation playback state.
+#[derive(Debug, Clone)]
+pub struct PlaybackState {
+    pub playing: bool,
+    /// Playback speed multiplier (1.0 = normal).
+    pub speed: f32,
+    /// Whether to loop when the end is reached.
+    pub loop_mode: bool,
+    /// Time of the last rendered frame (f64 from ctx.input time). None when stopped.
+    pub last_frame_time: Option<f64>,
+}
+
+impl Default for PlaybackState {
+    fn default() -> Self {
+        Self {
+            playing: false,
+            speed: 1.0,
+            loop_mode: true,
+            last_frame_time: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct EditorState {
     pub tool: ToolKind,
@@ -389,23 +481,11 @@ pub struct EditorState {
     pub hover_element_id: Option<String>,
     pub selected_vertex_id: Option<String>,
     pub hover_vertex: Option<VertexHover>,
-    pub zoom_to_fit_requested: bool,
-    pub sidebar_expanded: bool,
     /// Last 8 used color indices (session-only, most recent first).
     pub recent_colors: Vec<u8>,
     /// When set, eyedropper was activated temporarily (Alt+click) and should
     /// return to this tool after sampling.
     pub eyedropper_return_tool: Option<ToolKind>,
-    /// Lospec import popup state: slug text input.
-    pub lospec_slug: String,
-    /// Lospec import error message, if any.
-    pub lospec_error: Option<String>,
-    /// Whether the Lospec import popup is open.
-    pub lospec_popup_open: bool,
-    /// Whether the theme color settings are expanded.
-    pub theme_settings_open: bool,
-    /// Which theme role swatch has its palette picker open (0..5), if any.
-    pub theme_role_picker: Option<usize>,
     /// Vertex snap toggle (magnetic snap to existing vertices).
     pub vertex_snap_enabled: bool,
     /// World position of the vertex snap target (for rendering indicator).
@@ -422,8 +502,12 @@ pub struct EditorState {
     pub dragging_ref_image: Option<RefImageDragState>,
     /// Selected hatch pattern ID in the pattern library.
     pub selected_hatch_pattern_id: Option<String>,
-    /// Whether the hatch pattern editor panel is visible.
-    pub hatch_editor_open: bool,
+    /// Transient UI panel / popup state.
+    pub ui: UIState,
+    /// Timeline editor state (Phase 7+).
+    pub timeline: TimelineState,
+    /// Playback state (Phase 7+).
+    pub playback: PlaybackState,
 }
 
 impl Default for EditorState {
@@ -444,15 +528,8 @@ impl Default for EditorState {
             hover_element_id: None,
             selected_vertex_id: None,
             hover_vertex: None,
-            zoom_to_fit_requested: true,
-            sidebar_expanded: false,
             recent_colors: Vec::new(),
             eyedropper_return_tool: None,
-            lospec_slug: String::new(),
-            lospec_error: None,
-            lospec_popup_open: false,
-            theme_settings_open: false,
-            theme_role_picker: None,
             vertex_snap_enabled: true,
             snap_vertex_target: None,
             eraser_hover: None,
@@ -461,7 +538,9 @@ impl Default for EditorState {
             selected_ref_image_id: None,
             dragging_ref_image: None,
             selected_hatch_pattern_id: None,
-            hatch_editor_open: false,
+            ui: UIState::default(),
+            timeline: TimelineState::default(),
+            playback: PlaybackState::default(),
         }
     }
 }
@@ -489,7 +568,7 @@ mod tests {
 
     #[test]
     fn test_world_screen_round_trip() {
-        let vp = ViewportState { offset: Vec2::new(10.0, 20.0), zoom: 2.0, flipped: false };
+        let vp = ViewportState { offset: Vec2::new(10.0, 20.0), zoom: 2.0, flipped: false, zoom_to_fit_requested: false };
         let center = egui::Pos2::new(400.0, 300.0);
         let world = Vec2::new(5.0, 10.0);
         let screen = vp.world_to_screen(world, center);
@@ -500,7 +579,7 @@ mod tests {
 
     #[test]
     fn test_world_screen_round_trip_flipped() {
-        let vp = ViewportState { offset: Vec2::new(10.0, 20.0), zoom: 2.0, flipped: true };
+        let vp = ViewportState { offset: Vec2::new(10.0, 20.0), zoom: 2.0, flipped: true, zoom_to_fit_requested: false };
         let center = egui::Pos2::new(400.0, 300.0);
         let world = Vec2::new(5.0, 10.0);
         let screen = vp.world_to_screen(world, center);
@@ -511,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_zoom_at_preserves_cursor_position() {
-        let mut vp = ViewportState { offset: Vec2::ZERO, zoom: 1.0, flipped: false };
+        let mut vp = ViewportState { offset: Vec2::ZERO, zoom: 1.0, flipped: false, zoom_to_fit_requested: false };
         let center = egui::Pos2::new(400.0, 300.0);
         let cursor = egui::Pos2::new(500.0, 350.0);
         let world_before = vp.screen_to_world(cursor, center);

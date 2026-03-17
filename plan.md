@@ -113,13 +113,15 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
             // Just string labels + time positions, no logic in the editor
         // duration auto-extends when a pose keyframe is placed past the current end; also manually editable (e.g., to add trailing hold time)
         └── PoseKeyframe { id, time, easing: EasingCurve, elementPoses: ElementPose[], ikMixValues: [(chainId, mix)]  }
-            // Captures the FULL state of all elements at a point in time — pose-to-pose animation
+            // Sparse keyframe — only contains ElementPoses for elements explicitly keyed at this time
+            // "Insert Pose" with nothing selected keys all visible elements; with selection, keys only selected elements
             // Easing curve controls the transition TO this pose from the previous one
             └── ElementPose { elementId, layerId, position, rotation, scale, visible,
                   strokeColorIndex, fillColorIndex, vertexPositions: [(vertexId, Vec2)],
                   gradientColorIndexStart?, gradientColorIndexEnd? }
                 // Per-element snapshot — all animatable properties in one struct
                 // Gradient color indices captured for animation (step interpolation, same as flat fills)
+                // Elements absent from a keyframe are NOT implicitly frozen — they evaluate via per-element search (see below)
             └── EasingCurve { preset, controlPoints: [x1,y1,x2,y2] }
         └── IKChain { id, name, layerIds: string[],       // ordered root→tip socket chain
               targetElementId: string,                       // references an IKTargetElement (position captured in ElementPose)
@@ -129,7 +131,11 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
               angleConstraints?: { layerId, min, max }[] }   // per-joint angle limits (2-bone only initially)
 ```
 
-**Pose-based animation**: Each `PoseKeyframe` snapshots the full sprite state (all element positions, rotations, scales, vertex positions, colors, visibility) at a point in time. The animation system interpolates between adjacent poses using the easing curve on each pose. This is simpler than per-property tracks — the artist poses the sprite and the system captures everything at once. With **auto-key mode** enabled, keyframes are created/updated automatically when the artist modifies the sprite while the playhead is on the timeline, eliminating the manual "Insert Pose" step.
+**Pose-based animation (sparse keyframes)**: Each `PoseKeyframe` stores only the elements explicitly keyed at that time — not all elements. This is invisible to the artist: the UI is a single timeline row of diamond markers, no per-element sub-tracks. "Insert Pose" with nothing selected captures all visible elements (full pose snapshot, the common case). "Insert Pose" with elements selected captures only those elements (targeted keying).
+
+**Evaluation is per-element**: for each element at playhead time T, the engine searches the sorted keyframe list for the nearest keyframe before and after T that contains that element. If both are found, the element interpolates between them using the easing curve. If only a previous keyframe is found, the element holds at that value. If only a future keyframe is found, the element interpolates from rest pose to that keyframe. If no keyframe contains the element in this sequence at all, the element renders at its rest pose value — meaning rest pose edits automatically propagate to sequences that don't key that element.
+
+With **auto-key mode** enabled (Phase 8), keyframes are created/updated automatically when the artist modifies the sprite while the playhead is on the timeline, eliminating the manual "Insert Pose" step.
 
 **Animatable properties** (captured per-element in each pose): `position`, `rotation`, `scale`, `strokeColorIndex`, `fillColorIndex`, `gradientColorIndexStart`, `gradientColorIndexEnd`, `visible`, and all vertex positions (by stable vertex ID). Color indices (including gradient endpoints) and visibility are interpolated as integers (nearest/step). Continuous properties (position, rotation, scale, vertex positions) use the pose's easing curve.
 
@@ -526,41 +532,61 @@ messy-grapefruit/
 ├── plan.md
 ├── assets/icons/           (custom icon PNGs for toolbar/sidebar)
 ├── src/
-│   ├── main.rs              (210 lines — App struct, eframe entry, action dispatch, keyboard undo/redo)
-│   ├── action.rs            (11 lines — AppAction enum for canvas→app communication)
-│   ├── clipboard.rs         (107 lines — copy/paste/cut with system clipboard + JSON serialization)
+│   ├── main.rs              — App struct, eframe entry, delegates action dispatch, keyboard undo/redo
+│   ├── action.rs            — AppAction enum for canvas→app communication
+│   ├── action_handler.rs    — full action dispatch logic (extracted from main.rs pre-Phase 7)
+│   ├── clipboard.rs         — copy/paste/cut with system clipboard + JSON serialization
+│   ├── io.rs                — save/load sprite + project JSON, Lospec palette fetch, hatch pattern import/export, app defaults
+│   ├── math.rs              — Catmull-Rom, bezier eval/split/flatten, fillet arcs, auto-curves, min radius enforcement
+│   ├── theme.rs             — dark/light theme colors, palette-driven theme resolution, input styling
 │   ├── model/
 │   │   ├── mod.rs
-│   │   ├── vec2.rs          (241 lines — Vec2 type + ops + conversions + tests)
-│   │   ├── project.rs       (187 lines — Project, Palette, PaletteColor, EditorPreferences)
-│   │   └── sprite.rs        (199 lines — Sprite, Layer, StrokeElement, PathVertex + manual_handles)
+│   │   ├── vec2.rs          — Vec2 type + ops + conversions + tests
+│   │   ├── project.rs       — Project, Palette, PaletteColor, EditorPreferences, HatchPattern, HatchLayer, PatternType
+│   │   └── sprite.rs        — Sprite, Layer, StrokeElement, PathVertex, GradientFill, GradientStop, GradientAlignment, SpreadMethod
 │   ├── state/
 │   │   ├── mod.rs
-│   │   ├── editor.rs        (293 lines — EditorState, ViewportState, SelectionState, SelectDragKind, VertexHover)
-│   │   └── history.rs       (155 lines — snapshot undo/redo with drag coalescing)
-│   ├── io.rs                (55 lines — save/load sprite JSON via rfd)
-│   ├── math.rs              (465 lines — Catmull-Rom, bezier eval/split/flatten, fillet arcs, auto-curves, min radius enforcement)
-│   ├── theme.rs             (188 lines — dark/light theme colors + apply + input styling)
-│   ├── ui/
+│   │   ├── editor.rs        — EditorState (+ UIState, TimelineState, PlaybackState substates), ViewportState, BrushState, FillMode, LayerState, SelectionState
+│   │   └── history.rs       — snapshot undo/redo with drag coalescing
+│   ├── engine/
 │   │   ├── mod.rs
-│   │   ├── icons.rs         (100 lines — icon asset loaders via include_image!, property icons)
-│   │   ├── canvas.rs        (1118 lines — select tool orchestrator with 7 sub-functions, vertex editing, line tool, zoom-to-fit)
-│   │   ├── canvas_input.rs  (257 lines — viewport input, line tool input, hotkeys)
-│   │   ├── canvas_render.rs (540 lines — element rendering, highlights, previews, boundary, vertex dots, CP handles)
-│   │   ├── grid.rs          (180 lines — dot/line rendering, straight + isometric)
-│   │   ├── toolbar.rs       (214 lines — file ops, tools, grid controls, view, theme)
-│   │   ├── sidebar.rs       (622 lines — context-sensitive tool options, element properties, layer list, palette swatches)
-│   │   └── status_bar.rs    (40 lines — sprite metrics, flip indicator, grid mode)
-│   └── engine/
+│   │   ├── snap.rs          — grid snapping to isometric diamond lattice
+│   │   ├── hit_test.rs      — point-to-stroke distance, vertex/handle/fill hit testing in screen space
+│   │   ├── transform.rs     — element transforms, world↔local conversions, selection bounds, recompute curves
+│   │   ├── merge.rs         — auto-merge coincident vertices at endpoints
+│   │   ├── eraser.rs        — vertex/segment erase + element splitting logic
+│   │   ├── symmetry.rs      — mirror point/vertex/vertices math
+│   │   └── hatch.rs         — scanline-based hatch line generation, HatchRenderData
+│   └── ui/
 │       ├── mod.rs
-│       ├── snap.rs           (55 lines — grid snapping to isometric diamond lattice)
-│       ├── hit_test.rs       (241 lines — point-to-stroke distance, vertex/handle hit testing in screen space)
-│       ├── transform.rs      (258 lines — element transforms, world↔local conversions, selection bounds, recompute curves)
-│       └── merge.rs          (117 lines — auto-merge coincident vertices at endpoints)
+│       ├── icons.rs         — icon asset loaders via include_image!, all tool/property/gradient/hatch icons
+│       ├── canvas.rs        — canvas widget: select tool orchestrator, vertex editing, line tool, zoom-to-fit
+│       ├── canvas_input.rs  — viewport input, hotkeys, line tool input, vertex snap, symmetry commit
+│       ├── canvas_render.rs — re-export orchestrator (delegates to canvas_render_strokes + canvas_render_overlays)
+│       ├── canvas_render_strokes.rs  — stroke/fill/gradient/hatch rendering, round end caps, ear-clip triangulation
+│       ├── canvas_render_overlays.rs — handles, selection highlights, boundary, vertex dots, CP handles, snap indicator, symmetry, ref images
+│       ├── canvas_select.rs — select tool hit testing, drag select, solo toggle
+│       ├── canvas_transform.rs — element move/rotate/scale drag handling
+│       ├── canvas_fill.rs   — fill tool click/hover dispatch (flat, gradient, hatch)
+│       ├── canvas_eyedropper.rs — eyedropper sampling + temporary mode
+│       ├── canvas_eraser.rs — eraser tool UI (hover, click, preview)
+│       ├── canvas_refimage.rs — reference image drag/resize interaction
+│       ├── gradient_bar.rs  — multi-stop gradient bar widget (click to select/add stops, drag to reposition)
+│       ├── grid.rs          — dot/line rendering, straight + isometric
+│       ├── toolbar.rs       — file ops, tools, grid controls, view, fill/hatch compact controls
+│       ├── sidebar.rs       — sidebar shell: expand/collapse, theme controls, routes to tool panels
+│       ├── sidebar_tools.rs — line tool options, select tool properties, eyedropper options
+│       ├── sidebar_fill.rs  — fill/hatch tool options, hatch picker, select-tool fill/hatch sections, thumbnail renderer
+│       ├── sidebar_gradient.rs — gradient stop editor, direction presets, angle, radial controls, spread method
+│       ├── sidebar_hatch.rs — hatch pattern editor panel (rename, type, layers, angle/spacing per layer)
+│       ├── sidebar_layers.rs — layer list: visibility/lock, groups, reorder, context menus
+│       ├── sidebar_palette.rs — palette grid, add/delete/import, RGB editor, recent colors, Lospec dialog
+│       ├── sidebar_reference.rs — reference image list panel
+│       └── status_bar.rs   — sprite metrics, flip indicator, grid mode, symmetry axis indicator
 └── .gitignore
 ```
 
-**Total: ~5,900 lines (Phase 2). Target workspace for all phases:**
+**Current state: Phase 6 complete + Pre-Phase 7 refactoring complete. Target workspace for all phases:**
 
 ```
 src/
@@ -576,8 +602,7 @@ src/
 │   │   ├── socket.rs        (socket chain transforms, cycle detection)     [Phase 10]
 │   │   ├── ik.rs            (2-bone analytical + FABRIK solvers)           [Phase 12]
 │   │   ├── physics.rs       (spring simulation, gravity, wind)             [Phase 13]
-│   │   ├── constraints.rs   (look-at, volume preserve, procedural)         [Phase 13]
-│   │   └── hatch.rs         (hatch pattern generation, flow curves)        [Phase 6]
+│   │   └── constraints.rs   (look-at, volume preserve, procedural)         [Phase 13]
 │   └── export/
 │       ├── svg_gen.rs        (Sprite + time → SVG string)                  [Phase 7]
 │       ├── rasterize.rs      (SVG → PNG via resvg)                         [Phase 7]
@@ -943,9 +968,9 @@ All planned features implemented. Key additions beyond the original plan:
 - `src/model/project.rs` — `HatchPattern` gains `pattern_type: PatternType`; `PatternType` enum (Lines/CrossHatch/Brick); `HatchLayer` gains `brick_width`; 3 built-in presets; project default includes Lines + CrossHatch
 - `src/action.rs` — `SetGradientFill`, `ClearGradientFill`, `SetHatchFill`, `ClearHatchFill`, `AddHatchPattern`, `UpdateHatchPattern`, `DeleteHatchPattern`, `ImportHatchPatterns`
 - `src/state/editor.rs` — `FillMode` enum (Flat/LinearGradient/RadialGradient); `BrushState` gains `fill_mode`, `gradient_stops`, `gradient_midpoints`, `gradient_angle`; `EditorState` gains `selected_hatch_pattern_id`, `hatch_editor_open`
-- `src/ui/canvas_render.rs` — `render_rounded_path()` with gradient + hatch rendering and round end caps; gradient color interpolation from stops; hatch line rendering from `HatchRenderData`
+- `src/ui/canvas_render.rs` — `render_rounded_path()` with gradient + hatch rendering and round end caps; gradient color interpolation from stops; hatch line rendering from `HatchRenderData` *(later split — see Pre-Phase 7 Refactoring)*
 - `src/ui/canvas_fill.rs` — fill tool dispatches `SetGradientFill`, `SetHatchFill`, or `SetFillColor` based on `fill_mode`
-- `src/ui/sidebar_tools.rs` — `show_fill_tool_options()`: fill mode toggles, gradient angle presets + slider, multi-stop editor, hatch thumbnail + open-editor button; compact toolbar fill/hatch controls
+- `src/ui/sidebar_tools.rs` — `show_fill_tool_options()`: fill mode toggles, gradient angle presets + slider, multi-stop editor, hatch thumbnail + open-editor button; compact toolbar fill/hatch controls *(later split — see Pre-Phase 7 Refactoring)*
 - `src/ui/sidebar.rs` — routes fill tool options and hatch editor panel; hatch thumbnail in element list
 - `src/ui/icons.rs` — 10 new icon functions for fill/gradient/hatch
 - `src/io.rs` — `HatchPatternFile`, `save_hatch_patterns()`, `load_hatch_patterns()`; hatch patterns saved/loaded with project
@@ -953,6 +978,39 @@ All planned features implemented. Key additions beyond the original plan:
 - `src/engine/mod.rs` — added `hatch` module
 
 **Artist test:** Apply a linear gradient aligned to the iso-descending face of a shape → create a cross-hatch pattern in the library → apply it to a closed element → verify patterns save and reload → export to `.hatchpatterns` and import into a fresh project.
+
+---
+
+### Pre-Phase 7 Refactoring — Preparing for Animation ✅
+
+**Status:** Complete.
+
+**Goal:** Reduce file sizes, establish clean module boundaries, and decompose `EditorState` into nested substates before the animation phase introduces timelines, playback, and keyframe state.
+
+**What was done:**
+
+- **`EditorState` substate decomposition** (`src/state/editor.rs`): Extracted 7 UI-related fields into `UIState { sidebar_expanded, lospec_slug, lospec_error, lospec_popup_open, theme_settings_open, theme_role_picker, hatch_editor_open }`. Added `TimelineState` and `PlaybackState` stubs (empty, ready for Phase 7 fields). Moved `zoom_to_fit_requested` into the existing `ViewportState`. All call sites updated (`editor.sidebar_expanded` → `editor.ui.sidebar_expanded`, etc.).
+- **Action handler extraction** (`src/action_handler.rs`): Extracted the full `dispatch_action` match body from `main.rs` into a standalone `pub fn dispatch(app, action)` function. Also moved `find_element_location` and `remap_color_index` helpers. `main.rs` `dispatch_action` is now a one-line delegate.
+- **`canvas_render.rs` split** (~1,170 lines → 3 files): `canvas_render_strokes.rs` holds all stroke/fill/hatch/gradient rendering (private `FillInfo`, `render_element_path`, `render_hatch_fill`, etc.) and its 5 public render functions. `canvas_render_overlays.rs` holds all overlay rendering (handles, selection, snap indicator, symmetry, reference images). `canvas_render.rs` is now a thin re-export orchestrator (~30 lines) so all `canvas_render::xxx` call sites remain unchanged.
+- **`sidebar_tools.rs` split** (~875 lines → 3 files): `sidebar_fill.rs` holds `show_fill_tool_options`, `render_hatch_picker`, `show_select_fill_section`, `show_select_hatch_section`, and `paint_hatch_thumbnail` with its private thumbnail helpers. `sidebar_gradient.rs` holds `render_gradient_controls`. `sidebar_tools.rs` is trimmed to the 3 remaining tool option functions (`show_line_tool_options`, `show_select_tool_options`, `show_eyedropper_tool_options`).
+
+**Files added:**
+- `src/action_handler.rs` — all action dispatch logic
+- `src/ui/canvas_render_strokes.rs` — stroke/fill/hatch/gradient rendering
+- `src/ui/canvas_render_overlays.rs` — handles, selection, snap, symmetry, reference image overlays
+- `src/ui/sidebar_fill.rs` — fill & hatch sidebar controls + thumbnail renderer
+- `src/ui/sidebar_gradient.rs` — gradient stop editor controls
+
+**Files modified:**
+- `src/state/editor.rs` — added `UIState`, `TimelineState`, `PlaybackState`; `ViewportState` gains `zoom_to_fit_requested`; `EditorState` gains `ui`, `timeline`, `playback` substates
+- `src/main.rs` — `dispatch_action` delegates to `action_handler::dispatch`; access paths updated
+- `src/ui/mod.rs` — added 4 new module declarations
+- `src/ui/canvas_render.rs` — replaced with re-export orchestrator
+- `src/ui/sidebar_tools.rs` — reduced to 3 tool option functions; fill/hatch/gradient code removed
+- `src/ui/sidebar.rs` — updated to import from `sidebar_fill` instead of `sidebar_tools`
+- `src/ui/canvas.rs`, `src/ui/toolbar.rs`, `src/ui/sidebar.rs`, `src/ui/sidebar_hatch.rs`, `src/ui/sidebar_palette.rs` — access paths updated for `editor.ui.*` and `editor.viewport.*`
+
+---
 
 ### Phase 7: Animation Core — "I can animate my sprites"
 
@@ -963,13 +1021,14 @@ All planned features implemented. Key additions beyond the original plan:
 
 - Timeline with time axis, playhead, pose keyframe markers (with thumbnails ~32×32)
 - Animation sequence tabs: create, switch, rename, delete
-- Pose-based keyframes: "Insert Pose" captures full sprite state. Easing curve per pose
-- Pose interpolation: continuous properties use easing curve, integers use step
+- Sparse pose keyframes: "Insert Pose" keys all visible elements (nothing selected) or only selected elements. Easing curve per pose
+- Per-element evaluation: elements not keyed in a sequence render at rest pose — rest pose edits propagate automatically
+- Pose interpolation: continuous properties (position, rotation, scale, vertex positions) use easing curve; integers (color indices, visibility) use step
 - Animation player icons (play/pause, start over, skip backward/forward, loop)
 - Canvas state indicator: color-coded border + status bar dot
 - Keyframe visual indicators: filled/outlined/dotted diamonds
 
-**Artist test:** Create a 3-pose animation → play it back → verify smooth interpolation → create a second animation sequence → switch between them.
+**Artist test:** Create a 3-pose animation → play it back → verify smooth interpolation → edit rest pose on an unkeyed element and verify it updates in the animation → create a second animation sequence → switch between them.
 
 ### Phase 8: Animation Workflow — "I can animate efficiently"
 

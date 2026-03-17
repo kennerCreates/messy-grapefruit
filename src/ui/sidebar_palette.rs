@@ -126,38 +126,38 @@ pub(super) fn render_palette_panel(
             .on_hover_text("Import from Lospec")
             .clicked()
         {
-            editor.lospec_popup_open = !editor.lospec_popup_open;
-            editor.lospec_error = None;
+            editor.ui.lospec_popup_open = !editor.ui.lospec_popup_open;
+            editor.ui.lospec_error = None;
         }
     });
 
     // Lospec import popup
-    if editor.lospec_popup_open {
+    if editor.ui.lospec_popup_open {
         ui.group(|ui| {
             ui.label("Lospec Import");
             ui.horizontal(|ui| {
                 ui.label("Slug:");
-                ui.text_edit_singleline(&mut editor.lospec_slug);
+                ui.text_edit_singleline(&mut editor.ui.lospec_slug);
             });
-            if let Some(err) = &editor.lospec_error {
+            if let Some(err) = &editor.ui.lospec_error {
                 ui.colored_label(egui::Color32::from_rgb(255, 100, 100), err);
             }
             ui.horizontal(|ui| {
-                if ui.button("Import").clicked() && !editor.lospec_slug.is_empty() {
-                    match crate::io::fetch_lospec_palette(&editor.lospec_slug) {
+                if ui.button("Import").clicked() && !editor.ui.lospec_slug.is_empty() {
+                    match crate::io::fetch_lospec_palette(&editor.ui.lospec_slug) {
                         Ok(colors) => {
                             actions.push(AppAction::ImportPalette(colors));
-                            editor.lospec_popup_open = false;
-                            editor.lospec_error = None;
+                            editor.ui.lospec_popup_open = false;
+                            editor.ui.lospec_error = None;
                             editor.brush.color_index = 1.min((palette.colors.len().saturating_sub(1)) as u8);
                         }
                         Err(e) => {
-                            editor.lospec_error = Some(e.to_string());
+                            editor.ui.lospec_error = Some(e.to_string());
                         }
                     }
                 }
                 if ui.button("Cancel").clicked() {
-                    editor.lospec_popup_open = false;
+                    editor.ui.lospec_popup_open = false;
                 }
             });
         });

@@ -30,7 +30,7 @@ pub fn show_toolbar(
             *sprite_path = None;
             editor.layer.set_active_by_idx(0, sprite);
             editor.line_tool.clear();
-            editor.zoom_to_fit_requested = true;
+            editor.viewport.zoom_to_fit_requested = true;
         }
 
         if ui
@@ -48,7 +48,7 @@ pub fn show_toolbar(
                     *sprite_path = Some(path);
                     editor.layer.set_active_by_idx(0, sprite);
                     editor.line_tool.clear();
-                    editor.zoom_to_fit_requested = true;
+                    editor.viewport.zoom_to_fit_requested = true;
                 }
                 Err(e) => {
                     eprintln!("Failed to load sprite: {e}");
@@ -315,7 +315,18 @@ pub fn show_toolbar(
             .on_hover_text("Zoom to Fit (F)")
             .clicked()
         {
-            editor.zoom_to_fit_requested = true;
+            editor.viewport.zoom_to_fit_requested = true;
+        }
+
+        ui.separator();
+
+        // Timeline toggle
+        if ui
+            .add(icons::icon_button(icons::metric_animation(), ui).selected(editor.timeline.is_timeline_visible))
+            .on_hover_text("Toggle Timeline (T)")
+            .clicked()
+        {
+            editor.timeline.is_timeline_visible = !editor.timeline.is_timeline_visible;
         }
 
     });

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::animation::AnimationSequence;
 use super::vec2::Vec2;
 
 fn is_false(b: &bool) -> bool {
@@ -363,6 +364,8 @@ pub struct Sprite {
     pub layer_groups: Vec<LayerGroup>,
     #[serde(default)]
     pub reference_images: Vec<ReferenceImage>,
+    #[serde(default)]
+    pub animations: Vec<AnimationSequence>,
 }
 
 impl Sprite {
@@ -377,6 +380,7 @@ impl Sprite {
             layers: vec![Layer::new("Layer 1")],
             layer_groups: Vec::new(),
             reference_images: Vec::new(),
+            animations: Vec::new(),
         }
     }
 
@@ -403,6 +407,10 @@ impl Sprite {
 
     pub fn layer_count(&self) -> usize {
         self.layers.len()
+    }
+
+    pub fn animation_count(&self) -> usize {
+        self.animations.len()
     }
 }
 

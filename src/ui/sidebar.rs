@@ -9,6 +9,7 @@ use crate::theme;
 use super::icons;
 use super::sidebar_layers;
 use super::sidebar_palette::{render_color_swatch, render_palette_panel};
+use super::sidebar_fill;
 use super::sidebar_hatch;
 use super::sidebar_tools;
 
@@ -20,7 +21,7 @@ pub fn show_sidebar(
     history: &mut History,
 ) -> Vec<AppAction> {
     let mut actions = Vec::new();
-    if editor.sidebar_expanded {
+    if editor.ui.sidebar_expanded {
         show_expanded(ui, editor, sprite, project, history, &mut actions);
     } else {
         show_collapsed(ui, editor, sprite, project);
@@ -45,7 +46,7 @@ fn show_collapsed(
             .on_hover_text("Expand Sidebar")
             .clicked()
         {
-            editor.sidebar_expanded = true;
+            editor.ui.sidebar_expanded = true;
         }
 
         // Theme toggle (flip-flop, small)
@@ -137,7 +138,7 @@ fn show_collapsed(
             if let Some(pattern) = project.hatch_patterns.iter()
                 .find(|p| sel_id.as_deref() == Some(p.id.as_str()))
             {
-                sidebar_tools::paint_hatch_thumbnail(
+                sidebar_fill::paint_hatch_thumbnail(
                     ui, pattern, true, false,
                     project.editor_preferences.theme,
                     egui::vec2(40.0, 40.0),
@@ -199,7 +200,7 @@ fn show_collapsed(
             // Hatch thumbnail (if element has a hatch)
             if let Some(hatch_id) = &elem.hatch_fill_id {
                 if let Some(pattern) = project.hatch_patterns.iter().find(|p| &p.id == hatch_id) {
-                    sidebar_tools::paint_hatch_thumbnail(
+                    sidebar_fill::paint_hatch_thumbnail(
                         ui, pattern, false, true,
                         project.editor_preferences.theme,
                         egui::vec2(40.0, 40.0),
@@ -263,7 +264,7 @@ fn show_expanded(
             .on_hover_text("Collapse Sidebar")
             .clicked()
         {
-            editor.sidebar_expanded = false;
+            editor.ui.sidebar_expanded = false;
         }
 
         // Theme toggle (small, same line)
@@ -287,18 +288,18 @@ fn show_expanded(
 
         // Settings toggle (same row as theme buttons)
         if ui
-            .add(icons::sidebar_toggle_button(icons::settings(), ui).selected(editor.theme_settings_open))
+            .add(icons::sidebar_toggle_button(icons::settings(), ui).selected(editor.ui.theme_settings_open))
             .on_hover_text("Theme Settings")
             .clicked()
         {
-            editor.theme_settings_open = !editor.theme_settings_open;
-            if !editor.theme_settings_open {
-                editor.theme_role_picker = None;
+            editor.ui.theme_settings_open = !editor.ui.theme_settings_open;
+            if !editor.ui.theme_settings_open {
+                editor.ui.theme_role_picker = None;
             }
         }
     });
 
-    if editor.theme_settings_open {
+    if editor.ui.theme_settings_open {
         show_theme_color_settings(ui, editor, project);
     }
 
@@ -315,7 +316,7 @@ fn show_expanded(
             sidebar_tools::show_select_tool_options(ui, editor, sprite, project, history, actions);
         }
         ToolKind::Fill => {
-            sidebar_tools::show_fill_tool_options(ui, editor, project, actions);
+            sidebar_fill::show_fill_tool_options(ui, editor, project, actions);
         }
         ToolKind::Eyedropper => {
             sidebar_tools::show_eyedropper_tool_options(ui, editor, project);
@@ -326,7 +327,7 @@ fn show_expanded(
     }
 
     // Hatch pattern editor (when open and fill tool is active)
-    if editor.hatch_editor_open && editor.tool == ToolKind::Fill {
+    if editor.ui.hatch_editor_open && editor.tool == ToolKind::Fill {
         sidebar_hatch::show_hatch_editor(ui, editor, project, sprite, actions);
         // Persist pattern edits (name, angle, spacing, offset are mutated directly)
         io::save_app_defaults(project);
@@ -389,7 +390,7 @@ fn show_theme_color_settings(
             ui.painter().rect_filled(rect, 2.0, c32);
 
             // Highlight if this role's picker is open
-            if editor.theme_role_picker == Some(role) {
+            if editor.ui.theme_role_picker == Some(role) {
                 ui.painter().rect_stroke(
                     rect,
                     2.0,
@@ -399,7 +400,7 @@ fn show_theme_color_settings(
             }
 
             if response.clicked() {
-                editor.theme_role_picker = if editor.theme_role_picker == Some(role) {
+                editor.ui.theme_role_picker = if editor.ui.theme_role_picker == Some(role) {
                     None
                 } else {
                     Some(role)
@@ -410,7 +411,7 @@ fn show_theme_color_settings(
     });
 
     // If a role picker is open, show palette grid for selection
-    if let Some(role) = editor.theme_role_picker {
+    if let Some(role) = editor.ui.theme_role_picker {
         ui.add_space(4.0);
         ui.label(format!("Pick: {}", ThemeColorIndices::ROLE_NAMES[role]));
         let current_idx = indices.get(role);
@@ -435,7 +436,7 @@ fn show_theme_color_settings(
                         Theme::Dark => project.editor_preferences.dark_theme_colors.set(role, i as u8),
                         Theme::Light => project.editor_preferences.light_theme_colors.set(role, i as u8),
                     }
-                    editor.theme_role_picker = None;
+                    editor.ui.theme_role_picker = None;
                     io::save_app_defaults(project);
                 }
                 if response.hovered() {
@@ -452,7 +453,7 @@ fn show_theme_color_settings(
         let (dark, light) = auto_pick_theme_colors(&project.palette);
         project.editor_preferences.dark_theme_colors = dark;
         project.editor_preferences.light_theme_colors = light;
-        editor.theme_role_picker = None;
+        editor.ui.theme_role_picker = None;
         io::save_app_defaults(project);
     }
 }

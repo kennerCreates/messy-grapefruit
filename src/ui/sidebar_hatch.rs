@@ -110,7 +110,7 @@ pub(super) fn show_hatch_editor(
     if ui.button("Delete Pattern").clicked() {
         actions.push(AppAction::DeleteHatchPattern(pattern_id.clone()));
         editor.selected_hatch_pattern_id = None;
-        editor.hatch_editor_open = false;
+        editor.ui.hatch_editor_open = false;
     }
 }
 

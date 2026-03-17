@@ -1,5 +1,5 @@
 use crate::action::AppAction;
-use crate::engine::{hit_test, transform};
+use crate::engine::{animation, hit_test, transform};
 use crate::model::sprite::Sprite;
 use crate::model::project::Project;
 use crate::model::vec2::Vec2;
@@ -42,9 +42,9 @@ pub fn show_canvas(
 
     // Handle F key or toolbar button = zoom to fit
     if (!ui.ctx().wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::F)) && !ui.input(|i| i.modifiers.ctrl))
-        || editor.zoom_to_fit_requested
+        || editor.viewport.zoom_to_fit_requested
     {
-        editor.zoom_to_fit_requested = false;
+        editor.viewport.zoom_to_fit_requested = false;
         zoom_to_fit(editor, sprite, canvas_rect);
     }
 
@@ -66,10 +66,16 @@ pub fn show_canvas(
         theme_mode,
     );
 
+    // Evaluate animation pose (zero cost when no animation active)
+    let anim_poses = editor.timeline.selected_sequence_id.as_ref()
+        .and_then(|id| sprite.animations.iter().find(|s| &s.id == id))
+        .map(|seq| animation::evaluate_pose(sprite, seq, editor.timeline.playhead_time));
+    let render_sprite = animation::build_evaluated_sprite(sprite, anim_poses.as_ref());
+
     canvas_render::render_background(
         &painter,
         &editor.viewport,
-        sprite,
+        render_sprite.as_ref(),
         &project.palette,
         canvas_rect,
     );
@@ -88,12 +94,20 @@ pub fn show_canvas(
     canvas_render::render_elements(
         &painter,
         &editor.viewport,
-        sprite,
+        render_sprite.as_ref(),
         &project.palette,
         canvas_rect,
         editor.layer.solo_layer_id.as_deref(),
         &project.hatch_patterns,
     );
+
+    // Canvas state indicator (colored border)
+    let anim_state = animation::canvas_state(
+        editor.timeline.selected_sequence_id.as_ref()
+            .and_then(|id| sprite.animations.iter().find(|s| &s.id == id)),
+        editor.timeline.playhead_time,
+    );
+    canvas_render::render_canvas_state_border(&painter, canvas_rect, &anim_state);
 
     // --- Symmetry axis rendering (always, if active) ---
     if editor.symmetry.active {
@@ -358,7 +372,7 @@ fn handle_line_tool(
 fn zoom_to_fit(editor: &mut EditorState, sprite: &Sprite, canvas_rect: egui::Rect) {
     // Shrink effective size to account for floating UI panels overlapping the canvas:
     // toolbar (~48px top), status bar (~40px bottom), sidebar (right)
-    let sidebar_w = if editor.sidebar_expanded { 220.0 } else { 64.0 };
+    let sidebar_w = if editor.ui.sidebar_expanded { 220.0 } else { 64.0 };
     let inset = egui::Vec2::new(sidebar_w + 16.0, 88.0);
     let effective_size = (canvas_rect.size() - inset).max(egui::Vec2::splat(100.0));
 

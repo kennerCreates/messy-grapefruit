@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod eraser;
 pub mod hatch;
 pub mod hit_test;
