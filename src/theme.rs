@@ -242,6 +242,13 @@ pub fn origin_color(theme: Theme) -> Color32 {
     Color32::from_rgba_unmultiplied(tc.selected.r(), tc.selected.g(), tc.selected.b(), 200)
 }
 
+pub fn flow_curve_color(theme: Theme) -> Color32 {
+    match theme {
+        Theme::Dark => Color32::from_rgba_unmultiplied(100, 200, 255, 180),
+        Theme::Light => Color32::from_rgba_unmultiplied(30, 120, 200, 180),
+    }
+}
+
 /// Apply a visible border to text inputs (DragValue, Slider, TextEdit) within the closure.
 /// Buttons remain borderless because they use weak_bg_fill (transparent).
 pub fn with_input_style<R>(ui: &mut egui::Ui, theme: Theme, f: impl FnOnce(&mut egui::Ui) -> R) -> R {

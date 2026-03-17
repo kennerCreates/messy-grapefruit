@@ -489,6 +489,99 @@ fn render_hatch_fill(
     }
 }
 
+/// Render a flow curve on the canvas with control point handles.
+pub fn render_flow_curve(
+    painter: &Painter,
+    element: &StrokeElement,
+    viewport: &ViewportState,
+    canvas_rect: egui::Rect,
+    theme_mode: Theme,
+    dragging_cp: Option<usize>,
+) {
+    let flow_curve = match &element.hatch_flow_curve {
+        Some(fc) => fc,
+        None => return,
+    };
+    let cps = &flow_curve.control_points;
+    if cps.len() < 4 {
+        return;
+    }
+
+    let canvas_center = canvas_rect.center();
+    let color = theme::flow_curve_color(theme_mode);
+
+    // Flatten the bezier curve for rendering
+    let (p0, cp1, cp2, p3) = (cps[0], cps[1], cps[2], cps[3]);
+    let tolerance = (FLATTEN_TOLERANCE_PX / viewport.zoom).max(FLATTEN_MIN_TOLERANCE);
+    let mut world_pts = Vec::new();
+    math::flatten_cubic_bezier(p0, cp1, cp2, p3, tolerance, &mut world_pts);
+
+    if world_pts.len() >= 2 {
+        let screen_pts: Vec<Pos2> = world_pts
+            .iter()
+            .map(|p| viewport.world_to_screen(*p, canvas_center))
+            .collect();
+        // Draw as dashed line
+        for i in 0..screen_pts.len() - 1 {
+            draw_dashed_line(
+                painter,
+                screen_pts[i],
+                screen_pts[i + 1],
+                Stroke::new(1.5, color),
+                4.0,
+                3.0,
+            );
+        }
+    }
+
+    // Draw tangent lines from anchors to their control points
+    let tangent_stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(
+        color.r(), color.g(), color.b(), 100,
+    ));
+    let s0 = viewport.world_to_screen(cps[0], canvas_center);
+    let s1 = viewport.world_to_screen(cps[1], canvas_center);
+    let s2 = viewport.world_to_screen(cps[2], canvas_center);
+    let s3 = viewport.world_to_screen(cps[3], canvas_center);
+    painter.line_segment([s0, s1], tangent_stroke);
+    painter.line_segment([s3, s2], tangent_stroke);
+
+    // Draw control point handles
+    for (i, cp) in cps.iter().enumerate().take(4) {
+        let screen = viewport.world_to_screen(*cp, canvas_center);
+        let is_anchor = i == 0 || i == 3;
+        let is_dragging = dragging_cp == Some(i);
+        let radius = if is_dragging { 6.0 } else if is_anchor { 5.0 } else { 4.0 };
+        let fill = if is_anchor { color } else { Color32::TRANSPARENT };
+        painter.circle_filled(screen, radius, fill);
+        painter.circle_stroke(screen, radius, Stroke::new(1.5, color));
+    }
+}
+
+/// Hit-test flow curve control points. Returns the index (0-3) if within radius.
+pub fn hit_test_flow_curve_cp(
+    screen_pos: Pos2,
+    element: &StrokeElement,
+    viewport: &ViewportState,
+    canvas_center: Pos2,
+    radius: f32,
+) -> Option<usize> {
+    let flow_curve = element.hatch_flow_curve.as_ref()?;
+    let cps = &flow_curve.control_points;
+    if cps.len() < 4 {
+        return None;
+    }
+    let radius_sq = radius * radius;
+    for i in 0..4 {
+        let screen = viewport.world_to_screen(cps[i], canvas_center);
+        let dx = screen_pos.x - screen.x;
+        let dy = screen_pos.y - screen.y;
+        if dx * dx + dy * dy <= radius_sq {
+            return Some(i);
+        }
+    }
+    None
+}
+
 /// Render hover highlight for an element.
 pub fn render_hover_highlight(
     painter: &Painter,

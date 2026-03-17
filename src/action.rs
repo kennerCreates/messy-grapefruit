@@ -76,13 +76,11 @@ pub enum AppAction {
         element_id: String,
     },
     /// Set or update the flow curve on an element.
-    #[allow(dead_code)]
     SetFlowCurve {
         element_id: String,
         flow_curve: FlowCurve,
     },
     /// Remove flow curve from an element.
-    #[allow(dead_code)]
     ClearFlowCurve {
         element_id: String,
     },

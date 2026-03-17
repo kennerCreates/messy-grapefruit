@@ -1,19 +1,24 @@
 use crate::action::AppAction;
 use crate::model::project::{HatchLayer, Project};
-use crate::state::editor::EditorState;
+use crate::model::sprite::{FlowCurve, Sprite};
+use crate::model::vec2::Vec2;
+use crate::state::editor::{EditorState, FlowCurveEditState};
 use crate::theme;
 
 use super::icons;
 
 /// Isometric angle presets for hatch layers (degrees).
-const ISO_ANGLE_DESC: f32 = 26.57; // atan(0.5) in degrees
-const ISO_ANGLE_ASC: f32 = 116.57; // atan(0.5) + 90 in degrees
+/// Descending edge (top-left to bottom-right): direction (2,1), slope 0.5, angle atan(0.5).
+/// Ascending edge (top-right to bottom-left): direction (-2,1), slope -0.5, angle 180 - atan(0.5).
+const ISO_ANGLE_DESC: f32 = 26.57;  // atan(0.5) in degrees
+const ISO_ANGLE_ASC: f32 = 153.43;  // 180 - atan(0.5) in degrees
 
 /// Show the hatch pattern editor panel (when hatch_editor_open is true).
 pub(super) fn show_hatch_editor(
     ui: &mut egui::Ui,
     editor: &mut EditorState,
     project: &mut Project,
+    sprite: &Sprite,
     actions: &mut Vec<AppAction>,
 ) {
     let pattern_id = match &editor.selected_hatch_pattern_id {
@@ -151,6 +156,83 @@ pub(super) fn show_hatch_editor(
             }
         }
     });
+
+    ui.add_space(4.0);
+
+    // --- Flow Curve ---
+    ui.separator();
+    ui.label("Flow Curve");
+    ui.add_space(2.0);
+
+    // Show flow curve controls for the first selected element that has this hatch pattern
+    let selected_element = editor.selection.selected_ids.iter()
+        .find_map(|id| {
+            sprite.layers.iter().flat_map(|l| &l.elements)
+                .find(|e| e.id == *id && e.hatch_fill_id.as_deref() == Some(pattern_id.as_str()))
+        });
+
+    if let Some(elem) = selected_element {
+        let has_flow_curve = elem.hatch_flow_curve.is_some();
+        let is_editing = editor.editing_flow_curve.as_ref()
+            .is_some_and(|fc| fc.element_id == elem.id);
+
+        if has_flow_curve {
+            ui.horizontal(|ui| {
+                let label = if is_editing { "Stop Editing" } else { "Edit Curve" };
+                if ui.button(label).clicked() {
+                    if is_editing {
+                        editor.editing_flow_curve = None;
+                    } else {
+                        editor.editing_flow_curve = Some(FlowCurveEditState {
+                            element_id: elem.id.clone(),
+                            dragging_cp_index: None,
+                            drag_start_world: Vec2::ZERO,
+                            initial_cp_pos: Vec2::ZERO,
+                        });
+                    }
+                }
+                if ui.button("Remove Curve").clicked() {
+                    actions.push(AppAction::ClearFlowCurve { element_id: elem.id.clone() });
+                    editor.editing_flow_curve = None;
+                }
+            });
+        } else {
+            if ui.button("Add Flow Curve").clicked() {
+                // Create a default horizontal flow curve through the element center
+                let bounds = crate::engine::transform::selection_bounds(sprite, &[elem.id.clone()]);
+                let (center, width) = if let Some((bmin, bmax)) = bounds {
+                    let c = (bmin + bmax) * 0.5;
+                    let w = (bmax.x - bmin.x).max(20.0);
+                    (c, w)
+                } else {
+                    (Vec2::new(50.0, 50.0), 60.0)
+                };
+
+                let flow = FlowCurve {
+                    control_points: vec![
+                        Vec2::new(center.x - width * 0.5, center.y),
+                        Vec2::new(center.x - width * 0.15, center.y),
+                        Vec2::new(center.x + width * 0.15, center.y),
+                        Vec2::new(center.x + width * 0.5, center.y),
+                    ],
+                };
+                actions.push(AppAction::SetFlowCurve {
+                    element_id: elem.id.clone(),
+                    flow_curve: flow,
+                });
+                editor.editing_flow_curve = Some(FlowCurveEditState {
+                    element_id: elem.id.clone(),
+                    dragging_cp_index: None,
+                    drag_start_world: Vec2::ZERO,
+                    initial_cp_pos: Vec2::ZERO,
+                });
+            }
+        }
+        ui.add_space(2.0);
+        ui.label("Drag control points on canvas");
+    } else {
+        ui.label("Select a hatched element to add a flow curve");
+    }
 
     ui.add_space(4.0);
 

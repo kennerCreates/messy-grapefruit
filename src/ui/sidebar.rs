@@ -279,7 +279,7 @@ fn show_expanded(
 
     // Hatch pattern editor (when open and fill tool is active)
     if editor.hatch_editor_open && editor.tool == ToolKind::Fill {
-        sidebar_hatch::show_hatch_editor(ui, editor, project, actions);
+        sidebar_hatch::show_hatch_editor(ui, editor, project, sprite, actions);
     }
 
     if matches!(editor.tool, ToolKind::Eyedropper) {
