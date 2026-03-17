@@ -33,11 +33,14 @@ Project (.spriteproj file)
 ├── strokeTaper: bool                    // project-wide toggle (default true). Pointed-ends taper on all strokes
 ├── hatchPatterns: HatchPattern[]        // user-created fill patterns, shared per-project
 │   └── HatchPattern { id, name,
+│         patternType: "lines"|"crosshatch"|"brick",
 │         layers: HatchLayer[] }         // multi-layer hatching (e.g., cross-hatch = two layers at different angles)
 │       └── HatchLayer { angle: f32, spacing: f32, strokeWidth: f32, colorIndex: u8,
-│             offset?: f32 }             // offset shifts the line set (for staggered patterns)
+│             offset?: f32,              // offset shifts the line set (for staggered patterns like brick)
+│             brickWidth?: f32 }         // brick pattern row width (only used for "brick" type)
+│       // Hatch lines use the element's stroke color and width — not the layer's own color
 │       // Patterns are project-wide definitions — elements reference them by ID
-│       // Import/export as standalone JSON for cross-project sharing
+│       // Import/export as standalone .hatchpatterns JSON for cross-project sharing
 └── editorPreferences (theme, gridSize, gridMode, showDots, showLines)
 
 Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:1, no scale factor)
@@ -56,14 +59,18 @@ Sprite (.sprite file)  // canvasWidth/canvasHeight = export pixel dimensions (1:
 │               strokeColorIndex, fillColorIndex, position, rotation, scale, origin: Vec2,
 │               taperOverride?: bool,    // per-element opt-out (null = use project default)
 │               gradientFill?: GradientFill,   // overrides flat fillColorIndex when set
-│               hatchFillId?: string,          // references a project HatchPattern by ID
-│               hatchFlowCurve?: Vec2[] }      // control points for curving hatch lines within element
-│           GradientFill { type: "linear"|"radial", colorIndexStart: u8, colorIndexEnd: u8,
-│               angle?: f32,                   // linear: direction in degrees (default 0 = left→right)
-│               center?: Vec2, radius?: f32 }  // radial: center + radius (normalized 0–1 within element bounds)
-│           // gradientFill interpolates between two palette colors — stays within indexed color system
-│           // hatchFlowCurve: bezier control points defining how hatch lines bend within this element
-│           //   absent = straight lines at the pattern's angle; present = lines warp to follow the curve
+│               hatchFillId?: string }         // references a project HatchPattern by ID
+│           GradientFill { type: "linear"|"radial",
+│               stops: GradientStop[],         // minimum 2 stops; sorted by position 0.0–1.0
+│               midpoints: f32[],              // bias per stop pair (length = stops.len()-1, 0.5 = linear)
+│               angleRad?: f32,               // linear: direction in radians (default π/2 = vertical)
+│               spread: "pad"|"reflect"|"repeat",
+│               center?: Vec2, radius?: f32,   // radial: center + radius (normalized 0–1 within AABB)
+│               focalOffset?: Vec2,            // radial focal point offset (None = concentric)
+│               lineStart?: Vec2, lineEnd?: Vec2 } // explicit gradient extent on canvas (normalized 0–1)
+│           GradientStop { position: f32, colorIndex: u8 }
+│           // GradientAlignment presets: horizontal (0°), vertical (90°), isoDescending (≈−63.43°), isoAscending (≈63.43°)
+│           // gradientFill stays within the indexed palette — interpolates between palette colors
 │           IKTargetElement { id, name?, type: "ik-target", position: Vec2, ikChainId: string }
 │               (lightweight — no vertices/strokes, renders as crosshair icon on canvas)
 │               (position is world-space — not relative to the layer. Lives on tip layer for organization only)
@@ -909,18 +916,43 @@ All planned features implemented. Key additions beyond the original plan:
 
 **Artist test:** Import a reference image → draw a symmetrical character over it → use eraser to fix mistakes → verify snap aligns vertices across layers.
 
-### Phase 6: Gradient & Hatch Fills — "I can add visual depth"
+### Phase 6: Gradient & Hatch Fills — "I can add visual depth" ✅
 
-**Icons needed:**
-- Fill mode toggles: flat (solid square), linear gradient (gradient bar), radial gradient (radial circle), hatch (hatch lines)
-- Hatch editor: add layer, remove layer, import patterns, export patterns
+**Status:** Complete.
 
-- Gradient fill: linear (angle) and radial (center + radius) between two palette colors. Four icon toggles for fill mode
-- Hatch fill patterns: project-level library, multi-layer (cross-hatch), live preview swatch as primary editor, visual swatch grid for selection
-- Flow curves: bezier guide path to warp hatch lines along element shape, editable on canvas
-- Cross-project hatch sharing (`.hatchpatterns` JSON import/export)
+**Icons added** (`assets/icons/`):
+- `fill_flat`, `fill_linear`, `fill_radial`, `fill_hatch` — fill mode toggle buttons
+- `grad_horizontal`, `grad_vertical`, `grad_iso_asc`, `grad_iso_desc` — gradient angle presets
+- `hatch_add_layer`, `hatch_remove_layer` — hatch layer controls
 
-**Artist test:** Apply a linear gradient to a copper pot → create a wood-grain hatch pattern → apply with flow curve to a barrel → export pattern to another project.
+**What was built:**
+
+- **Round end caps**: All open strokes now render filled circles at both endpoints, replacing flat caps. Implemented in `render_rounded_path()` via `painter.circle_filled` at the first and last screen point.
+- **Gradient fill**: Linear and radial fills on closed elements. `GradientFill` supports multi-stop (`stops: Vec<GradientStop>`) with a per-pair midpoint bias and spread method (Pad/Reflect/Repeat). Linear: angle in radians + 4 preset alignment buttons (horizontal, vertical, iso-descending, iso-ascending) aligned to the isometric grid. Radial: center + radius normalized 0–1 within element AABB, optional focal offset. Explicit `lineStart`/`lineEnd` for placing the gradient extent on canvas. Legacy two-color files migrated automatically via `normalize_legacy()`.
+- **Hatch fill patterns**: Project-level pattern library. `HatchPattern` stores `layers: Vec<HatchLayer>` and a `patternType` (Lines/CrossHatch/Brick). Each `HatchLayer` defines angle, spacing, strokeWidth, colorIndex, and an optional offset for staggered rows (brick). Hatch lines inherit the element's stroke color and width. Engine generates clipped lines via `generate_hatch_lines()`: rotate polygon by –angle, scanline intersect, rotate segments back. Three built-in presets; new projects start with Lines + CrossHatch in the library. Isometric angle presets: 26.57° (descending) and 153.43° (ascending).
+- **Hatch editor panel**: Sidebar panel (`sidebar_hatch.rs`) for creating and editing patterns. Rename pattern, select pattern type, add/remove layers, edit angle/spacing per layer. Iso-angle preset buttons and a custom angle drag. Thumbnail swatches via `paint_hatch_thumbnail`.
+- **Fill tool UI**: Fill mode toggle buttons (Flat / Linear Gradient / Radial Gradient / Hatch) in both the sidebar and compact toolbar. Gradient sub-options show angle presets + custom angle slider + multi-stop color editor. Hatch panel toggled from the fill toolbar.
+- **Cross-project hatch sharing**: `.hatchpatterns` JSON import/export via `save_hatch_patterns()` / `load_hatch_patterns()` in `io.rs`. `ImportHatchPatterns` action merges patterns into the project library.
+
+**Files added:**
+- `src/engine/hatch.rs` — `generate_hatch_lines()` scanline-based clipping algorithm, `HatchRenderData`
+- `src/ui/sidebar_hatch.rs` — hatch pattern editor panel
+
+**Files modified:**
+- `src/model/sprite.rs` — `GradientFill` (multi-stop with `stops`, `midpoints`, `spread`, `lineStart`/`lineEnd`), `GradientType`, `GradientAlignment`, `GradientStop`, `SpreadMethod`; `StrokeElement` gains `gradient_fill`, `hatch_fill_id`; legacy migration via `normalize_legacy()`
+- `src/model/project.rs` — `HatchPattern` gains `pattern_type: PatternType`; `PatternType` enum (Lines/CrossHatch/Brick); `HatchLayer` gains `brick_width`; 3 built-in presets; project default includes Lines + CrossHatch
+- `src/action.rs` — `SetGradientFill`, `ClearGradientFill`, `SetHatchFill`, `ClearHatchFill`, `AddHatchPattern`, `UpdateHatchPattern`, `DeleteHatchPattern`, `ImportHatchPatterns`
+- `src/state/editor.rs` — `FillMode` enum (Flat/LinearGradient/RadialGradient); `BrushState` gains `fill_mode`, `gradient_stops`, `gradient_midpoints`, `gradient_angle`; `EditorState` gains `selected_hatch_pattern_id`, `hatch_editor_open`
+- `src/ui/canvas_render.rs` — `render_rounded_path()` with gradient + hatch rendering and round end caps; gradient color interpolation from stops; hatch line rendering from `HatchRenderData`
+- `src/ui/canvas_fill.rs` — fill tool dispatches `SetGradientFill`, `SetHatchFill`, or `SetFillColor` based on `fill_mode`
+- `src/ui/sidebar_tools.rs` — `show_fill_tool_options()`: fill mode toggles, gradient angle presets + slider, multi-stop editor, hatch thumbnail + open-editor button; compact toolbar fill/hatch controls
+- `src/ui/sidebar.rs` — routes fill tool options and hatch editor panel; hatch thumbnail in element list
+- `src/ui/icons.rs` — 10 new icon functions for fill/gradient/hatch
+- `src/io.rs` — `HatchPatternFile`, `save_hatch_patterns()`, `load_hatch_patterns()`; hatch patterns saved/loaded with project
+- `src/main.rs` — dispatch for all new actions; project save includes hatch patterns
+- `src/engine/mod.rs` — added `hatch` module
+
+**Artist test:** Apply a linear gradient aligned to the iso-descending face of a shape → create a cross-hatch pattern in the library → apply it to a closed element → verify patterns save and reload → export to `.hatchpatterns` and import into a fresh project.
 
 ### Phase 7: Animation Core — "I can animate my sprites"
 
