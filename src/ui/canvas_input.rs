@@ -235,9 +235,10 @@ fn commit_stroke(
         element.closed = true;
 
         if editor.symmetry.active {
-            let mirrored = create_mirrored_elements(&element, &editor.symmetry, project);
-            let mut all = vec![element];
-            all.extend(mirrored);
+            let all = create_symmetric_elements(element, &editor.symmetry, project);
+            if all.len() == 1 {
+                return vec![AppAction::CommitStroke(all.into_iter().next().unwrap())];
+            }
             return vec![AppAction::CommitSymmetricStrokes(all)];
         }
         return vec![AppAction::CommitStroke(element)];
@@ -296,69 +297,100 @@ fn commit_stroke(
     let element = StrokeElement::new(vertices, editor.brush.stroke_width, editor.brush.color_index, editor.line_tool.curve_mode);
 
     if editor.symmetry.active {
-        let mirrored = create_mirrored_elements(&element, &editor.symmetry, project);
-        let mut all = vec![element];
-        all.extend(mirrored);
+        let all = create_symmetric_elements(element, &editor.symmetry, project);
+        if all.len() == 1 {
+            return vec![AppAction::CommitStroke(all.into_iter().next().unwrap())];
+        }
         return vec![AppAction::CommitSymmetricStrokes(all)];
     }
 
     vec![AppAction::CommitStroke(element)]
 }
 
-/// Create mirrored copies of an element for symmetry drawing.
-fn create_mirrored_elements(
-    element: &StrokeElement,
+/// Create symmetric elements (joined or separate) for the given primary element.
+/// Returns all elements to commit (primary + mirrors, or a single joined element).
+fn create_symmetric_elements(
+    element: StrokeElement,
     symmetry: &crate::state::editor::SymmetryState,
     project: &Project,
 ) -> Vec<StrokeElement> {
-    use crate::engine::symmetry;
-    let mut results = Vec::new();
+    use crate::engine::symmetry::{self, SymmetryResult};
+    let threshold = project.editor_preferences.grid_size as f32;
+    let mcr = project.min_corner_radius;
 
     match symmetry.axis {
-        SymmetryAxis::Vertical => {
-            let mirrored_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Vertical, &symmetry.axis_position);
-            let mut m = StrokeElement::new(mirrored_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
-            m.closed = element.closed;
-            m.fill_color_index = element.fill_color_index;
-            math::recompute_auto_curves(&mut m.vertices, m.closed, m.curve_mode, project.min_corner_radius);
-            results.push(m);
-        }
-        SymmetryAxis::Horizontal => {
-            let mirrored_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Horizontal, &symmetry.axis_position);
-            let mut m = StrokeElement::new(mirrored_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
-            m.closed = element.closed;
-            m.fill_color_index = element.fill_color_index;
-            math::recompute_auto_curves(&mut m.vertices, m.closed, m.curve_mode, project.min_corner_radius);
-            results.push(m);
+        SymmetryAxis::Vertical | SymmetryAxis::Horizontal => {
+            match symmetry::try_join_symmetric(&element, symmetry.axis, &symmetry.axis_position, threshold, mcr) {
+                SymmetryResult::Joined(joined) => vec![joined],
+                SymmetryResult::Separate(mirrors) => {
+                    let mut all = vec![element];
+                    all.extend(mirrors);
+                    all
+                }
+            }
         }
         SymmetryAxis::Both => {
-            // V-mirrored
-            let v_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Vertical, &symmetry.axis_position);
-            let mut mv = StrokeElement::new(v_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
-            mv.closed = element.closed;
-            mv.fill_color_index = element.fill_color_index;
-            math::recompute_auto_curves(&mut mv.vertices, mv.closed, mv.curve_mode, project.min_corner_radius);
-            results.push(mv);
+            // For both-axes mode, try joining on each axis independently.
+            // First try vertical join, then horizontal join on the result.
+            let v_result = symmetry::try_join_symmetric(&element, SymmetryAxis::Vertical, &symmetry.axis_position, threshold, mcr);
+            match v_result {
+                SymmetryResult::Joined(v_joined) => {
+                    // The V-joined element spans across the vertical axis.
+                    // Now try joining that across the horizontal axis.
+                    let h_result = symmetry::try_join_symmetric(&v_joined, SymmetryAxis::Horizontal, &symmetry.axis_position, threshold, mcr);
+                    match h_result {
+                        SymmetryResult::Joined(full_joined) => vec![full_joined],
+                        SymmetryResult::Separate(h_mirrors) => {
+                            let mut all = vec![v_joined];
+                            all.extend(h_mirrors);
+                            all
+                        }
+                    }
+                }
+                SymmetryResult::Separate(v_mirrors) => {
+                    // No vertical join — try horizontal join on primary
+                    let h_result = symmetry::try_join_symmetric(&element, SymmetryAxis::Horizontal, &symmetry.axis_position, threshold, mcr);
+                    match h_result {
+                        SymmetryResult::Joined(h_joined) => {
+                            // H-joined primary, plus V-mirror of that joined element
+                            let v_mirror_result = symmetry::try_join_symmetric(&h_joined, SymmetryAxis::Vertical, &symmetry.axis_position, threshold, mcr);
+                            match v_mirror_result {
+                                SymmetryResult::Joined(full) => vec![full],
+                                SymmetryResult::Separate(v_mirs) => {
+                                    let mut all = vec![h_joined];
+                                    all.extend(v_mirs);
+                                    all
+                                }
+                            }
+                        }
+                        SymmetryResult::Separate(_) => {
+                            // No join on either axis — all 4 separate elements
+                            let mut all = vec![element.clone()];
+                            all.extend(v_mirrors);
 
-            // H-mirrored
-            let h_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Horizontal, &symmetry.axis_position);
-            let mut mh = StrokeElement::new(h_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
-            mh.closed = element.closed;
-            mh.fill_color_index = element.fill_color_index;
-            math::recompute_auto_curves(&mut mh.vertices, mh.closed, mh.curve_mode, project.min_corner_radius);
-            results.push(mh);
+                            // H-mirrored
+                            let h_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Horizontal, &symmetry.axis_position);
+                            let mut mh = StrokeElement::new(h_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
+                            mh.closed = element.closed;
+                            mh.fill_color_index = element.fill_color_index;
+                            math::recompute_auto_curves(&mut mh.vertices, mh.closed, mh.curve_mode, mcr);
+                            all.push(mh);
 
-            // V+H mirrored (both axes)
-            let vh_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Both, &symmetry.axis_position);
-            let mut mvh = StrokeElement::new(vh_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
-            mvh.closed = element.closed;
-            mvh.fill_color_index = element.fill_color_index;
-            math::recompute_auto_curves(&mut mvh.vertices, mvh.closed, mvh.curve_mode, project.min_corner_radius);
-            results.push(mvh);
+                            // Both-axes mirrored
+                            let vh_verts = symmetry::mirror_vertices(&element.vertices, SymmetryAxis::Both, &symmetry.axis_position);
+                            let mut mvh = StrokeElement::new(vh_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
+                            mvh.closed = element.closed;
+                            mvh.fill_color_index = element.fill_color_index;
+                            math::recompute_auto_curves(&mut mvh.vertices, mvh.closed, mvh.curve_mode, mcr);
+                            all.push(mvh);
+
+                            all
+                        }
+                    }
+                }
+            }
         }
     }
-
-    results
 }
 
 /// Get the current snap position for the cursor (grid + optional vertex snap).
