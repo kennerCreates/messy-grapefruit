@@ -1,4 +1,5 @@
 pub mod eraser;
+pub mod hatch;
 pub mod hit_test;
 pub mod merge;
 pub mod snap;

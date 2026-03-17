@@ -1,8 +1,8 @@
 use crate::action::AppAction;
 use crate::engine::hit_test;
 use crate::model::project::Theme;
-use crate::model::sprite::Sprite;
-use crate::state::editor::EditorState;
+use crate::model::sprite::{GradientFill, GradientType, Sprite};
+use crate::state::editor::{EditorState, FillMode};
 
 use super::canvas::HIT_TEST_THRESHOLD;
 
@@ -49,22 +49,64 @@ pub(super) fn handle_fill_tool(
 
         match hit {
             Some((element_id, true)) => {
-                // Closed element: set its fill color
-                actions.push(AppAction::SetFillColor {
-                    element_id,
-                    fill_color_index: editor.brush.fill_color_index,
-                });
-                editor.track_recent_color(editor.brush.fill_color_index);
+                // Closed element: apply fill based on current mode
+                match editor.brush.fill_mode {
+                    FillMode::Flat => {
+                        actions.push(AppAction::SetFillColor {
+                            element_id,
+                            fill_color_index: editor.brush.fill_color_index,
+                        });
+                        editor.track_recent_color(editor.brush.fill_color_index);
+                    }
+                    FillMode::LinearGradient => {
+                        actions.push(AppAction::SetGradientFill {
+                            element_id,
+                            gradient_fill: GradientFill {
+                                gradient_type: GradientType::Linear,
+                                color_index_start: editor.brush.gradient_color_start,
+                                color_index_end: editor.brush.gradient_color_end,
+                                alignment: editor.brush.gradient_alignment,
+                                center: None,
+                                radius: None,
+                                sharpness: editor.brush.gradient_sharpness,
+                            },
+                        });
+                    }
+                    FillMode::RadialGradient => {
+                        actions.push(AppAction::SetGradientFill {
+                            element_id,
+                            gradient_fill: GradientFill {
+                                gradient_type: GradientType::Radial,
+                                color_index_start: editor.brush.gradient_color_start,
+                                color_index_end: editor.brush.gradient_color_end,
+                                alignment: editor.brush.gradient_alignment,
+                                center: Some(editor.brush.radial_center),
+                                radius: Some(editor.brush.radial_radius),
+                                sharpness: editor.brush.gradient_sharpness,
+                            },
+                        });
+                    }
+                    FillMode::Hatch => {
+                        if let Some(ref pattern_id) = editor.selected_hatch_pattern_id {
+                            actions.push(AppAction::SetHatchFill {
+                                element_id,
+                                hatch_fill_id: pattern_id.clone(),
+                            });
+                        }
+                    }
+                }
             }
             Some((_, false)) => {
                 // Open element: cannot fill (no-op)
             }
             None => {
-                // Empty canvas: set background color
-                actions.push(AppAction::SetBackgroundColor {
-                    background_color_index: editor.brush.fill_color_index,
-                });
-                editor.track_recent_color(editor.brush.fill_color_index);
+                // Empty canvas: set background color (flat mode only)
+                if editor.brush.fill_mode == FillMode::Flat {
+                    actions.push(AppAction::SetBackgroundColor {
+                        background_color_index: editor.brush.fill_color_index,
+                    });
+                    editor.track_recent_color(editor.brush.fill_color_index);
+                }
             }
         }
     }

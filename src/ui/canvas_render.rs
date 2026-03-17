@@ -2,8 +2,8 @@ use egui::{Color32, Painter, Pos2, Stroke};
 
 use crate::engine::transform;
 use crate::math;
-use crate::model::project::{Palette, Theme};
-use crate::model::sprite::{PathVertex, StrokeElement, Sprite};
+use crate::model::project::{HatchPattern, Palette, Theme};
+use crate::model::sprite::{GradientType, PathVertex, StrokeElement, Sprite};
 use crate::model::vec2::Vec2;
 use crate::state::editor::{HandleKind, VertexHover, ViewportState};
 use crate::theme;
@@ -34,6 +34,161 @@ const VERTEX_SELECTED_RADIUS: f32 = 5.5;
 const CP_HANDLE_RADIUS: f32 = 3.5;
 /// Hit radius for vertex/handle picking (screen pixels).
 pub const VERTEX_HIT_RADIUS: f32 = 8.0;
+
+/// Fill rendering info passed through the render pipeline.
+#[derive(Clone)]
+enum FillInfo {
+    Flat(Color32),
+    Gradient {
+        color_start: Color32,
+        color_end: Color32,
+        gradient_type: GradientType,
+        angle_rad: f32,
+        /// Element AABB in screen space (min, max).
+        bounds_min: Pos2,
+        bounds_max: Pos2,
+        /// Radial center, normalized 0..1 within element AABB.
+        center: (f32, f32),
+        /// Radial radius, normalized 0..1 of the AABB diagonal.
+        radius: f32,
+        /// Sharpness: 1.0 = linear, >1 = sharper, <1 = softer.
+        sharpness: f32,
+    },
+}
+
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let inv = 1.0 - t;
+    Color32::from_rgba_unmultiplied(
+        (a.r() as f32 * inv + b.r() as f32 * t) as u8,
+        (a.g() as f32 * inv + b.g() as f32 * t) as u8,
+        (a.b() as f32 * inv + b.b() as f32 * t) as u8,
+        (a.a() as f32 * inv + b.a() as f32 * t) as u8,
+    )
+}
+
+fn gradient_color_at(pos: Pos2, fill: &FillInfo) -> Color32 {
+    match fill {
+        FillInfo::Flat(c) => *c,
+        FillInfo::Gradient {
+            color_start, color_end, gradient_type, angle_rad,
+            bounds_min, bounds_max, center, radius, sharpness,
+        } => {
+            match gradient_type {
+                GradientType::Linear => {
+                    let dir_x = angle_rad.cos();
+                    let dir_y = angle_rad.sin();
+                    let corners = [
+                        (bounds_min.x, bounds_min.y),
+                        (bounds_max.x, bounds_min.y),
+                        (bounds_min.x, bounds_max.y),
+                        (bounds_max.x, bounds_max.y),
+                    ];
+                    let mut proj_min = f32::MAX;
+                    let mut proj_max = f32::MIN;
+                    for (cx, cy) in corners {
+                        let p = cx * dir_x + cy * dir_y;
+                        proj_min = proj_min.min(p);
+                        proj_max = proj_max.max(p);
+                    }
+                    let extent = proj_max - proj_min;
+                    if extent < 0.001 {
+                        return *color_start;
+                    }
+                    let proj = pos.x * dir_x + pos.y * dir_y;
+                    let t = ((proj - proj_min) / extent).clamp(0.0, 1.0).powf(*sharpness);
+                    lerp_color(*color_start, *color_end, t)
+                }
+                GradientType::Radial => {
+                    let cx = bounds_min.x + center.0 * (bounds_max.x - bounds_min.x);
+                    let cy = bounds_min.y + center.1 * (bounds_max.y - bounds_min.y);
+                    let dx = bounds_max.x - bounds_min.x;
+                    let dy = bounds_max.y - bounds_min.y;
+                    let max_dist = radius * (dx.max(dy) * 0.5);
+                    if max_dist < 0.001 {
+                        return *color_start;
+                    }
+                    let dist = ((pos.x - cx).powi(2) + (pos.y - cy).powi(2)).sqrt();
+                    let t = (dist / max_dist).clamp(0.0, 1.0).powf(*sharpness);
+                    lerp_color(*color_start, *color_end, t)
+                }
+            }
+        }
+    }
+}
+
+/// Compute screen-space AABB for an element's vertices.
+fn element_screen_bounds(
+    element: &StrokeElement,
+    viewport: &ViewportState,
+    canvas_center: Pos2,
+) -> (Pos2, Pos2) {
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+
+    let verts = if transform::has_transform(element) {
+        transform::transformed_vertices(element)
+    } else {
+        element.vertices.clone()
+    };
+
+    for v in &verts {
+        let screen = viewport.world_to_screen(v.pos, canvas_center);
+        min_x = min_x.min(screen.x);
+        min_y = min_y.min(screen.y);
+        max_x = max_x.max(screen.x);
+        max_y = max_y.max(screen.y);
+    }
+    (Pos2::new(min_x, min_y), Pos2::new(max_x, max_y))
+}
+
+/// Resolve the FillInfo for an element based on its fill properties.
+fn resolve_fill_info(
+    element: &StrokeElement,
+    palette: &Palette,
+    viewport: &ViewportState,
+    canvas_center: Pos2,
+    dim_alpha: Option<f32>,
+) -> FillInfo {
+    let apply_dim = |c: Color32| -> Color32 {
+        if let Some(alpha) = dim_alpha {
+            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (c.a() as f32 * alpha) as u8)
+        } else {
+            c
+        }
+    };
+
+    if let Some(ref grad) = element.gradient_fill {
+        if element.closed {
+            let (bmin, bmax) = element_screen_bounds(element, viewport, canvas_center);
+            let cs = apply_dim(palette.get_color(grad.color_index_start).to_color32());
+            let ce = apply_dim(palette.get_color(grad.color_index_end).to_color32());
+            let center = grad.center.map(|c| (c.x, c.y)).unwrap_or((0.5, 0.5));
+            let radius = grad.radius.unwrap_or(0.5);
+            return FillInfo::Gradient {
+                color_start: cs,
+                color_end: ce,
+                gradient_type: grad.gradient_type,
+                angle_rad: grad.alignment.to_radians(),
+                bounds_min: bmin,
+                bounds_max: bmax,
+                center,
+                radius,
+                sharpness: grad.sharpness,
+            };
+        }
+    }
+
+    // Flat fill
+    let fill_color = if element.closed && element.fill_color_index != 0 {
+        apply_dim(palette.get_color(element.fill_color_index).to_color32())
+    } else {
+        Color32::TRANSPARENT
+    };
+    FillInfo::Flat(fill_color)
+}
 
 /// Render the sprite background color within the canvas boundary area.
 pub fn render_background(
@@ -70,6 +225,7 @@ pub fn render_elements(
     palette: &Palette,
     canvas_rect: egui::Rect,
     solo_layer_id: Option<&str>,
+    hatch_patterns: &[HatchPattern],
 ) {
     let canvas_center = canvas_rect.center();
 
@@ -78,26 +234,28 @@ pub fn render_elements(
             continue;
         }
         let is_dimmed = solo_layer_id.is_some_and(|sid| sid != layer.id);
+        let dim_alpha = if is_dimmed { Some(0.15) } else { None };
         for element in &layer.elements {
             let mut color = palette.get_color(element.stroke_color_index).to_color32();
-            let mut fill_color = if element.closed && element.fill_color_index != 0 {
-                palette.get_color(element.fill_color_index).to_color32()
-            } else {
-                Color32::TRANSPARENT
-            };
             if is_dimmed {
                 color = Color32::from_rgba_unmultiplied(
                     color.r(), color.g(), color.b(),
                     (color.a() as f32 * 0.15) as u8,
                 );
-                if fill_color != Color32::TRANSPARENT {
-                    fill_color = Color32::from_rgba_unmultiplied(
-                        fill_color.r(), fill_color.g(), fill_color.b(),
-                        (fill_color.a() as f32 * 0.15) as u8,
+            }
+
+            let fill_info = resolve_fill_info(element, palette, viewport, canvas_center, dim_alpha);
+            render_uniform_stroke(painter, element, color, &fill_info, viewport, canvas_center);
+
+            // Render hatch fill lines on top of the fill mesh, under the stroke
+            if let Some(ref hatch_id) = element.hatch_fill_id {
+                if let Some(pattern) = hatch_patterns.iter().find(|p| p.id == *hatch_id) {
+                    render_hatch_fill(
+                        painter, element, pattern, palette, viewport,
+                        canvas_center, dim_alpha,
                     );
                 }
             }
-            render_uniform_stroke(painter, element, color, fill_color, viewport, canvas_center);
         }
     }
 }
@@ -107,12 +265,12 @@ fn render_uniform_stroke(
     painter: &Painter,
     element: &StrokeElement,
     color: Color32,
-    fill_color: Color32,
+    fill_info: &FillInfo,
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
     let stroke = Stroke::new(element.stroke_width * viewport.zoom, color);
-    render_element_path(painter, element, stroke, fill_color, viewport, canvas_center);
+    render_element_path(painter, element, stroke, fill_info, viewport, canvas_center);
 }
 
 /// Render an element's path with a given stroke, applying element transforms.
@@ -120,21 +278,21 @@ fn render_element_path(
     painter: &Painter,
     element: &StrokeElement,
     stroke: Stroke,
-    fill_color: Color32,
+    fill_info: &FillInfo,
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
     if transform::has_transform(element) {
         let verts = transform::transformed_vertices(element);
         if element.curve_mode {
-            render_curve_path(painter, &verts, element.closed, stroke, fill_color, viewport, canvas_center);
+            render_curve_path(painter, &verts, element.closed, stroke, fill_info, viewport, canvas_center);
         } else {
-            render_rounded_path(painter, &verts, element.closed, stroke, fill_color, viewport, canvas_center);
+            render_rounded_path(painter, &verts, element.closed, stroke, fill_info, viewport, canvas_center);
         }
     } else if element.curve_mode {
-        render_curve_path(painter, &element.vertices, element.closed, stroke, fill_color, viewport, canvas_center);
+        render_curve_path(painter, &element.vertices, element.closed, stroke, fill_info, viewport, canvas_center);
     } else {
-        render_rounded_path(painter, &element.vertices, element.closed, stroke, fill_color, viewport, canvas_center);
+        render_rounded_path(painter, &element.vertices, element.closed, stroke, fill_info, viewport, canvas_center);
     }
 }
 
@@ -146,7 +304,7 @@ fn render_curve_path(
     verts: &[PathVertex],
     closed: bool,
     stroke: Stroke,
-    fill_color: Color32,
+    fill_info: &FillInfo,
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
@@ -175,7 +333,7 @@ fn render_curve_path(
         .map(|p| viewport.world_to_screen(*p, canvas_center))
         .collect();
 
-    render_filled_path(painter, &screen_points, closed, stroke, fill_color);
+    render_filled_path(painter, &screen_points, closed, stroke, fill_info);
 }
 
 /// Render a path with Figma-style corner fillets (straight mode with radius).
@@ -185,7 +343,7 @@ fn render_rounded_path(
     verts: &[PathVertex],
     closed: bool,
     stroke: Stroke,
-    fill_color: Color32,
+    fill_info: &FillInfo,
     viewport: &ViewportState,
     canvas_center: Pos2,
 ) {
@@ -219,7 +377,7 @@ fn render_rounded_path(
         .map(|p| viewport.world_to_screen(*p, canvas_center))
         .collect();
 
-    render_filled_path(painter, &screen_points, closed, stroke, fill_color);
+    render_filled_path(painter, &screen_points, closed, stroke, fill_info);
 }
 
 /// Render a polygon with proper fill (using ear-clipping triangulation for concave shapes)
@@ -229,10 +387,12 @@ fn render_filled_path(
     screen_points: &[Pos2],
     closed: bool,
     stroke: Stroke,
-    fill_color: Color32,
+    fill_info: &FillInfo,
 ) {
+    let has_fill = closed && screen_points.len() >= 3 && !matches!(fill_info, FillInfo::Flat(c) if *c == Color32::TRANSPARENT);
+
     // Render fill as a triangulated mesh (handles concave polygons correctly)
-    if closed && fill_color != Color32::TRANSPARENT && screen_points.len() >= 3 {
+    if has_fill {
         // Deduplicate near-identical consecutive points (from curve flattening segment boundaries)
         let mut deduped: Vec<Pos2> = Vec::with_capacity(screen_points.len());
         for &pt in screen_points {
@@ -260,7 +420,7 @@ fn render_filled_path(
                 mesh.vertices.push(egui::epaint::Vertex {
                     pos: pt,
                     uv: egui::epaint::WHITE_UV,
-                    color: fill_color,
+                    color: gradient_color_at(pt, fill_info),
                 });
             }
             for idx in &indices {
@@ -277,8 +437,57 @@ fn render_filled_path(
         fill: Color32::TRANSPARENT,
         stroke: stroke.into(),
     }));
+
+    // Round caps on open path endpoints
+    if !closed && screen_points.len() >= 2 {
+        let cap_radius = stroke.width * 0.5;
+        painter.circle_filled(screen_points[0], cap_radius, stroke.color);
+        painter.circle_filled(*screen_points.last().unwrap(), cap_radius, stroke.color);
+    }
 }
 
+
+/// Render hatch fill lines for an element.
+/// Uses the element's stroke color and width for all hatch lines.
+fn render_hatch_fill(
+    painter: &Painter,
+    element: &StrokeElement,
+    pattern: &HatchPattern,
+    palette: &Palette,
+    viewport: &ViewportState,
+    canvas_center: Pos2,
+    dim_alpha: Option<f32>,
+) {
+    let hatch_data = crate::engine::hatch::generate_element_hatch(
+        element,
+        pattern,
+        element.hatch_flow_curve.as_ref(),
+    );
+    let mut color = palette.get_color(element.stroke_color_index).to_color32();
+    if let Some(alpha) = dim_alpha {
+        color = Color32::from_rgba_unmultiplied(
+            color.r(), color.g(), color.b(),
+            (color.a() as f32 * alpha) as u8,
+        );
+    }
+    let sw = element.stroke_width * viewport.zoom;
+    let stroke = Stroke::new(sw, color);
+    let cap_radius = sw * 0.5;
+    for layer_data in &hatch_data {
+        for segment in &layer_data.segments {
+            let screen_points: Vec<Pos2> = segment
+                .iter()
+                .map(|p| viewport.world_to_screen(*p, canvas_center))
+                .collect();
+            if screen_points.len() >= 2 {
+                painter.add(egui::Shape::line(screen_points.clone(), stroke));
+                // Round caps: filled circles at endpoints
+                painter.circle_filled(screen_points[0], cap_radius, color);
+                painter.circle_filled(*screen_points.last().unwrap(), cap_radius, color);
+            }
+        }
+    }
+}
 
 /// Render hover highlight for an element.
 pub fn render_hover_highlight(
@@ -296,7 +505,7 @@ pub fn render_hover_highlight(
         for element in &layer.elements {
             if element.id == element_id {
                 let stroke = Stroke::new((element.stroke_width + HOVER_HIGHLIGHT_EXTRA) * viewport.zoom, highlight_color);
-                render_element_path(painter, element, stroke, Color32::TRANSPARENT, viewport, canvas_center);
+                render_element_path(painter, element, stroke, &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center);
                 return;
             }
         }
@@ -322,7 +531,7 @@ pub fn render_selection_highlights(
         for element in &layer.elements {
             if selected_ids.iter().any(|id| id == &element.id) {
                 let stroke = Stroke::new((element.stroke_width + SELECTION_HIGHLIGHT_EXTRA) * viewport.zoom, highlight_color);
-                render_element_path(painter, element, stroke, Color32::TRANSPARENT, viewport, canvas_center);
+                render_element_path(painter, element, stroke, &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center);
             }
         }
     }
@@ -349,9 +558,9 @@ pub fn render_line_tool_preview(
 
     // Draw committed segments using the appropriate rendering path
     if curve_mode {
-        render_curve_path(painter, vertices, false, stroke, Color32::TRANSPARENT, viewport, canvas_center);
+        render_curve_path(painter, vertices, false, stroke, &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center);
     } else {
-        render_rounded_path(painter, vertices, false, stroke, Color32::TRANSPARENT, viewport, canvas_center);
+        render_rounded_path(painter, vertices, false, stroke, &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center);
     }
 
     // Draw rubber band preview to cursor

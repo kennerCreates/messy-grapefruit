@@ -72,6 +72,22 @@ pub fn layer_move_down() -> ImageSource<'static> { egui::include_image!("../../a
 pub fn mode_curve() -> ImageSource<'static> { egui::include_image!("../../assets/icons/mode_curve.svg") }
 pub fn mode_straight() -> ImageSource<'static> { egui::include_image!("../../assets/icons/mode_straight.svg") }
 
+// Fill mode icons
+pub fn fill_flat() -> ImageSource<'static> { egui::include_image!("../../assets/icons/fill_flat.svg") }
+pub fn fill_linear() -> ImageSource<'static> { egui::include_image!("../../assets/icons/fill_linear.svg") }
+pub fn fill_radial() -> ImageSource<'static> { egui::include_image!("../../assets/icons/fill_radial.svg") }
+pub fn fill_hatch() -> ImageSource<'static> { egui::include_image!("../../assets/icons/fill_hatch.svg") }
+
+// Gradient alignment icons
+pub fn grad_horizontal() -> ImageSource<'static> { egui::include_image!("../../assets/icons/grad_horizontal.svg") }
+pub fn grad_vertical() -> ImageSource<'static> { egui::include_image!("../../assets/icons/grad_vertical.svg") }
+pub fn grad_iso_desc() -> ImageSource<'static> { egui::include_image!("../../assets/icons/grad_iso_desc.svg") }
+pub fn grad_iso_asc() -> ImageSource<'static> { egui::include_image!("../../assets/icons/grad_iso_asc.svg") }
+
+// Hatch editor icons
+pub fn hatch_add_layer() -> ImageSource<'static> { egui::include_image!("../../assets/icons/hatch_add_layer.svg") }
+pub fn hatch_remove_layer() -> ImageSource<'static> { egui::include_image!("../../assets/icons/hatch_remove_layer.svg") }
+
 // Sidebar icons
 pub fn sidebar_expand() -> ImageSource<'static> { egui::include_image!("../../assets/icons/sidebar_expand.svg") }
 pub fn sidebar_collapse() -> ImageSource<'static> { egui::include_image!("../../assets/icons/sidebar_collapse.svg") }

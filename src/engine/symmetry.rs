@@ -105,6 +105,10 @@ pub fn try_join_symmetric(
         let mut m = StrokeElement::new(mirrored_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
         m.closed = true;
         m.fill_color_index = element.fill_color_index;
+        m.gradient_fill = element.gradient_fill.clone();
+        m.hatch_fill_id = element.hatch_fill_id.clone();
+        m.hatch_flow_curve = element.hatch_flow_curve.clone();
+        m.hatch_masks = element.hatch_masks.clone();
         crate::math::recompute_auto_curves(&mut m.vertices, m.closed, m.curve_mode, min_corner_radius);
         return SymmetryResult::Separate(vec![m]);
     }
@@ -115,6 +119,10 @@ pub fn try_join_symmetric(
         let mut m = StrokeElement::new(mirrored_verts, element.stroke_width, element.stroke_color_index, element.curve_mode);
         m.closed = element.closed;
         m.fill_color_index = element.fill_color_index;
+        m.gradient_fill = element.gradient_fill.clone();
+        m.hatch_fill_id = element.hatch_fill_id.clone();
+        m.hatch_flow_curve = element.hatch_flow_curve.clone();
+        m.hatch_masks = element.hatch_masks.clone();
         crate::math::recompute_auto_curves(&mut m.vertices, m.closed, m.curve_mode, min_corner_radius);
         return SymmetryResult::Separate(vec![m]);
     }
@@ -176,6 +184,10 @@ pub fn try_join_symmetric(
     let mut result = StrokeElement::new(joined, element.stroke_width, element.stroke_color_index, element.curve_mode);
     result.closed = closed;
     result.fill_color_index = element.fill_color_index;
+    result.gradient_fill = element.gradient_fill.clone();
+    result.hatch_fill_id = element.hatch_fill_id.clone();
+    result.hatch_flow_curve = element.hatch_flow_curve.clone();
+    result.hatch_masks = element.hatch_masks.clone();
     crate::math::recompute_auto_curves(&mut result.vertices, result.closed, result.curve_mode, min_corner_radius);
     SymmetryResult::Joined(result)
 }

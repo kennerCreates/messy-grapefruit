@@ -92,6 +92,7 @@ pub fn show_canvas(
         &project.palette,
         canvas_rect,
         editor.layer.solo_layer_id.as_deref(),
+        &project.hatch_patterns,
     );
 
     // --- Symmetry axis rendering (always, if active) ---

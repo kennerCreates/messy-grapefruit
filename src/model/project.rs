@@ -227,6 +227,41 @@ impl Default for EditorPreferences {
     }
 }
 
+/// A single hatch layer: one set of parallel lines at a given angle.
+/// Color and stroke width come from the element's stroke properties, not the pattern.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HatchLayer {
+    pub angle: f32,
+    pub spacing: f32,
+    #[serde(default)]
+    pub offset: f32,
+}
+
+/// A hatch pattern: one or more layers of parallel lines.
+/// Multi-layer patterns produce cross-hatch effects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HatchPattern {
+    pub id: String,
+    pub name: String,
+    pub layers: Vec<HatchLayer>,
+}
+
+impl HatchPattern {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.into(),
+            layers: vec![HatchLayer {
+                angle: 45.0,
+                spacing: 8.0,
+                offset: 0.0,
+            }],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -235,6 +270,8 @@ pub struct Project {
     pub palette: Palette,
     pub min_corner_radius: f32,
     pub editor_preferences: EditorPreferences,
+    #[serde(default)]
+    pub hatch_patterns: Vec<HatchPattern>,
 }
 
 impl Project {
@@ -245,6 +282,7 @@ impl Project {
             palette: Palette::default_palette(),
             min_corner_radius: 4.0,
             editor_preferences: EditorPreferences::default(),
+            hatch_patterns: Vec::new(),
         }
     }
 }
@@ -284,5 +322,38 @@ mod tests {
         assert_eq!(project2.name, "TestProject");
         assert_eq!(project2.palette.colors.len(), 33);
         assert_eq!(project2.editor_preferences.grid_size, 8);
+        assert!(project2.hatch_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_backward_compat_no_hatch_patterns() {
+        let json = r#"{
+            "name": "OldProject",
+            "formatVersion": 1,
+            "palette": {"name": "Test", "colors": [{"r":0,"g":0,"b":0,"a":0}]},
+            "minCornerRadius": 4.0,
+            "editorPreferences": {"theme": "dark", "gridSize": 8, "gridMode": "off", "showDots": true}
+        }"#;
+        let project: Project = serde_json::from_str(json).unwrap();
+        assert!(project.hatch_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_hatch_pattern_serde_round_trip() {
+        let mut project = Project::new("Test");
+        let mut pattern = HatchPattern::new("Cross-hatch");
+        pattern.layers.push(HatchLayer {
+            angle: 135.0,
+            spacing: 8.0,
+            offset: 0.0,
+        });
+        project.hatch_patterns.push(pattern);
+
+        let json = serde_json::to_string(&project).unwrap();
+        let project2: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(project2.hatch_patterns.len(), 1);
+        assert_eq!(project2.hatch_patterns[0].name, "Cross-hatch");
+        assert_eq!(project2.hatch_patterns[0].layers.len(), 2);
+        assert_eq!(project2.hatch_patterns[0].layers[1].angle, 135.0);
     }
 }

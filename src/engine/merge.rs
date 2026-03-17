@@ -116,6 +116,10 @@ pub fn merge_elements(
         rotation: existing.rotation,
         scale: existing.scale,
         origin: existing.origin,
+        gradient_fill: existing.gradient_fill.clone(),
+        hatch_fill_id: existing.hatch_fill_id.clone(),
+        hatch_flow_curve: existing.hatch_flow_curve.clone(),
+        hatch_masks: existing.hatch_masks.clone(),
     }
 }
 
@@ -251,5 +255,9 @@ pub fn join_elements(
         rotation: target.rotation,
         scale: target.scale,
         origin: target.origin,
+        gradient_fill: target.gradient_fill.clone(),
+        hatch_fill_id: target.hatch_fill_id.clone(),
+        hatch_flow_curve: target.hatch_flow_curve.clone(),
+        hatch_masks: target.hatch_masks.clone(),
     }
 }

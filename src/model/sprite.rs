@@ -6,6 +6,64 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GradientType {
+    Linear,
+    Radial,
+}
+
+/// Preset gradient direction aligned to grid axes.
+/// The isometric grid uses a 2:1 diamond lattice (slopes +/-0.5),
+/// so iso angles are atan(0.5) ~ 26.57 deg and pi - atan(0.5) ~ 153.43 deg.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GradientAlignment {
+    Horizontal,
+    Vertical,
+    IsoDescending,
+    IsoAscending,
+}
+
+impl GradientAlignment {
+    pub fn to_radians(self) -> f32 {
+        match self {
+            Self::Horizontal => 0.0,
+            Self::Vertical => std::f32::consts::FRAC_PI_2,
+            Self::IsoDescending => 0.5_f32.atan(),                          // ~26.57°
+            Self::IsoAscending => 0.5_f32.atan() + std::f32::consts::FRAC_PI_2, // ~116.57° (90° from descending)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradientFill {
+    pub gradient_type: GradientType,
+    pub color_index_start: u8,
+    pub color_index_end: u8,
+    pub alignment: GradientAlignment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub center: Option<Vec2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<f32>,
+    /// Sharpness of the gradient transition. 1.0 = linear (default),
+    /// <1.0 = softer start, >1.0 = sharper/more abrupt transition.
+    #[serde(default = "default_sharpness")]
+    pub sharpness: f32,
+}
+
+fn default_sharpness() -> f32 { 1.0 }
+
+/// Bezier control points for a hatch flow curve.
+/// Stored as a sequence of Vec2 positions forming cubic bezier segments
+/// (groups of 4: anchor, cp1, cp2, anchor).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowCurve {
+    pub control_points: Vec<Vec2>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PathVertex {
@@ -48,6 +106,16 @@ pub struct StrokeElement {
     pub rotation: f32,
     pub scale: Vec2,
     pub origin: Vec2,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient_fill: Option<GradientFill>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hatch_fill_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hatch_flow_curve: Option<FlowCurve>,
+    /// Mask regions where hatch lines are suppressed.
+    /// Each mask is a polygon (list of Vec2 points) in local element coordinates.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hatch_masks: Vec<Vec<Vec2>>,
 }
 
 impl StrokeElement {
@@ -65,6 +133,10 @@ impl StrokeElement {
             rotation: 0.0,
             scale: Vec2::ONE,
             origin: Vec2::ZERO,
+            gradient_fill: None,
+            hatch_fill_id: None,
+            hatch_flow_curve: None,
+            hatch_masks: Vec::new(),
         }
     }
 
@@ -345,5 +417,67 @@ mod tests {
         let id = sprite.layers[0].id.clone();
         assert_eq!(sprite.layer_idx_by_id(&id), Some(0));
         assert_eq!(sprite.layer_idx_by_id("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_backward_compat_no_fill_fields() {
+        // JSON from before gradient/hatch fills were added
+        let json = r#"{
+            "id": "elem-id",
+            "vertices": [],
+            "closed": true,
+            "curveMode": false,
+            "strokeWidth": 2.0,
+            "strokeColorIndex": 1,
+            "fillColorIndex": 5,
+            "position": {"x": 0, "y": 0},
+            "rotation": 0,
+            "scale": {"x": 1, "y": 1},
+            "origin": {"x": 0, "y": 0}
+        }"#;
+        let elem: StrokeElement = serde_json::from_str(json).unwrap();
+        assert!(elem.gradient_fill.is_none());
+        assert!(elem.hatch_fill_id.is_none());
+        assert!(elem.hatch_flow_curve.is_none());
+        assert_eq!(elem.fill_color_index, 5);
+    }
+
+    #[test]
+    fn test_gradient_fill_serde_round_trip() {
+        let mut elem = StrokeElement::new(
+            vec![PathVertex::new(Vec2::ZERO)],
+            2.0, 1, false,
+        );
+        elem.gradient_fill = Some(GradientFill {
+            gradient_type: GradientType::Linear,
+            color_index_start: 3,
+            color_index_end: 7,
+            alignment: GradientAlignment::IsoDescending,
+            center: None,
+            radius: None,
+            sharpness: 1.0,
+        });
+
+        let json = serde_json::to_string(&elem).unwrap();
+        let elem2: StrokeElement = serde_json::from_str(&json).unwrap();
+        let grad = elem2.gradient_fill.unwrap();
+        assert_eq!(grad.gradient_type, GradientType::Linear);
+        assert_eq!(grad.color_index_start, 3);
+        assert_eq!(grad.color_index_end, 7);
+        assert_eq!(grad.alignment, GradientAlignment::IsoDescending);
+    }
+
+    #[test]
+    fn test_gradient_alignment_angles() {
+        assert!((GradientAlignment::Horizontal.to_radians() - 0.0).abs() < 1e-6);
+        assert!((GradientAlignment::Vertical.to_radians() - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        // IsoDescending: atan(0.5) ≈ 0.4636 rad
+        assert!((GradientAlignment::IsoDescending.to_radians() - 0.4636).abs() < 0.001);
+        // IsoAscending: atan(0.5) + pi/2 ≈ 2.0344 rad ≈ 116.57°
+        let expected = 0.5_f32.atan() + std::f32::consts::FRAC_PI_2;
+        assert!((GradientAlignment::IsoAscending.to_radians() - expected).abs() < 0.001);
+        // Verify 90° apart
+        let diff = GradientAlignment::IsoAscending.to_radians() - GradientAlignment::IsoDescending.to_radians();
+        assert!((diff - std::f32::consts::FRAC_PI_2).abs() < 0.001);
     }
 }

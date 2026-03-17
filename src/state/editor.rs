@@ -10,6 +10,16 @@ pub enum ToolKind {
     Eraser,
 }
 
+/// Active fill mode for the sidebar / fill tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FillMode {
+    #[default]
+    Flat,
+    LinearGradient,
+    RadialGradient,
+    Hatch,
+}
+
 /// Eraser tool hover target: vertex or segment.
 #[derive(Debug, Clone)]
 pub enum EraserHover {
@@ -265,6 +275,19 @@ pub struct BrushState {
     pub stroke_width: f32,
     pub color_index: u8,
     pub fill_color_index: u8,
+    pub fill_mode: FillMode,
+    /// Gradient start color (used when fill_mode is LinearGradient or RadialGradient).
+    pub gradient_color_start: u8,
+    /// Gradient end color.
+    pub gradient_color_end: u8,
+    /// Gradient alignment preset (linear mode).
+    pub gradient_alignment: crate::model::sprite::GradientAlignment,
+    /// Radial gradient center (normalized 0..1).
+    pub radial_center: crate::model::vec2::Vec2,
+    /// Radial gradient radius (normalized 0..1).
+    pub radial_radius: f32,
+    /// Gradient sharpness (gamma). 1.0 = linear, >1 = sharper, <1 = softer.
+    pub gradient_sharpness: f32,
 }
 
 impl Default for BrushState {
@@ -273,6 +296,13 @@ impl Default for BrushState {
             stroke_width: 2.0,
             color_index: 1, // black
             fill_color_index: 0, // transparent
+            fill_mode: FillMode::Flat,
+            gradient_color_start: 1,
+            gradient_color_end: 15,
+            gradient_alignment: crate::model::sprite::GradientAlignment::Vertical,
+            radial_center: crate::model::vec2::Vec2::new(0.5, 0.5),
+            radial_radius: 0.5,
+            gradient_sharpness: 1.0,
         }
     }
 }
@@ -378,6 +408,21 @@ pub struct EditorState {
     pub selected_ref_image_id: Option<String>,
     /// Active reference image drag state.
     pub dragging_ref_image: Option<RefImageDragState>,
+    /// Selected hatch pattern ID in the pattern library.
+    pub selected_hatch_pattern_id: Option<String>,
+    /// Whether the hatch pattern editor panel is visible.
+    pub hatch_editor_open: bool,
+    /// Flow curve editing state (when editing control points on canvas).
+    pub editing_flow_curve: Option<FlowCurveEditState>,
+}
+
+/// State for on-canvas flow curve editing.
+#[derive(Debug, Clone)]
+pub struct FlowCurveEditState {
+    pub element_id: String,
+    pub dragging_cp_index: Option<usize>,
+    pub drag_start_world: Vec2,
+    pub initial_cp_pos: Vec2,
 }
 
 impl Default for EditorState {
@@ -414,6 +459,9 @@ impl Default for EditorState {
             vertex_join_target: None,
             selected_ref_image_id: None,
             dragging_ref_image: None,
+            selected_hatch_pattern_id: None,
+            hatch_editor_open: false,
+            editing_flow_curve: None,
         }
     }
 }

@@ -1,6 +1,7 @@
+use crate::action::AppAction;
 use crate::model::project::Project;
-use crate::model::sprite::Sprite;
-use crate::state::editor::EditorState;
+use crate::model::sprite::{GradientAlignment, Sprite};
+use crate::state::editor::{EditorState, FillMode};
 use crate::state::history::History;
 use crate::theme;
 
@@ -11,32 +12,202 @@ pub(super) fn show_fill_tool_options(
     ui: &mut egui::Ui,
     editor: &mut EditorState,
     project: &mut Project,
+    actions: &mut Vec<AppAction>,
 ) {
     ui.label("Fill Tool");
     ui.add_space(4.0);
 
-    // Active fill color
-    ui.horizontal(|ui| {
-        ui.label("Fill");
-        let color = project.palette.get_color(editor.brush.fill_color_index);
-        render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
-        ui.label(format!("idx {}", editor.brush.fill_color_index));
-    });
+    // Fill mode toggles
+    render_fill_mode_toggles(ui, editor);
+    ui.add_space(4.0);
 
-    // Color palette mini-picker for fill color
-    if let Some(new_idx) = render_color_palette(
-        ui,
-        &project.palette.colors,
-        editor.brush.fill_color_index,
-        project.editor_preferences.theme,
-    ) {
-        editor.brush.fill_color_index = new_idx;
-        editor.track_recent_color(new_idx);
+    match editor.brush.fill_mode {
+        FillMode::Flat => {
+            // Active fill color
+            ui.horizontal(|ui| {
+                ui.label("Fill");
+                let color = project.palette.get_color(editor.brush.fill_color_index);
+                render_color_swatch(ui, color, 20.0, project.editor_preferences.theme);
+                ui.label(format!("idx {}", editor.brush.fill_color_index));
+            });
+
+            if let Some(new_idx) = render_color_palette(
+                ui,
+                &project.palette.colors,
+                editor.brush.fill_color_index,
+                project.editor_preferences.theme,
+            ) {
+                editor.brush.fill_color_index = new_idx;
+                editor.track_recent_color(new_idx);
+            }
+        }
+        FillMode::LinearGradient | FillMode::RadialGradient => {
+            render_gradient_controls(ui, editor, project, actions);
+        }
+        FillMode::Hatch => {
+            render_hatch_picker(ui, editor, project, actions);
+        }
     }
 
     ui.add_space(8.0);
-    ui.label("Click closed shape to fill");
+    ui.label("Click closed shape to apply");
     ui.label("Click empty canvas for background");
+}
+
+fn render_fill_mode_toggles(ui: &mut egui::Ui, editor: &mut EditorState) {
+    ui.horizontal(|ui| {
+        let modes = [
+            (FillMode::Flat, icons::fill_flat(), "Flat Fill"),
+            (FillMode::LinearGradient, icons::fill_linear(), "Linear Gradient"),
+            (FillMode::RadialGradient, icons::fill_radial(), "Radial Gradient"),
+            (FillMode::Hatch, icons::fill_hatch(), "Hatch Pattern"),
+        ];
+        for (mode, icon, tooltip) in modes {
+            let selected = editor.brush.fill_mode == mode;
+            if ui.add(icons::small_icon_button(icon, ui).selected(selected))
+                .on_hover_text(tooltip)
+                .clicked()
+            {
+                editor.brush.fill_mode = mode;
+            }
+        }
+    });
+}
+
+fn render_gradient_controls(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    project: &mut Project,
+    _actions: &mut Vec<AppAction>,
+) {
+    // Start color
+    ui.horizontal(|ui| {
+        ui.label("Start");
+        let color = project.palette.get_color(editor.brush.gradient_color_start);
+        render_color_swatch(ui, color, 16.0, project.editor_preferences.theme);
+    });
+    if let Some(new_idx) = render_color_palette(
+        ui,
+        &project.palette.colors,
+        editor.brush.gradient_color_start,
+        project.editor_preferences.theme,
+    ) {
+        editor.brush.gradient_color_start = new_idx;
+        editor.track_recent_color(new_idx);
+    }
+
+    ui.add_space(2.0);
+
+    // End color
+    ui.horizontal(|ui| {
+        ui.label("End");
+        let color = project.palette.get_color(editor.brush.gradient_color_end);
+        render_color_swatch(ui, color, 16.0, project.editor_preferences.theme);
+    });
+    if let Some(new_idx) = render_color_palette(
+        ui,
+        &project.palette.colors,
+        editor.brush.gradient_color_end,
+        project.editor_preferences.theme,
+    ) {
+        editor.brush.gradient_color_end = new_idx;
+        editor.track_recent_color(new_idx);
+    }
+
+    ui.add_space(4.0);
+
+    if editor.brush.fill_mode == FillMode::LinearGradient {
+        // Alignment presets
+        ui.label("Direction");
+        ui.horizontal(|ui| {
+            let alignments = [
+                (GradientAlignment::Horizontal, icons::grad_horizontal(), "Horizontal"),
+                (GradientAlignment::Vertical, icons::grad_vertical(), "Vertical"),
+                (GradientAlignment::IsoDescending, icons::grad_iso_desc(), "Iso Descending"),
+                (GradientAlignment::IsoAscending, icons::grad_iso_asc(), "Iso Ascending"),
+            ];
+            for (align, icon, tooltip) in alignments {
+                let selected = editor.brush.gradient_alignment == align;
+                if ui.add(icons::small_icon_button(icon, ui).selected(selected))
+                    .on_hover_text(tooltip)
+                    .clicked()
+                {
+                    editor.brush.gradient_alignment = align;
+                }
+            }
+        });
+    } else {
+        // Radial controls
+        theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Center X");
+                ui.add(egui::DragValue::new(&mut editor.brush.radial_center.x)
+                    .speed(0.01).range(0.0..=1.0).fixed_decimals(2));
+                ui.label("Y");
+                ui.add(egui::DragValue::new(&mut editor.brush.radial_center.y)
+                    .speed(0.01).range(0.0..=1.0).fixed_decimals(2));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Radius");
+                ui.add(egui::Slider::new(&mut editor.brush.radial_radius, 0.1..=1.0).fixed_decimals(2));
+            });
+        });
+    }
+
+    // Sharpness control (applies to both linear and radial)
+    ui.add_space(4.0);
+    theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Sharpness");
+            ui.add(egui::Slider::new(&mut editor.brush.gradient_sharpness, 0.2..=5.0)
+                .logarithmic(true).fixed_decimals(2));
+        });
+    });
+}
+
+fn render_hatch_picker(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    project: &mut Project,
+    actions: &mut Vec<AppAction>,
+) {
+    if project.hatch_patterns.is_empty() {
+        ui.label("No hatch patterns");
+    } else {
+        ui.label("Patterns");
+        let mut selected_idx = project.hatch_patterns.iter().position(|p| {
+            editor.selected_hatch_pattern_id.as_deref() == Some(p.id.as_str())
+        });
+        for (i, pattern) in project.hatch_patterns.iter().enumerate() {
+            let is_selected = selected_idx == Some(i);
+            if ui.selectable_label(is_selected, &pattern.name).clicked() {
+                editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+                selected_idx = Some(i);
+            }
+        }
+    }
+
+    ui.add_space(4.0);
+
+    // Remove hatch from selected elements
+    if ui.button("Remove Hatch from Selected").clicked() {
+        for id in &editor.selection.selected_ids {
+            actions.push(AppAction::ClearHatchFill { element_id: id.clone() });
+        }
+    }
+
+    ui.add_space(4.0);
+
+    ui.horizontal(|ui| {
+        if ui.button("+ New").clicked() {
+            let pattern = crate::model::project::HatchPattern::new("Hatch");
+            editor.selected_hatch_pattern_id = Some(pattern.id.clone());
+            actions.push(AppAction::AddHatchPattern(pattern));
+        }
+        if ui.button("Edit").clicked() {
+            editor.hatch_editor_open = !editor.hatch_editor_open;
+        }
+    });
 }
 
 pub(super) fn show_eyedropper_tool_options(

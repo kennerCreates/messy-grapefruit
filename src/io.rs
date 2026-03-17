@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::model::project::{EditorPreferences, Palette, PaletteColor, Project};
+use crate::model::project::{EditorPreferences, HatchPattern, Palette, PaletteColor, Project};
 use crate::model::sprite::Sprite;
 
 #[derive(Debug)]
@@ -112,6 +112,32 @@ pub fn load_image_texture(
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("ref_image");
     let tex = ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR);
     Ok((tex, w, h))
+}
+
+// ── Hatch pattern import/export ──────────────────────────────────────
+
+/// Standalone file format for cross-project hatch pattern sharing.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HatchPatternFile {
+    pub format_version: u32,
+    pub patterns: Vec<HatchPattern>,
+}
+
+pub fn save_hatch_patterns(patterns: &[HatchPattern], path: &Path) -> Result<(), IoError> {
+    let file = HatchPatternFile {
+        format_version: 1,
+        patterns: patterns.to_vec(),
+    };
+    let json = serde_json::to_string_pretty(&file)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+pub fn load_hatch_patterns(path: &Path) -> Result<Vec<HatchPattern>, IoError> {
+    let data = std::fs::read_to_string(path)?;
+    let file: HatchPatternFile = serde_json::from_str(&data)?;
+    Ok(file.patterns)
 }
 
 /// Fetch a palette from Lospec by slug (e.g., "endesga-32").

@@ -10,6 +10,7 @@ mod canvas_transform;
 pub mod grid;
 pub mod icons;
 pub mod sidebar;
+mod sidebar_hatch;
 mod sidebar_layers;
 mod sidebar_palette;
 mod sidebar_reference;

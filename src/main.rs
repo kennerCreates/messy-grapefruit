@@ -127,6 +127,8 @@ impl App {
                     for elem in &mut layer.elements {
                         if elem.id == element_id {
                             elem.fill_color_index = fill_color_index;
+                            // Flat fill replaces gradient fill
+                            elem.gradient_fill = None;
                         }
                     }
                 }
@@ -175,6 +177,10 @@ impl App {
                     for elem in &mut layer.elements {
                         elem.stroke_color_index = remap_color_index(elem.stroke_color_index, index);
                         elem.fill_color_index = remap_color_index(elem.fill_color_index, index);
+                        if let Some(ref mut grad) = elem.gradient_fill {
+                            grad.color_index_start = remap_color_index(grad.color_index_start, index);
+                            grad.color_index_end = remap_color_index(grad.color_index_end, index);
+                        }
                     }
                 }
                 self.sprite.background_color_index = remap_color_index(self.sprite.background_color_index, index);
@@ -217,6 +223,121 @@ impl App {
                 self.sprite.reference_images.retain(|r| r.id != id);
                 self.ref_image_textures.remove(&id);
                 self.history.push("Remove reference image".into(), before, self.sprite.clone());
+            }
+
+            // ── Phase 6: Gradient & Hatch Fills ─────────────────────────
+
+            action::AppAction::SetGradientFill { element_id, gradient_fill } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.gradient_fill = Some(gradient_fill.clone());
+                        }
+                    }
+                }
+                self.history.push("Set gradient fill".into(), before, self.sprite.clone());
+            }
+            action::AppAction::ClearGradientFill { element_id } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.gradient_fill = None;
+                        }
+                    }
+                }
+                self.history.push("Clear gradient fill".into(), before, self.sprite.clone());
+            }
+            action::AppAction::SetHatchFill { element_id, hatch_fill_id } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.hatch_fill_id = Some(hatch_fill_id.clone());
+                        }
+                    }
+                }
+                self.history.push("Set hatch fill".into(), before, self.sprite.clone());
+            }
+            action::AppAction::ClearHatchFill { element_id } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.hatch_fill_id = None;
+                        }
+                    }
+                }
+                self.history.push("Clear hatch fill".into(), before, self.sprite.clone());
+            }
+            action::AppAction::SetFlowCurve { element_id, flow_curve } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.hatch_flow_curve = Some(flow_curve.clone());
+                        }
+                    }
+                }
+                self.history.push("Set flow curve".into(), before, self.sprite.clone());
+            }
+            action::AppAction::ClearFlowCurve { element_id } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.hatch_flow_curve = None;
+                        }
+                    }
+                }
+                self.history.push("Clear flow curve".into(), before, self.sprite.clone());
+            }
+            action::AppAction::AddHatchPattern(pattern) => {
+                self.project.hatch_patterns.push(pattern);
+                // Project-level, no sprite undo
+            }
+            action::AppAction::UpdateHatchPattern(pattern) => {
+                if let Some(p) = self.project.hatch_patterns.iter_mut().find(|p| p.id == pattern.id) {
+                    *p = pattern;
+                }
+                // Project-level, no sprite undo
+            }
+            action::AppAction::DeleteHatchPattern(id) => {
+                self.project.hatch_patterns.retain(|p| p.id != id);
+                // Clear references on all elements
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.hatch_fill_id.as_deref() == Some(id.as_str()) {
+                            elem.hatch_fill_id = None;
+                            elem.hatch_flow_curve = None;
+                        }
+                    }
+                }
+                self.history.push("Delete hatch pattern".into(), before, self.sprite.clone());
+            }
+            action::AppAction::ImportHatchPatterns(patterns) => {
+                for pattern in patterns {
+                    // Skip duplicates by name
+                    if !self.project.hatch_patterns.iter().any(|p| p.name == pattern.name) {
+                        self.project.hatch_patterns.push(pattern);
+                    }
+                }
+                // Project-level, no sprite undo
+            }
+            action::AppAction::AddHatchMask { element_id, mask_polygon } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.hatch_masks.push(mask_polygon.clone());
+                        }
+                    }
+                }
+                self.history.push("Add hatch mask".into(), before, self.sprite.clone());
+            }
+            action::AppAction::ClearHatchMasks { element_id } => {
+                for layer in &mut self.sprite.layers {
+                    for elem in &mut layer.elements {
+                        if elem.id == element_id {
+                            elem.hatch_masks.clear();
+                        }
+                    }
+                }
+                self.history.push("Clear hatch masks".into(), before, self.sprite.clone());
             }
         }
     }

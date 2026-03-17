@@ -9,6 +9,7 @@ use crate::theme;
 use super::icons;
 use super::sidebar_layers;
 use super::sidebar_palette::{render_color_swatch, render_palette_panel};
+use super::sidebar_hatch;
 use super::sidebar_tools;
 
 pub fn show_sidebar(
@@ -266,7 +267,7 @@ fn show_expanded(
             sidebar_tools::show_select_tool_options(ui, editor, sprite, project, history);
         }
         ToolKind::Fill => {
-            sidebar_tools::show_fill_tool_options(ui, editor, project);
+            sidebar_tools::show_fill_tool_options(ui, editor, project, actions);
         }
         ToolKind::Eyedropper => {
             sidebar_tools::show_eyedropper_tool_options(ui, editor, project);
@@ -274,6 +275,11 @@ fn show_expanded(
         ToolKind::Eraser => {
             // Minimal — eraser has no configurable options
         }
+    }
+
+    // Hatch pattern editor (when open and fill tool is active)
+    if editor.hatch_editor_open && editor.tool == ToolKind::Fill {
+        sidebar_hatch::show_hatch_editor(ui, editor, project, actions);
     }
 
     if matches!(editor.tool, ToolKind::Eyedropper) {
