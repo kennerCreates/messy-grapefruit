@@ -362,7 +362,7 @@ fn handle_line_tool(
     }
 
     // Handle line tool input (returns Vec<AppAction> now for symmetry support)
-    let (line_actions, merge_target) =
+    let line_actions =
         canvas_input::handle_line_tool_input(response, editor, sprite, project, canvas_rect);
     actions.extend(line_actions);
 
@@ -381,7 +381,6 @@ fn handle_line_tool(
             editor.brush.color_index,
             editor.brush.stroke_width,
             theme_mode,
-            merge_target,
             editor.line_tool.curve_mode,
         );
 

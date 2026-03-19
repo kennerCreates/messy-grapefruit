@@ -17,20 +17,6 @@ pub fn dispatch(app: &mut App, action: AppAction) {
             );
             app.history.push("Draw stroke".into(), before, app.sprite.clone());
         }
-        AppAction::MergeStroke { merged_element, replace_element_id } => {
-            let layer = &mut app.sprite.layers[layer_idx];
-            layer.elements.retain(|e| e.id != replace_element_id);
-            layer.elements.push(merged_element);
-            app.history.push("Merge stroke".into(), before, app.sprite.clone());
-        }
-        AppAction::MergeSymmetricStrokes(entries) => {
-            let layer = &mut app.sprite.layers[layer_idx];
-            for entry in entries {
-                layer.elements.retain(|e| e.id != entry.replace_element_id);
-                layer.elements.push(entry.merged_element);
-            }
-            app.history.push("Merge symmetric strokes".into(), before, app.sprite.clone());
-        }
         AppAction::CommitSymmetricStrokes(elements) => {
             let eids: Vec<String> = elements.iter().map(|e| e.id.clone()).collect();
             for elem in elements {

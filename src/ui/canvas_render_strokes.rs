@@ -679,7 +679,6 @@ pub fn render_line_tool_preview(
     color_index: u8,
     stroke_width: f32,
     theme_mode: Theme,
-    merge_target: Option<Vec2>,
     curve_mode: bool,
 ) {
     let canvas_center = canvas_rect.center();
@@ -708,11 +707,4 @@ pub fn render_line_tool_preview(
 
     let snap_screen = viewport.world_to_screen(snap_pos, canvas_center);
     painter.circle_stroke(snap_screen, 4.0, Stroke::new(1.0, color));
-
-    if let Some(merge_pos) = merge_target {
-        let merge_screen = viewport.world_to_screen(merge_pos, canvas_center);
-        let merge_color = theme::merge_preview_color(theme_mode);
-        painter.circle_stroke(merge_screen, 8.0, Stroke::new(2.0, merge_color));
-        painter.circle_stroke(merge_screen, 4.0, Stroke::new(2.0, merge_color));
-    }
 }

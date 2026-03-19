@@ -72,6 +72,7 @@ pub fn mirror_vertices(verts: &[PathVertex], axis: SymmetryAxis, axis_pos: &Vec2
 /// Mirror vertex positions only, preserving order and control point assignment.
 /// Use this when the mirrored vertices will be merged into an existing element
 /// (where the merge logic handles vertex ordering and deduplication).
+#[allow(dead_code)]
 pub fn mirror_vertices_in_place(verts: &[PathVertex], axis: SymmetryAxis, axis_pos: &Vec2) -> Vec<PathVertex> {
     verts.iter().map(|v| {
         let mut mirrored = PathVertex::new(mirror_point(v.pos, axis, axis_pos));

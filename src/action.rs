@@ -1,22 +1,10 @@
 use crate::model::project::{HatchPattern, PaletteColor};
 use crate::model::sprite::{GradientFill, StrokeElement};
 
-/// A single merge entry: replace one element with a merged version.
-pub struct MergeEntry {
-    pub merged_element: StrokeElement,
-    pub replace_element_id: String,
-}
-
 /// Actions produced by UI code, dispatched by App.
 /// No direct sprite mutation from UI — all mutations go through dispatch.
 pub enum AppAction {
     CommitStroke(StrokeElement),
-    MergeStroke {
-        merged_element: StrokeElement,
-        replace_element_id: String,
-    },
-    /// Merge multiple strokes atomically (primary merge + symmetry mirror merges).
-    MergeSymmetricStrokes(Vec<MergeEntry>),
     /// Commit multiple strokes atomically (symmetry drawing).
     CommitSymmetricStrokes(Vec<StrokeElement>),
     /// Set fill color on a closed element.

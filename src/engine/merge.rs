@@ -19,6 +19,7 @@ pub enum VertexEnd {
 
 /// Check if a position is near the start or end vertex of any element on the layer.
 /// `exclude_element_id` is used to skip the element currently being drawn.
+#[allow(dead_code)]
 pub fn find_merge_target(
     pos: Vec2,
     layer: &Layer,
@@ -62,6 +63,7 @@ pub fn find_merge_target(
 
 /// Merge a new stroke into an existing element by connecting at endpoints.
 /// Returns the merged element.
+#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub fn merge_elements(
     existing: &StrokeElement,

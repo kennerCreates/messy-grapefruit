@@ -1,5 +1,4 @@
 use crate::action::AppAction;
-use crate::engine::merge;
 use crate::engine::snap;
 use crate::math;
 use crate::model::project::Project;
@@ -134,36 +133,24 @@ pub fn handle_line_tool_input(
     sprite: &Sprite,
     project: &Project,
     canvas_rect: egui::Rect,
-) -> (Vec<AppAction>, Option<Vec2>) {
-    let mut merge_target_pos: Option<Vec2> = None;
-
+) -> Vec<AppAction> {
     // Get cursor world position with snap
     let snap_pos = get_snap_pos_with_vertex_snap(editor, sprite, project, canvas_rect, response.hover_pos());
-
-    // Check for merge target
-    let layer = sprite.layers.get(editor.layer.resolve_active_idx(sprite));
-    if let Some(layer) = layer {
-        let threshold = project.editor_preferences.grid_size as f32;
-        if let Some(target) = merge::find_merge_target(snap_pos, layer, None, threshold) {
-            merge_target_pos = Some(target.position);
-        }
-    }
 
     // Escape = cancel drawing
     let escape_pressed = response.ctx.input(|i| i.key_pressed(egui::Key::Escape));
     if escape_pressed && editor.line_tool.is_drawing {
         editor.line_tool.clear();
-        return (vec![], merge_target_pos);
+        return vec![];
     }
 
     // Right-click = commit stroke (if enough vertices)
     if response.secondary_clicked() {
         if editor.line_tool.vertices.len() >= 2 {
-            let actions = commit_stroke(editor, sprite, project);
-            return (actions, merge_target_pos);
+            return commit_stroke(editor, sprite, project);
         } else {
             editor.line_tool.clear();
-            return (vec![], merge_target_pos);
+            return vec![];
         }
     }
 
@@ -171,7 +158,7 @@ pub fn handle_line_tool_input(
     if let Some(layer) = sprite.layers.get(editor.layer.resolve_active_idx(sprite))
         && layer.locked
     {
-        return (vec![], merge_target_pos);
+        return vec![];
     }
 
     // Left click = place vertex or finish
@@ -179,9 +166,8 @@ pub fn handle_line_tool_input(
         let is_double_click = response.double_clicked();
 
         if is_double_click && editor.line_tool.vertices.len() >= 2 {
-            // Double-click finishes the stroke
-            let actions = commit_stroke(editor, sprite, project);
-            return (actions, merge_target_pos);
+            // Double-click finishes the stroke (3+ vertices already placed)
+            return commit_stroke(editor, sprite, project);
         }
 
         // Place a vertex
@@ -196,23 +182,27 @@ pub fn handle_line_tool_input(
             editor.line_tool.curve_mode,
             project.min_corner_radius,
         );
+
+        // Double-click on 2nd point: add the vertex above, then finish the 2-point stroke
+        if is_double_click && editor.line_tool.vertices.len() >= 2 {
+            return commit_stroke(editor, sprite, project);
+        }
     }
 
     // Enter key also finishes the stroke
     let enter_pressed = response.ctx.input(|i| i.key_pressed(egui::Key::Enter));
     if enter_pressed && editor.line_tool.vertices.len() >= 2 {
-        let actions = commit_stroke(editor, sprite, project);
-        return (actions, merge_target_pos);
+        return commit_stroke(editor, sprite, project);
     }
 
-    (vec![], merge_target_pos)
+    vec![]
 }
 
 /// Commit the current line tool stroke as StrokeElement(s).
 /// Returns multiple actions when symmetry is active.
 fn commit_stroke(
     editor: &mut EditorState,
-    sprite: &Sprite,
+    _sprite: &Sprite,
     project: &Project,
 ) -> Vec<AppAction> {
     let mut vertices = std::mem::take(&mut editor.line_tool.vertices);
@@ -244,56 +234,7 @@ fn commit_stroke(
         return vec![AppAction::CommitStroke(element)];
     }
 
-    // Check for merge at start and end
-    let layer = sprite.layers.get(editor.layer.resolve_active_idx(sprite));
-
-    if let Some(layer) = layer {
-        // Check if start vertex merges with an existing element
-        let start_pos = vertices[0].pos;
-        let end_pos = vertices[vertices.len() - 1].pos;
-
-        if let Some(target) = merge::find_merge_target(start_pos, layer, None, threshold)
-            && let Some(existing) = layer.elements.iter().find(|e| e.id == target.element_id)
-        {
-            let merged = merge::merge_elements(
-                existing,
-                target.end,
-                &vertices,
-                merge::VertexEnd::Start,
-                editor.brush.stroke_width,
-                editor.brush.color_index,
-                editor.line_tool.curve_mode,
-                project.min_corner_radius,
-            );
-            return build_merge_actions(
-                merged, target.element_id, target.position, target.end,
-                &vertices, merge::VertexEnd::Start,
-                editor, layer, project,
-            );
-        }
-
-        if let Some(target) = merge::find_merge_target(end_pos, layer, None, threshold)
-            && let Some(existing) = layer.elements.iter().find(|e| e.id == target.element_id)
-        {
-            let merged = merge::merge_elements(
-                existing,
-                target.end,
-                &vertices,
-                merge::VertexEnd::End,
-                editor.brush.stroke_width,
-                editor.brush.color_index,
-                editor.line_tool.curve_mode,
-                project.min_corner_radius,
-            );
-            return build_merge_actions(
-                merged, target.element_id, target.position, target.end,
-                &vertices, merge::VertexEnd::End,
-                editor, layer, project,
-            );
-        }
-    }
-
-    // No merge — create new element (with symmetry if active)
+    // Create new element (with symmetry if active)
     let element = StrokeElement::new(vertices, editor.brush.stroke_width, editor.brush.color_index, editor.line_tool.curve_mode);
 
     if editor.symmetry.active {
@@ -307,95 +248,6 @@ fn commit_stroke(
     vec![AppAction::CommitStroke(element)]
 }
 
-/// Build merge action(s), including symmetric mirror merges if symmetry is active.
-#[allow(clippy::too_many_arguments)]
-fn build_merge_actions(
-    primary_merged: StrokeElement,
-    primary_replace_id: String,
-    merge_point: Vec2,
-    _merge_end: merge::VertexEnd,
-    new_vertices: &[PathVertex],
-    new_end: merge::VertexEnd,
-    editor: &EditorState,
-    layer: &crate::model::sprite::Layer,
-    project: &Project,
-) -> Vec<AppAction> {
-    if !editor.symmetry.active {
-        return vec![AppAction::MergeStroke {
-            merged_element: primary_merged,
-            replace_element_id: primary_replace_id,
-        }];
-    }
-
-    use crate::engine::symmetry;
-
-    let axis_pos = &editor.symmetry.axis_position;
-    let threshold = project.editor_preferences.grid_size as f32;
-
-    let axes: Vec<SymmetryAxis> = match editor.symmetry.axis {
-        SymmetryAxis::Vertical => vec![SymmetryAxis::Vertical],
-        SymmetryAxis::Horizontal => vec![SymmetryAxis::Horizontal],
-        SymmetryAxis::Both => vec![SymmetryAxis::Vertical, SymmetryAxis::Horizontal, SymmetryAxis::Both],
-    };
-
-    let mut entries = vec![crate::action::MergeEntry {
-        merged_element: primary_merged,
-        replace_element_id: primary_replace_id.clone(),
-    }];
-
-    for axis in axes {
-        // Mirror the merge point to find the corresponding element
-        let mirrored_point = symmetry::mirror_point(merge_point, axis, axis_pos);
-
-        // Find an element with an endpoint near the mirrored merge point
-        if let Some(mirror_target) = merge::find_merge_target(mirrored_point, layer, Some(&primary_replace_id), threshold) {
-            // Skip if we've already merged this element
-            if entries.iter().any(|e| e.replace_element_id == mirror_target.element_id) {
-                continue;
-            }
-
-            if let Some(mirror_existing) = layer.elements.iter().find(|e| e.id == mirror_target.element_id) {
-                // Mirror vertex positions without reversing order — the merge logic
-                // handles vertex ordering via the endpoint designations.
-                let mirrored_verts = symmetry::mirror_vertices_in_place(new_vertices, axis, axis_pos);
-
-                // new_end stays the same: if the primary's start was the merge point,
-                // the mirrored start (same index) is the merge point too.
-                let mut mirror_merged = merge::merge_elements(
-                    mirror_existing,
-                    mirror_target.end,
-                    &mirrored_verts,
-                    new_end,
-                    mirror_existing.stroke_width,
-                    mirror_existing.stroke_color_index,
-                    mirror_existing.curve_mode,
-                    project.min_corner_radius,
-                );
-                math::recompute_auto_curves(
-                    &mut mirror_merged.vertices,
-                    mirror_merged.closed,
-                    mirror_merged.curve_mode,
-                    project.min_corner_radius,
-                );
-
-                entries.push(crate::action::MergeEntry {
-                    merged_element: mirror_merged,
-                    replace_element_id: mirror_target.element_id,
-                });
-            }
-        }
-    }
-
-    if entries.len() == 1 {
-        let entry = entries.remove(0);
-        vec![AppAction::MergeStroke {
-            merged_element: entry.merged_element,
-            replace_element_id: entry.replace_element_id,
-        }]
-    } else {
-        vec![AppAction::MergeSymmetricStrokes(entries)]
-    }
-}
 
 /// Create symmetric elements (joined or separate) for the given primary element.
 /// Returns all elements to commit (primary + mirrors, or a single joined element).
