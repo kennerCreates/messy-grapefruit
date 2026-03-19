@@ -7,7 +7,7 @@ use super::icons;
 
 const CANVAS_SIZES: &[u32] = &[16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
-pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Sprite, project: &Project) {
+pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Sprite, project: &mut Project) {
     ui.horizontal(|ui| {
         // Canvas animation state dot (colored circle)
         let anim_state = canvas_state(
@@ -62,8 +62,9 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Spr
         ui.add(icons::small_icon(icons::metric_animation(), ui));
         ui.label(format!("{}", sprite.animation_count()));
 
-        // Canvas size right-aligned
+        // Canvas size + grid offset, right-aligned
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Canvas size dropdowns
             ui.label("px");
             egui::ComboBox::from_id_salt("canvas_h")
                 .width(50.0)
@@ -82,6 +83,28 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Spr
                         ui.selectable_value(&mut sprite.canvas_width, s, format!("{s}"));
                     }
                 });
+
+            ui.separator();
+
+            // Grid offset nudge (steps of 2)
+            let offset = &mut project.editor_preferences.grid_offset;
+            if (offset.0.abs() > 0.01 || offset.1.abs() > 0.01)
+                && ui.small_button("X").on_hover_text("Reset grid offset").clicked()
+            {
+                *offset = (0.0, 0.0);
+            }
+            if ui.small_button("v").on_hover_text("Shift grid down").clicked() {
+                offset.1 += 2.0;
+            }
+            if ui.small_button("^").on_hover_text("Shift grid up").clicked() {
+                offset.1 -= 2.0;
+            }
+            if ui.small_button(">").on_hover_text("Shift grid right").clicked() {
+                offset.0 += 2.0;
+            }
+            if ui.small_button("<").on_hover_text("Shift grid left").clicked() {
+                offset.0 -= 2.0;
+            }
         });
     });
 }
