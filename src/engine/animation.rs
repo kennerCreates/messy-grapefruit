@@ -381,6 +381,7 @@ pub fn canvas_state(
 /// Apply evaluated animation poses to the sprite data in-place.
 /// This overwrites element positions/rotations/scales/vertices/colors with the
 /// interpolated values, so that canvas drags start from the visual position.
+#[allow(dead_code)]
 pub fn apply_evaluated_to_sprite(sprite: &mut Sprite, poses: &HashMap<String, ElementPose>) {
     if poses.is_empty() { return; }
     for layer in &mut sprite.layers {

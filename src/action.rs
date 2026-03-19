@@ -103,6 +103,7 @@ pub enum AppAction {
     /// Set the playhead time (navigation — no undo).
     SetPlayheadTime { time_secs: f32 },
     /// Set the duration of a sequence.
+    #[allow(dead_code)]
     SetSequenceDuration { sequence_id: String, duration_secs: f32 },
     /// Set whether a sequence loops.
     SetSequenceLooping { sequence_id: String, looping: bool },

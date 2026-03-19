@@ -184,6 +184,7 @@ pub fn segment_bezier_points(v0: &PathVertex, v1: &PathVertex) -> (Vec2, Vec2, V
 }
 
 /// Evaluate a cubic bezier at parameter t.
+#[allow(dead_code)]
 pub fn cubic_bezier_eval(p0: Vec2, cp1: Vec2, cp2: Vec2, p3: Vec2, t: f32) -> Vec2 {
     let t2 = t * t;
     let t3 = t2 * t;
@@ -266,6 +267,7 @@ pub fn de_casteljau_split(
 }
 
 /// Approximate the arc length of a cubic bezier curve by sampling.
+#[allow(dead_code)]
 pub fn approximate_bezier_length(p0: Vec2, cp1: Vec2, cp2: Vec2, p3: Vec2, steps: usize) -> f32 {
     let mut length = 0.0;
     let mut prev = p0;
