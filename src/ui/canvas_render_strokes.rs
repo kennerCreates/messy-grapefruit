@@ -307,6 +307,30 @@ pub fn render_elements(
     }
 }
 
+/// Render a sprite as a monochrome onion skin ghost.
+/// All strokes are drawn in `tint` color (which has alpha baked in).
+/// Fills and hatching are skipped for clarity.
+pub fn render_onion_ghost(
+    painter: &Painter,
+    viewport: &ViewportState,
+    sprite: &Sprite,
+    canvas_rect: egui::Rect,
+    tint: Color32,
+) {
+    let canvas_center = canvas_rect.center();
+
+    for layer in &sprite.layers {
+        if !layer.visible {
+            continue;
+        }
+        for element in &layer.elements {
+            let stroke = Stroke::new(element.stroke_width * viewport.zoom, tint);
+            let fill_info = FillInfo::Flat(Color32::TRANSPARENT);
+            render_element_path(painter, element, stroke, &fill_info, viewport, canvas_center);
+        }
+    }
+}
+
 fn render_uniform_stroke(
     painter: &Painter,
     element: &StrokeElement,

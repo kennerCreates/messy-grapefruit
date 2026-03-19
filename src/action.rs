@@ -112,4 +112,27 @@ pub enum AppAction {
         keyframe_id: String,
         easing: crate::model::animation::EasingCurve,
     },
+
+    // ── Phase 8: Animation Workflow ───────────────────────────────────────────
+
+    /// Add an event marker to a sequence at the given time.
+    AddEventMarker { sequence_id: String, time_secs: f32, name: String },
+    /// Delete an event marker by ID.
+    DeleteEventMarker { sequence_id: String, marker_id: String },
+    /// Rename an event marker.
+    RenameEventMarker { sequence_id: String, marker_id: String, name: String },
+    /// Move an event marker to a new time.
+    MoveEventMarker { sequence_id: String, marker_id: String, time_secs: f32 },
+    /// Move a keyframe to a new time (for timeline dragging).
+    MoveKeyframe { sequence_id: String, keyframe_id: String, new_time: f32 },
+    /// Paste a copied pose at the given time.
+    PastePose {
+        sequence_id: String,
+        time_secs: f32,
+        element_poses: Vec<crate::model::animation::ElementPose>,
+    },
+    /// Mirror a keyframe's poses horizontally and insert at the current playhead time.
+    MirrorPose { sequence_id: String, keyframe_id: String, time_secs: f32 },
+    /// Apply an animation template to the current sequence.
+    ApplyAnimationTemplate { sequence_id: String, template_name: String },
 }

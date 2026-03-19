@@ -10,7 +10,11 @@ pub fn dispatch(app: &mut App, action: AppAction) {
 
     match action {
         AppAction::CommitStroke(element) => {
+            let eid = element.id.clone();
             app.sprite.layers[layer_idx].elements.push(element);
+            crate::engine::animation::auto_key_capture(
+                &mut app.editor.timeline, &mut app.sprite, &[eid],
+            );
             app.history.push("Draw stroke".into(), before, app.sprite.clone());
         }
         AppAction::MergeStroke { merged_element, replace_element_id } => {
@@ -28,9 +32,13 @@ pub fn dispatch(app: &mut App, action: AppAction) {
             app.history.push("Merge symmetric strokes".into(), before, app.sprite.clone());
         }
         AppAction::CommitSymmetricStrokes(elements) => {
+            let eids: Vec<String> = elements.iter().map(|e| e.id.clone()).collect();
             for elem in elements {
                 app.sprite.layers[layer_idx].elements.push(elem);
             }
+            crate::engine::animation::auto_key_capture(
+                &mut app.editor.timeline, &mut app.sprite, &eids,
+            );
             app.history.push("Draw symmetric strokes".into(), before, app.sprite.clone());
         }
         AppAction::SetFillColor { element_id, fill_color_index } => {
@@ -43,6 +51,9 @@ pub fn dispatch(app: &mut App, action: AppAction) {
                     }
                 }
             }
+            crate::engine::animation::auto_key_capture(
+                &mut app.editor.timeline, &mut app.sprite, &[element_id],
+            );
             app.history.push("Set fill color".into(), before, app.sprite.clone());
         }
         AppAction::SetBackgroundColor { background_color_index } => {
@@ -305,12 +316,126 @@ pub fn dispatch(app: &mut App, action: AppAction) {
             app.history.push("Set looping".into(), before, app.sprite.clone());
         }
         AppAction::SetEasingCurve { sequence_id, keyframe_id, easing } => {
-            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id) {
-                if let Some(kf) = seq.pose_keyframes.iter_mut().find(|kf| kf.id == keyframe_id) {
-                    kf.easing = easing;
-                }
+            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id)
+                && let Some(kf) = seq.pose_keyframes.iter_mut().find(|kf| kf.id == keyframe_id)
+            {
+                kf.easing = easing;
             }
             app.history.push("Set easing".into(), before, app.sprite.clone());
+        }
+
+        // ── Phase 8: Animation Workflow ───────────────────────────────────────
+
+        AppAction::AddEventMarker { sequence_id, time_secs, name } => {
+            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id) {
+                let marker = crate::model::animation::EventMarker {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    time_secs,
+                    name,
+                };
+                seq.event_markers.push(marker);
+                seq.event_markers.sort_by(|a, b| a.time_secs.partial_cmp(&b.time_secs).unwrap());
+            }
+            app.history.push("Add event marker".into(), before, app.sprite.clone());
+        }
+        AppAction::DeleteEventMarker { sequence_id, marker_id } => {
+            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id) {
+                seq.event_markers.retain(|m| m.id != marker_id);
+            }
+            app.history.push("Delete event marker".into(), before, app.sprite.clone());
+        }
+        AppAction::RenameEventMarker { sequence_id, marker_id, name } => {
+            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id)
+                && let Some(m) = seq.event_markers.iter_mut().find(|m| m.id == marker_id)
+            {
+                m.name = name;
+            }
+            app.history.push("Rename event marker".into(), before, app.sprite.clone());
+        }
+        AppAction::MoveEventMarker { sequence_id, marker_id, time_secs } => {
+            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id) {
+                if let Some(m) = seq.event_markers.iter_mut().find(|m| m.id == marker_id) {
+                    m.time_secs = time_secs.clamp(0.0, seq.duration_secs);
+                }
+                seq.event_markers.sort_by(|a, b| a.time_secs.partial_cmp(&b.time_secs).unwrap());
+            }
+            app.history.push("Move event marker".into(), before, app.sprite.clone());
+        }
+        AppAction::MoveKeyframe { sequence_id, keyframe_id, new_time } => {
+            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id) {
+                if let Some(kf) = seq.pose_keyframes.iter_mut().find(|kf| kf.id == keyframe_id) {
+                    kf.time_secs = new_time.clamp(0.0, seq.duration_secs);
+                }
+                seq.pose_keyframes.sort_by(|a, b| a.time_secs.partial_cmp(&b.time_secs).unwrap());
+            }
+            app.history.push("Move keyframe".into(), before, app.sprite.clone());
+        }
+        AppAction::PastePose { sequence_id, time_secs, element_poses } => {
+            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id) {
+                // Remove any existing keyframe at this exact time
+                seq.pose_keyframes.retain(|kf| (kf.time_secs - time_secs).abs() >= 0.001);
+                let kf = crate::model::animation::PoseKeyframe {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    time_secs,
+                    easing: crate::model::animation::EasingCurve::default(),
+                    element_poses,
+                };
+                let kf_id = kf.id.clone();
+                seq.pose_keyframes.push(kf);
+                seq.pose_keyframes.sort_by(|a, b| a.time_secs.partial_cmp(&b.time_secs).unwrap());
+                if time_secs > seq.duration_secs {
+                    seq.duration_secs = time_secs;
+                }
+                app.editor.timeline.selected_keyframe_id = Some(kf_id);
+            }
+            app.history.push("Paste pose".into(), before, app.sprite.clone());
+        }
+        AppAction::MirrorPose { sequence_id, keyframe_id, time_secs } => {
+            if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id)
+                && let Some(source_kf) = seq.pose_keyframes.iter().find(|kf| kf.id == keyframe_id)
+            {
+                let mirrored_poses = crate::engine::animation::mirror_element_poses(
+                    &source_kf.element_poses,
+                    app.sprite.canvas_width as f32,
+                );
+                // Remove any existing keyframe at this exact time
+                seq.pose_keyframes.retain(|kf| (kf.time_secs - time_secs).abs() >= 0.001);
+                let kf = crate::model::animation::PoseKeyframe {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    time_secs,
+                    easing: crate::model::animation::EasingCurve::default(),
+                    element_poses: mirrored_poses,
+                };
+                let kf_id = kf.id.clone();
+                seq.pose_keyframes.push(kf);
+                seq.pose_keyframes.sort_by(|a, b| a.time_secs.partial_cmp(&b.time_secs).unwrap());
+                if time_secs > seq.duration_secs {
+                    seq.duration_secs = time_secs;
+                }
+                app.editor.timeline.selected_keyframe_id = Some(kf_id);
+            }
+            app.history.push("Mirror pose".into(), before, app.sprite.clone());
+        }
+        AppAction::ApplyAnimationTemplate { sequence_id, template_name } => {
+            use crate::model::animation::ANIMATION_TEMPLATES;
+            if let Some(template) = ANIMATION_TEMPLATES.iter().find(|t| t.name == template_name) {
+                // Capture poses first (needs immutable borrow of sprite)
+                let keyframes: Vec<_> = template.keyframes.iter().map(|tkf| {
+                    crate::engine::animation::capture_pose(
+                        &app.sprite,
+                        tkf.time_secs,
+                        tkf.easing_preset,
+                        None,
+                    )
+                }).collect();
+                // Now mutate the sequence
+                if let Some(seq) = app.sprite.animations.iter_mut().find(|s| s.id == sequence_id) {
+                    seq.duration_secs = template.duration_secs;
+                    seq.looping = template.looping;
+                    seq.pose_keyframes = keyframes;
+                }
+            }
+            app.history.push("Apply animation template".into(), before, app.sprite.clone());
         }
     }
 }

@@ -263,6 +263,50 @@ pub fn capture_pose(
     }
 }
 
+// ── auto_key_capture ─────────────────────────────────────────────────────────
+
+/// If auto-key is enabled and a sequence is selected, capture/merge a keyframe
+/// at the current playhead time for the given element IDs.
+///
+/// Call this **before** `history.end_drag()` so the undo snapshot includes both
+/// the transform change and the auto-key'd keyframe.
+pub fn auto_key_capture(
+    timeline: &mut crate::state::editor::TimelineState,
+    sprite: &mut Sprite,
+    element_ids: &[String],
+) {
+    if !timeline.auto_key { return; }
+    let Some(ref seq_id) = timeline.selected_sequence_id else { return; };
+    if element_ids.is_empty() { return; }
+
+    let time = timeline.playhead_time;
+
+    // Capture poses for the affected elements from the current sprite state
+    let captured = capture_pose(sprite, time, "ease-in-out", Some(element_ids));
+
+    let Some(seq) = sprite.animations.iter_mut().find(|s| &s.id == seq_id) else { return; };
+
+    // Merge into existing keyframe at this time, or create a new one
+    if let Some(existing) = seq.pose_keyframes.iter_mut().find(|kf| (kf.time_secs - time).abs() < 0.001) {
+        // Merge: update existing element poses, add new ones
+        for new_pose in &captured.element_poses {
+            if let Some(ep) = existing.element_poses.iter_mut().find(|ep| ep.element_id == new_pose.element_id) {
+                *ep = new_pose.clone();
+            } else {
+                existing.element_poses.push(new_pose.clone());
+            }
+        }
+    } else {
+        let kf_id = captured.id.clone();
+        seq.pose_keyframes.push(captured);
+        seq.pose_keyframes.sort_by(|a, b| a.time_secs.partial_cmp(&b.time_secs).unwrap());
+        if time > seq.duration_secs {
+            seq.duration_secs = time;
+        }
+        timeline.selected_keyframe_id = Some(kf_id);
+    }
+}
+
 // ── build_evaluated_sprite ────────────────────────────────────────────────────
 
 /// Build a sprite view with poses applied.
@@ -330,6 +374,138 @@ pub fn canvas_state(
     }
 
     CanvasAnimState::Interpolated
+}
+
+// ── Phase 8: apply_evaluated_to_sprite ────────────────────────────────────────
+
+/// Apply evaluated animation poses to the sprite data in-place.
+/// This overwrites element positions/rotations/scales/vertices/colors with the
+/// interpolated values, so that canvas drags start from the visual position.
+pub fn apply_evaluated_to_sprite(sprite: &mut Sprite, poses: &HashMap<String, ElementPose>) {
+    if poses.is_empty() { return; }
+    for layer in &mut sprite.layers {
+        for elem in &mut layer.elements {
+            if let Some(pose) = poses.get(&elem.id) {
+                elem.position = pose.position;
+                elem.rotation = pose.rotation;
+                elem.scale = pose.scale;
+                elem.stroke_color_index = pose.stroke_color_index;
+                elem.fill_color_index = pose.fill_color_index;
+                for v in &mut elem.vertices {
+                    if let Some(vp) = pose.vertex_positions.iter().find(|vp| vp.vertex_id == v.id) {
+                        v.pos = vp.pos;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Phase 8: mirror_element_poses ────────────────────────────────────────────
+
+/// Mirror a set of element poses horizontally around the canvas center.
+/// Used for walk cycle mirroring: flips positions and negates rotations.
+pub fn mirror_element_poses(poses: &[ElementPose], canvas_width: f32) -> Vec<ElementPose> {
+    let center_x = canvas_width / 2.0;
+    poses.iter().map(|pose| {
+        let mut mirrored = pose.clone();
+        // Mirror position around canvas center
+        mirrored.position.x = 2.0 * center_x - pose.position.x;
+        // Negate rotation
+        mirrored.rotation = -pose.rotation;
+        // Mirror vertex positions around canvas center
+        for vp in &mut mirrored.vertex_positions {
+            vp.pos.x = 2.0 * center_x - vp.pos.x;
+        }
+        mirrored
+    }).collect()
+}
+
+// ── Phase 8: onion skin ghost computation ────────────────────────────────────
+
+/// A ghost frame for onion skin rendering.
+pub struct OnionGhost {
+    /// Evaluated poses for this ghost frame.
+    pub poses: HashMap<String, ElementPose>,
+    /// Tint color with alpha baked in.
+    pub tint: egui::Color32,
+}
+
+/// Compute onion skin ghost frames for rendering.
+pub fn compute_onion_skin_ghosts(
+    sprite: &Sprite,
+    sequence: &AnimationSequence,
+    playhead_time: f32,
+    mode: crate::state::editor::OnionSkinMode,
+    prev_count: u8,
+    next_count: u8,
+    prev_color: [u8; 3],
+    next_color: [u8; 3],
+    base_opacity: f32,
+) -> Vec<OnionGhost> {
+    use crate::state::editor::OnionSkinMode;
+    let mut ghosts = Vec::new();
+
+    let keyframe_times: Vec<f32> = sequence.pose_keyframes.iter().map(|kf| kf.time_secs).collect();
+
+    // Keyframe mode: ghosts at adjacent keyframe times
+    if mode == OnionSkinMode::Keyframe || mode == OnionSkinMode::Both {
+        // Previous keyframes
+        let prev_kfs: Vec<f32> = keyframe_times.iter()
+            .filter(|&&t| t < playhead_time - 0.001)
+            .copied()
+            .collect();
+        for (i, &t) in prev_kfs.iter().rev().take(prev_count as usize).enumerate() {
+            let alpha = (base_opacity * 0.7_f32.powi(i as i32) * 255.0) as u8;
+            let poses = evaluate_pose(sprite, sequence, t);
+            ghosts.push(OnionGhost {
+                poses,
+                tint: egui::Color32::from_rgba_unmultiplied(prev_color[0], prev_color[1], prev_color[2], alpha),
+            });
+        }
+        // Next keyframes
+        let next_kfs: Vec<f32> = keyframe_times.iter()
+            .filter(|&&t| t > playhead_time + 0.001)
+            .copied()
+            .collect();
+        for (i, &t) in next_kfs.iter().take(next_count as usize).enumerate() {
+            let alpha = (base_opacity * 0.7_f32.powi(i as i32) * 255.0) as u8;
+            let poses = evaluate_pose(sprite, sequence, t);
+            ghosts.push(OnionGhost {
+                poses,
+                tint: egui::Color32::from_rgba_unmultiplied(next_color[0], next_color[1], next_color[2], alpha),
+            });
+        }
+    }
+
+    // Frame mode: ghosts at fixed time offsets
+    if mode == OnionSkinMode::Frame || mode == OnionSkinMode::Both {
+        let step = (sequence.duration_secs / 10.0).max(0.05);
+        for i in 1..=prev_count {
+            let t = playhead_time - step * i as f32;
+            if t >= 0.0 {
+                let alpha = (base_opacity * 0.7_f32.powi((i - 1) as i32) * 255.0) as u8;
+                let poses = evaluate_pose(sprite, sequence, t);
+                ghosts.push(OnionGhost {
+                    poses,
+                    tint: egui::Color32::from_rgba_unmultiplied(prev_color[0], prev_color[1], prev_color[2], alpha),
+                });
+            }
+        }
+        for i in 1..=next_count {
+            let t = playhead_time + step * i as f32;
+            if t <= sequence.duration_secs {
+                let alpha = (base_opacity * 0.7_f32.powi((i - 1) as i32) * 255.0) as u8;
+                let poses = evaluate_pose(sprite, sequence, t);
+                ghosts.push(OnionGhost {
+                    poses,
+                    tint: egui::Color32::from_rgba_unmultiplied(next_color[0], next_color[1], next_color[2], alpha),
+                });
+            }
+        }
+    }
+
+    ghosts
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

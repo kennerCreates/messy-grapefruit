@@ -451,11 +451,17 @@ fn handle_select_drag_end(
     }
     match editor.select_drag.take() {
         Some(SelectDragKind::Move { .. }) => {
+            crate::engine::animation::auto_key_capture(
+                &mut editor.timeline, sprite, &editor.selection.selected_ids,
+            );
             history.end_drag(sprite.clone());
         }
         Some(SelectDragKind::Scale { .. })
         | Some(SelectDragKind::Rotate { .. }) => {
             canvas_transform::bake_and_snap_selected(sprite, &editor.selection.selected_ids, project);
+            crate::engine::animation::auto_key_capture(
+                &mut editor.timeline, sprite, &editor.selection.selected_ids,
+            );
             history.end_drag(sprite.clone());
         }
         Some(SelectDragKind::Marquee { start_world, .. }) => {
@@ -511,9 +517,16 @@ fn handle_select_drag_end(
                 }
             }
             editor.vertex_join_target = None;
+            crate::engine::animation::auto_key_capture(
+                &mut editor.timeline, sprite, &[element_id],
+            );
             history.end_drag(sprite.clone());
         }
-        Some(SelectDragKind::HandleMove { .. }) => {
+        Some(SelectDragKind::HandleMove { ref element_id, .. }) => {
+            let eid = element_id.clone();
+            crate::engine::animation::auto_key_capture(
+                &mut editor.timeline, sprite, &[eid],
+            );
             history.end_drag(sprite.clone());
         }
         None => {}

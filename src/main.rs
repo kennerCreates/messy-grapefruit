@@ -191,9 +191,20 @@ impl eframe::App for App {
         });
 
         if undo {
-            self.editor.clear_vertex_selection();
-            self.history.undo(&mut self.sprite);
-            self.editor.layer.validate(&self.sprite);
+            // If a tool is actively in use, cancel it instead of undoing
+            if self.editor.line_tool.is_drawing {
+                self.editor.line_tool.clear();
+            } else if self.editor.select_drag.is_some() {
+                self.editor.select_drag = None;
+                self.history.cancel_drag(&mut self.sprite);
+            } else if self.editor.dragging_ref_image.is_some() {
+                self.editor.dragging_ref_image = None;
+                self.history.cancel_drag(&mut self.sprite);
+            } else {
+                self.editor.clear_vertex_selection();
+                self.history.undo(&mut self.sprite);
+                self.editor.layer.validate(&self.sprite);
+            }
         }
         if redo {
             self.editor.clear_vertex_selection();

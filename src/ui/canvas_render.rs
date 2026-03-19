@@ -27,5 +27,6 @@ pub use super::canvas_render_strokes::{
     render_elements,
     render_hover_highlight,
     render_line_tool_preview,
+    render_onion_ghost,
     render_selection_highlights,
 };

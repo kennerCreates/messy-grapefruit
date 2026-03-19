@@ -8,14 +8,13 @@
       "WebFetch(domain:docs.rs)",
       "WebFetch(domain:www.solidjs.com)",
       "Bash(find /c/code/2026Q1/messy-grapefruit -type f \\\\\\(-name *.rs -o -name *.tsx -o -name *.ts \\\\\\))",
-<<<<<<< HEAD
       "Bash(cd:*)",
-      "WebFetch(domain:crates.io)"
-=======
+      "WebFetch(domain:crates.io)",
       "WebSearch",
       "Bash(tree:*)",
-      "Bash(cd:*)"
->>>>>>> 65aea5dc064acc11b67bee24a93ffafa02de980a
+      "Bash(cargo build:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo check:*)"
     ]
   }
 }

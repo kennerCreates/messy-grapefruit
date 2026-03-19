@@ -1,13 +1,16 @@
 use crate::action::AppAction;
 use crate::engine::{animation, hit_test, transform};
-use crate::model::sprite::Sprite;
 use crate::model::project::Project;
+use crate::model::sprite::Sprite;
 use crate::model::vec2::Vec2;
 use crate::state::editor::{EditorState, ToolKind};
 use crate::state::history::History;
 use crate::theme;
 
-use super::{canvas_eraser, canvas_eyedropper, canvas_fill, canvas_input, canvas_refimage, canvas_render, canvas_select, grid};
+use super::{
+    canvas_eraser, canvas_eyedropper, canvas_fill, canvas_input, canvas_refimage, canvas_render,
+    canvas_select, grid,
+};
 
 /// Base hit-test threshold in world units (divided by zoom at use site).
 pub(super) const HIT_TEST_THRESHOLD: f32 = 8.0;
@@ -24,10 +27,8 @@ pub fn show_canvas(
     let theme_mode = project.editor_preferences.theme;
 
     // Allocate the full available space
-    let (response, mut painter) = ui.allocate_painter(
-        ui.available_size(),
-        egui::Sense::click_and_drag(),
-    );
+    let (response, mut painter) =
+        ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
     let canvas_rect = response.rect;
 
     // Fill canvas background
@@ -41,7 +42,9 @@ pub fn show_canvas(
     canvas_input::handle_viewport_input(editor, project, sprite, canvas_rect, ui);
 
     // Handle F key or toolbar button = zoom to fit
-    if (!ui.ctx().wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::F)) && !ui.input(|i| i.modifiers.ctrl))
+    if (!ui.ctx().wants_keyboard_input()
+        && ui.input(|i| i.key_pressed(egui::Key::F))
+        && !ui.input(|i| i.modifiers.ctrl))
         || editor.viewport.zoom_to_fit_requested
     {
         editor.viewport.zoom_to_fit_requested = false;
@@ -67,7 +70,10 @@ pub fn show_canvas(
     );
 
     // Evaluate animation pose (zero cost when no animation active)
-    let anim_poses = editor.timeline.selected_sequence_id.as_ref()
+    let anim_poses = editor
+        .timeline
+        .selected_sequence_id
+        .as_ref()
         .and_then(|id| sprite.animations.iter().find(|s| &s.id == id))
         .map(|seq| animation::evaluate_pose(sprite, seq, editor.timeline.playhead_time));
     let render_sprite = animation::build_evaluated_sprite(sprite, anim_poses.as_ref());
@@ -91,6 +97,38 @@ pub fn show_canvas(
         theme_mode,
     );
 
+    // Onion skin ghosts (rendered behind main elements)
+    if editor.timeline.onion_skin_enabled
+        && let Some(seq) = editor
+            .timeline
+            .selected_sequence_id
+            .as_ref()
+            .and_then(|id| sprite.animations.iter().find(|s| &s.id == id))
+    {
+        let ghosts = animation::compute_onion_skin_ghosts(
+            sprite,
+            seq,
+            editor.timeline.playhead_time,
+            editor.timeline.onion_skin_mode,
+            editor.timeline.onion_skin_prev_count,
+            editor.timeline.onion_skin_next_count,
+            editor.timeline.onion_skin_prev_color,
+            editor.timeline.onion_skin_next_color,
+            editor.timeline.onion_skin_opacity,
+        );
+        for ghost in &ghosts {
+            let ghost_sprite =
+                animation::build_evaluated_sprite(sprite, Some(&ghost.poses));
+            canvas_render::render_onion_ghost(
+                &painter,
+                &editor.viewport,
+                ghost_sprite.as_ref(),
+                canvas_rect,
+                ghost.tint,
+            );
+        }
+    }
+
     canvas_render::render_elements(
         &painter,
         &editor.viewport,
@@ -103,7 +141,10 @@ pub fn show_canvas(
 
     // Canvas state indicator (colored border)
     let anim_state = animation::canvas_state(
-        editor.timeline.selected_sequence_id.as_ref()
+        editor
+            .timeline
+            .selected_sequence_id
+            .as_ref()
             .and_then(|id| sprite.animations.iter().find(|s| &s.id == id)),
         editor.timeline.playhead_time,
     );
@@ -132,74 +173,70 @@ pub fn show_canvas(
     );
 
     // Render resize handle on selected ref image
-    canvas_refimage::render_ref_image_handles(
-        &painter,
-        editor,
-        sprite,
-        canvas_rect,
-        theme_mode,
-    );
+    canvas_refimage::render_ref_image_handles(&painter, editor, sprite, canvas_rect, theme_mode);
 
     // --- Tool-specific: input, hit testing, preview ---
-    if !ref_image_consumed { match editor.tool {
-        ToolKind::Select => {
-            canvas_select::handle_select_tool(
-                &response,
-                &painter,
-                editor,
-                sprite,
-                project,
-                canvas_rect,
-                theme_mode,
-                history,
-            );
+    if !ref_image_consumed {
+        match editor.tool {
+            ToolKind::Select => {
+                canvas_select::handle_select_tool(
+                    &response,
+                    &painter,
+                    editor,
+                    sprite,
+                    project,
+                    canvas_rect,
+                    theme_mode,
+                    history,
+                );
+            }
+            ToolKind::Line => {
+                handle_line_tool(
+                    &response,
+                    &painter,
+                    editor,
+                    sprite,
+                    project,
+                    canvas_rect,
+                    theme_mode,
+                    &mut actions,
+                );
+            }
+            ToolKind::Fill => {
+                canvas_fill::handle_fill_tool(
+                    &response,
+                    &painter,
+                    editor,
+                    sprite,
+                    canvas_rect,
+                    theme_mode,
+                    &mut actions,
+                );
+            }
+            ToolKind::Eyedropper => {
+                canvas_eyedropper::handle_eyedropper_tool(
+                    &response,
+                    &painter,
+                    editor,
+                    sprite,
+                    project,
+                    canvas_rect,
+                    theme_mode,
+                );
+            }
+            ToolKind::Eraser => {
+                canvas_eraser::handle_eraser_tool(
+                    &response,
+                    &painter,
+                    editor,
+                    sprite,
+                    canvas_rect,
+                    theme_mode,
+                    &mut actions,
+                );
+            }
         }
-        ToolKind::Line => {
-            handle_line_tool(
-                &response,
-                &painter,
-                editor,
-                sprite,
-                project,
-                canvas_rect,
-                theme_mode,
-                &mut actions,
-            );
-        }
-        ToolKind::Fill => {
-            canvas_fill::handle_fill_tool(
-                &response,
-                &painter,
-                editor,
-                sprite,
-                canvas_rect,
-                theme_mode,
-                &mut actions,
-            );
-        }
-        ToolKind::Eyedropper => {
-            canvas_eyedropper::handle_eyedropper_tool(
-                &response,
-                &painter,
-                editor,
-                sprite,
-                project,
-                canvas_rect,
-                theme_mode,
-            );
-        }
-        ToolKind::Eraser => {
-            canvas_eraser::handle_eraser_tool(
-                &response,
-                &painter,
-                editor,
-                sprite,
-                canvas_rect,
-                theme_mode,
-                &mut actions,
-            );
-        }
-    } }
+    }
 
     // --- Vertex snap indicator ---
     if let Some(snap_target) = editor.snap_vertex_target {
@@ -219,11 +256,7 @@ pub fn show_canvas(
 }
 
 /// Render the selection stack popup as a floating area.
-fn render_selection_stack_popup(
-    ui: &mut egui::Ui,
-    editor: &mut EditorState,
-    project: &Project,
-) {
+fn render_selection_stack_popup(ui: &mut egui::Ui, editor: &mut EditorState, project: &Project) {
     let popup = match &editor.selection_stack_popup {
         Some(p) => p.clone(),
         None => return,
@@ -243,13 +276,14 @@ fn render_selection_stack_popup(
                 .inner_margin(4.0)
                 .show(ui, |ui| {
                     for entry in &popup.entries {
-                        let color = project.palette.get_color(entry.stroke_color_index).to_color32();
+                        let color = project
+                            .palette
+                            .get_color(entry.stroke_color_index)
+                            .to_color32();
                         ui.horizontal(|ui| {
                             // Color swatch
-                            let (rect, _) = ui.allocate_exact_size(
-                                egui::Vec2::splat(12.0),
-                                egui::Sense::hover(),
-                            );
+                            let (rect, _) = ui
+                                .allocate_exact_size(egui::Vec2::splat(12.0), egui::Sense::hover());
                             ui.painter().rect_filled(rect, 2.0, color);
 
                             if ui.selectable_label(false, &entry.display_name).clicked() {
@@ -289,9 +323,16 @@ fn handle_line_tool(
     // Hit testing for hover highlight (only when not mid-draw)
     if !editor.line_tool.is_drawing {
         if let Some(hover_pos) = response.hover_pos() {
-            let world_pos = editor.viewport.screen_to_world(hover_pos, canvas_rect.center());
+            let world_pos = editor
+                .viewport
+                .screen_to_world(hover_pos, canvas_rect.center());
             let threshold = HIT_TEST_THRESHOLD / editor.viewport.zoom;
-            editor.hover_element_id = hit_test::hit_test_elements(world_pos, sprite, threshold, editor.layer.solo_layer_id.as_deref());
+            editor.hover_element_id = hit_test::hit_test_elements(
+                world_pos,
+                sprite,
+                threshold,
+                editor.layer.solo_layer_id.as_deref(),
+            );
         } else {
             editor.hover_element_id = None;
         }
@@ -321,23 +362,14 @@ fn handle_line_tool(
     }
 
     // Handle line tool input (returns Vec<AppAction> now for symmetry support)
-    let (line_actions, merge_target) = canvas_input::handle_line_tool_input(
-        response,
-        editor,
-        sprite,
-        project,
-        canvas_rect,
-    );
+    let (line_actions, merge_target) =
+        canvas_input::handle_line_tool_input(response, editor, sprite, project, canvas_rect);
     actions.extend(line_actions);
 
     // Render line tool preview
     if editor.line_tool.is_drawing && !editor.line_tool.vertices.is_empty() {
-        let snap_pos = canvas_input::get_snap_pos(
-            editor,
-            project,
-            canvas_rect,
-            response.hover_pos(),
-        );
+        let snap_pos =
+            canvas_input::get_snap_pos(editor, project, canvas_rect, response.hover_pos());
 
         canvas_render::render_line_tool_preview(
             painter,
@@ -372,16 +404,24 @@ fn handle_line_tool(
 fn zoom_to_fit(editor: &mut EditorState, sprite: &Sprite, canvas_rect: egui::Rect) {
     // Shrink effective size to account for floating UI panels overlapping the canvas:
     // toolbar (~48px top), status bar (~40px bottom), sidebar (right)
-    let sidebar_w = if editor.ui.sidebar_expanded { 220.0 } else { 64.0 };
+    let sidebar_w = if editor.ui.sidebar_expanded {
+        220.0
+    } else {
+        64.0
+    };
     let inset = egui::Vec2::new(sidebar_w + 16.0, 88.0);
     let effective_size = (canvas_rect.size() - inset).max(egui::Vec2::splat(100.0));
 
     // If elements are selected, frame the selection instead of all content
     if !editor.selection.is_empty()
-        && let Some((sel_min, sel_max)) = transform::selection_bounds(sprite, &editor.selection.selected_ids) {
-            editor.viewport.zoom_to_fit(sel_min, sel_max, effective_size);
-            return;
-        }
+        && let Some((sel_min, sel_max)) =
+            transform::selection_bounds(sprite, &editor.selection.selected_ids)
+    {
+        editor
+            .viewport
+            .zoom_to_fit(sel_min, sel_max, effective_size);
+        return;
+    }
 
     // Compute bounding box of all visible elements
     let mut min = Vec2::new(f32::MAX, f32::MAX);

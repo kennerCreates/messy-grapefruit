@@ -92,9 +92,11 @@ impl History {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn cancel_drag(&mut self) {
-        self.pending_drag = None;
+    /// Cancel an in-progress drag, restoring the sprite to the pre-drag state.
+    pub fn cancel_drag(&mut self, sprite: &mut Sprite) {
+        if let Some((_desc, before)) = self.pending_drag.take() {
+            *sprite = before;
+        }
     }
 }
 

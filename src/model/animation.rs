@@ -114,3 +114,65 @@ impl AnimationSequence {
         }
     }
 }
+
+// ── Phase 8: Animation Templates ─────────────────────────────────────────────
+
+/// A keyframe timing entry within an animation template.
+pub struct AnimationTemplateKeyframe {
+    /// Time in seconds for this keyframe.
+    pub time_secs: f32,
+    /// Easing preset name (e.g., "ease-in-out", "linear").
+    pub easing_preset: &'static str,
+}
+
+/// Pre-built animation timing template.
+pub struct AnimationTemplate {
+    pub name: &'static str,
+    pub duration_secs: f32,
+    pub looping: bool,
+    pub keyframes: &'static [AnimationTemplateKeyframe],
+}
+
+pub const ANIMATION_TEMPLATES: &[AnimationTemplate] = &[
+    AnimationTemplate {
+        name: "Idle",
+        duration_secs: 2.0,
+        looping: true,
+        keyframes: &[
+            AnimationTemplateKeyframe { time_secs: 0.0, easing_preset: "ease-in-out" },
+            AnimationTemplateKeyframe { time_secs: 1.0, easing_preset: "ease-in-out" },
+        ],
+    },
+    AnimationTemplate {
+        name: "Walk Cycle",
+        duration_secs: 0.8,
+        looping: true,
+        keyframes: &[
+            AnimationTemplateKeyframe { time_secs: 0.0, easing_preset: "linear" },
+            AnimationTemplateKeyframe { time_secs: 0.2, easing_preset: "linear" },
+            AnimationTemplateKeyframe { time_secs: 0.4, easing_preset: "linear" },
+            AnimationTemplateKeyframe { time_secs: 0.6, easing_preset: "linear" },
+        ],
+    },
+    AnimationTemplate {
+        name: "Attack",
+        duration_secs: 0.5,
+        looping: false,
+        keyframes: &[
+            AnimationTemplateKeyframe { time_secs: 0.0, easing_preset: "ease-in" },
+            AnimationTemplateKeyframe { time_secs: 0.15, easing_preset: "ease-out" },
+            AnimationTemplateKeyframe { time_secs: 0.4, easing_preset: "ease-out" },
+        ],
+    },
+    AnimationTemplate {
+        name: "Jump",
+        duration_secs: 0.8,
+        looping: false,
+        keyframes: &[
+            AnimationTemplateKeyframe { time_secs: 0.0, easing_preset: "ease-in" },
+            AnimationTemplateKeyframe { time_secs: 0.15, easing_preset: "ease-out" },
+            AnimationTemplateKeyframe { time_secs: 0.5, easing_preset: "ease-in-out" },
+            AnimationTemplateKeyframe { time_secs: 0.7, easing_preset: "ease-out" },
+        ],
+    },
+];

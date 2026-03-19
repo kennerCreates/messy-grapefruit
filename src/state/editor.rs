@@ -412,6 +412,34 @@ impl Default for UIState {
     }
 }
 
+/// Onion skin display mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnionSkinMode {
+    /// Ghost at adjacent keyframes.
+    Keyframe,
+    /// Ghost at fixed time offsets.
+    Frame,
+    /// Both keyframe and frame ghosts.
+    Both,
+}
+
+/// State for the inline easing curve editor popup.
+#[derive(Debug, Clone)]
+pub struct EasingPopupState {
+    /// Keyframe whose easing is being edited (the "right" keyframe in the transition).
+    pub keyframe_id: String,
+    /// Sequence containing the keyframe.
+    pub sequence_id: String,
+    /// Screen position to anchor the popup.
+    pub screen_pos: egui::Pos2,
+}
+
+/// Clipboard for pose copy/paste operations.
+#[derive(Debug, Clone)]
+pub struct PoseClipboard {
+    pub element_poses: Vec<crate::model::animation::ElementPose>,
+}
+
 /// Timeline/animation editor state.
 #[derive(Debug, Clone)]
 pub struct TimelineState {
@@ -429,6 +457,50 @@ pub struct TimelineState {
     pub is_timeline_visible: bool,
     /// Inline rename: sequence ID being renamed, if any.
     pub renaming_sequence_id: Option<String>,
+
+    // ── Phase 8: Onion skin config ───────────────────────────────────
+    /// Onion skin display mode.
+    pub onion_skin_mode: OnionSkinMode,
+    /// Number of previous keyframe/frame ghosts to show.
+    pub onion_skin_prev_count: u8,
+    /// Number of next keyframe/frame ghosts to show.
+    pub onion_skin_next_count: u8,
+    /// RGB color for previous-frame ghosts (default red).
+    pub onion_skin_prev_color: [u8; 3],
+    /// RGB color for next-frame ghosts (default green).
+    pub onion_skin_next_color: [u8; 3],
+    /// Base opacity for ghost overlays (0.0–1.0).
+    pub onion_skin_opacity: f32,
+
+    // ── Phase 8: Easing popup ────────────────────────────────────────
+    /// When set, the easing curve editor popup is open for this keyframe.
+    pub easing_popup: Option<EasingPopupState>,
+
+    // ── Phase 8: Pose clipboard ──────────────────────────────────────
+    /// Pose clipboard for copy/paste operations.
+    pub pose_clipboard: Option<PoseClipboard>,
+
+    // ── Phase 8: Event marker editing ────────────────────────────────
+    /// Event marker currently being dragged on the timeline.
+    pub dragging_event_marker_id: Option<String>,
+    /// Event marker currently being renamed inline.
+    pub renaming_event_marker_id: Option<String>,
+
+    // ── Phase 8: Keyframe dragging ───────────────────────────────────
+    /// Keyframe currently being dragged on the timeline.
+    pub dragging_keyframe_id: Option<String>,
+    /// Preview time for the keyframe being dragged (visual only, committed on release).
+    pub dragging_keyframe_preview_time: Option<f32>,
+
+    // ── Phase 8: Keyframe context menu ───────────────────────────────
+    /// Keyframe whose context menu is open.
+    pub context_menu_keyframe_id: Option<String>,
+    /// Screen position of the context menu.
+    pub context_menu_screen_pos: Option<egui::Pos2>,
+
+    // ── Phase 8: Onion skin settings ─────────────────────────────────
+    /// Whether the onion skin settings popup is open.
+    pub onion_skin_settings_open: bool,
 }
 
 impl Default for TimelineState {
@@ -441,6 +513,21 @@ impl Default for TimelineState {
             selected_keyframe_id: None,
             is_timeline_visible: false,
             renaming_sequence_id: None,
+            onion_skin_mode: OnionSkinMode::Keyframe,
+            onion_skin_prev_count: 1,
+            onion_skin_next_count: 1,
+            onion_skin_prev_color: [200, 60, 60],
+            onion_skin_next_color: [60, 200, 60],
+            onion_skin_opacity: 0.3,
+            easing_popup: None,
+            pose_clipboard: None,
+            dragging_event_marker_id: None,
+            renaming_event_marker_id: None,
+            dragging_keyframe_id: None,
+            dragging_keyframe_preview_time: None,
+            context_menu_keyframe_id: None,
+            context_menu_screen_pos: None,
+            onion_skin_settings_open: false,
         }
     }
 }
