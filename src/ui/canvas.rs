@@ -422,30 +422,8 @@ fn zoom_to_fit(editor: &mut EditorState, sprite: &Sprite, canvas_rect: egui::Rec
         return;
     }
 
-    // Compute bounding box of all visible elements
-    let mut min = Vec2::new(f32::MAX, f32::MAX);
-    let mut max = Vec2::new(f32::MIN, f32::MIN);
-    let mut has_content = false;
-
-    for layer in &sprite.layers {
-        if !layer.visible {
-            continue;
-        }
-        for element in &layer.elements {
-            for vertex in &element.vertices {
-                let world = transform::vertex_world_pos(vertex, element);
-                min = min.min(world);
-                max = max.max(world);
-                has_content = true;
-            }
-        }
-    }
-
-    // Fall back to canvas boundary
-    if !has_content {
-        min = Vec2::ZERO;
-        max = Vec2::new(sprite.canvas_width as f32, sprite.canvas_height as f32);
-    }
-
+    // Nothing selected — zoom to canvas boundary
+    let min = Vec2::ZERO;
+    let max = Vec2::new(sprite.canvas_width as f32, sprite.canvas_height as f32);
     editor.viewport.zoom_to_fit(min, max, effective_size);
 }

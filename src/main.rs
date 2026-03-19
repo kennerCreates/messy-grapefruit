@@ -178,17 +178,15 @@ impl eframe::App for App {
         }
 
         // Handle undo/redo and copy/paste globally
-        let (undo, redo, copy, paste, cut) = ctx.input(|i| {
-            (
-                i.modifiers.ctrl && i.key_pressed(egui::Key::Z) && !i.modifiers.shift,
-                i.modifiers.ctrl
-                    && (i.key_pressed(egui::Key::Y)
-                        || (i.key_pressed(egui::Key::Z) && i.modifiers.shift)),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::C),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::V),
-                i.modifiers.ctrl && i.key_pressed(egui::Key::X),
-            )
+        let ctrl = egui::Modifiers { ctrl: true, ..Default::default() };
+        let ctrl_shift = egui::Modifiers { ctrl: true, shift: true, ..Default::default() };
+        let undo = ctx.input_mut(|i| i.consume_key(ctrl, egui::Key::Z));
+        let redo = ctx.input_mut(|i| {
+            i.consume_key(ctrl, egui::Key::Y) || i.consume_key(ctrl_shift, egui::Key::Z)
         });
+        let copy = ctx.input_mut(|i| i.consume_key(ctrl, egui::Key::C));
+        let paste = ctx.input_mut(|i| i.consume_key(ctrl, egui::Key::V));
+        let cut = ctx.input_mut(|i| i.consume_key(ctrl, egui::Key::X));
 
         if undo {
             // If a tool is actively in use, cancel it instead of undoing

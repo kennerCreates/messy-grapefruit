@@ -42,6 +42,12 @@ pub(super) fn handle_select_tool(
     handle_select_click(response, editor, sprite, canvas_center, threshold);
     handle_select_double_click(response, editor, sprite, canvas_center, threshold);
     handle_select_keyboard(response, editor, sprite, project, history);
+
+    // Sync active layer to match the first selected element
+    if let Some(first_id) = editor.selection.selected_ids.first() {
+        editor.layer.set_active_for_element(first_id, sprite);
+    }
+
     render_select_overlays(response, painter, editor, sprite, canvas_rect, theme_mode);
 }
 

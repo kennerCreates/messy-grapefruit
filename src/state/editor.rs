@@ -364,6 +364,16 @@ impl LayerState {
         }
     }
 
+    /// Set the active layer to the one containing the given element ID.
+    pub fn set_active_for_element(&mut self, element_id: &str, sprite: &Sprite) {
+        for layer in &sprite.layers {
+            if layer.elements.iter().any(|e| e.id == element_id) {
+                self.active_layer_id = Some(layer.id.clone());
+                return;
+            }
+        }
+    }
+
     /// Ensure the active layer ID is valid; fix up if not.
     pub fn validate(&mut self, sprite: &Sprite) {
         if let Some(id) = &self.active_layer_id
