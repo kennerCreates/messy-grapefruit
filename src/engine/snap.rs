@@ -51,16 +51,21 @@ pub fn snap_to_grid(pos: Vec2, grid_size: u32, grid_mode: GridMode) -> Vec2 {
         return pos;
     }
 
-    // Always snap to isometric diamond lattice points.
-    // Lattice basis: u = (2gs, gs), v = (2gs, -gs).
+    // True isometric diamond lattice (30° angles).
+    // Lattice basis: u = (√3·gs, gs), v = (√3·gs, -gs).
     // Transform to lattice coordinates, round, transform back.
     let _ = grid_mode;
-    let s = (pos.x + 2.0 * pos.y) / (4.0 * gs);
-    let t = (pos.x - 2.0 * pos.y) / (4.0 * gs);
+    let sqrt3 = 3.0_f32.sqrt();
+    let ux = sqrt3 * gs;
+    // s = dot(pos, u) / dot(u, u), t = dot(pos, v) / dot(v, v)
+    // u = (ux, gs), v = (ux, -gs), dot(u,u) = dot(v,v) = 3gs² + gs² = 4gs²
+    let denom = 2.0 * (ux * ux + gs * gs); // = 2 * 4gs² = 8gs²
+    let s = (ux * pos.x + gs * pos.y) / denom;
+    let t = (ux * pos.x - gs * pos.y) / denom;
     let sr = s.round();
     let tr = t.round();
     Vec2::new(
-        2.0 * gs * (sr + tr),
+        ux * (sr + tr),
         gs * (sr - tr),
     )
 }
@@ -71,28 +76,39 @@ mod tests {
 
     #[test]
     fn test_snap_origin() {
+        // Near origin should snap to (0, 0)
         let snapped = snap_to_grid(Vec2::new(1.0, 1.0), 8, GridMode::Straight);
-        assert_eq!(snapped, Vec2::new(0.0, 0.0));
+        assert!(snapped.x.abs() < 0.01);
+        assert!(snapped.y.abs() < 0.01);
     }
 
     #[test]
     fn test_snap_exact_lattice_point() {
-        // (16, 8) is a lattice point (even row offset by 2gs)
-        let snapped = snap_to_grid(Vec2::new(16.0, 8.0), 8, GridMode::Straight);
-        assert_eq!(snapped, Vec2::new(16.0, 8.0));
+        // True iso lattice: u = (√3·8, 8). Point (s=1, t=0) = (√3·8, 8).
+        let gs = 8.0_f32;
+        let ux = 3.0_f32.sqrt() * gs;
+        let point = Vec2::new(ux, gs);
+        let snapped = snap_to_grid(point, 8, GridMode::Isometric);
+        assert!((snapped.x - ux).abs() < 0.01);
+        assert!((snapped.y - gs).abs() < 0.01);
     }
 
     #[test]
-    fn test_snap_isometric_lattice() {
-        // Near (32, 0) which is a lattice point (even row, x=4gs)
-        let snapped = snap_to_grid(Vec2::new(30.0, 1.0), 8, GridMode::Isometric);
-        assert_eq!(snapped, Vec2::new(32.0, 0.0));
+    fn test_snap_near_lattice_point() {
+        // Slightly off from origin should snap back to origin
+        let snapped = snap_to_grid(Vec2::new(2.0, 1.5), 8, GridMode::Isometric);
+        assert!(snapped.x.abs() < 0.01);
+        assert!(snapped.y.abs() < 0.01);
     }
 
     #[test]
-    fn test_snap_odd_row() {
-        // (16, 8) is a lattice point on odd row (gy=1, gx=2 → 2*8=16)
-        let snapped = snap_to_grid(Vec2::new(17.0, 7.0), 8, GridMode::Off);
-        assert_eq!(snapped, Vec2::new(16.0, 8.0));
+    fn test_snap_symmetry() {
+        // Points (s=1,t=0) and (s=0,t=1) should be symmetric about x-axis
+        let gs = 8.0_f32;
+        let ux = 3.0_f32.sqrt() * gs;
+        let p1 = snap_to_grid(Vec2::new(ux + 0.5, gs + 0.5), 8, GridMode::Off);
+        let p2 = snap_to_grid(Vec2::new(ux + 0.5, -gs + 0.5), 8, GridMode::Off);
+        assert!((p1.x - p2.x).abs() < 0.01);
+        assert!((p1.y + p2.y).abs() < 0.01);
     }
 }

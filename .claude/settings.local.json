@@ -14,7 +14,12 @@
       "Bash(tree:*)",
       "Bash(cargo build:*)",
       "Bash(cargo clippy:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(git log:*)",
+      "Bash(python3 -c \"import math; desc = math.atan\\(0.5\\) * 180 / math.pi; asc = 180 - desc; print\\(f''ISO_ANGLE_DESC \\(atan\\(0.5\\)\\): {desc:.2f}°''\\); print\\(f''ISO_ANGLE_ASC \\(180 - atan\\(0.5\\)\\): {asc:.2f}°''\\)\")",
+      "Bash(cargo test:*)",
+      "Bash(powershell -Command \"Get-ItemProperty ''HKCU:\\\\Control Panel\\\\Desktop'' -Name LogPixels -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LogPixels; \\(Get-CimInstance -ClassName Win32_VideoController\\).CurrentHorizontalResolution; \\(Get-CimInstance -ClassName Win32_VideoController\\).CurrentVerticalResolution\")",
+      "Bash(powershell -Command \"\\(Get-ItemProperty ''HKCU:\\\\Control Panel\\\\Desktop\\\\WindowMetrics'' -Name AppliedDPI -ErrorAction SilentlyContinue\\).AppliedDPI\")"
     ]
   }
 }

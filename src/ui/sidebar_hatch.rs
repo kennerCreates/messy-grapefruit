@@ -7,8 +7,9 @@ use crate::theme;
 use super::icons;
 
 /// Isometric angle presets for hatch layers (degrees).
-const ISO_ANGLE_DESC: f32 = 26.57;  // atan(0.5) in degrees
-const ISO_ANGLE_ASC: f32 = 153.43;  // 180 - atan(0.5) in degrees
+/// True isometric: 30° / 150° (not pixel-art 2:1 ratio).
+const ISO_ANGLE_DESC: f32 = 30.0;
+const ISO_ANGLE_ASC: f32 = 150.0;
 
 /// Show the hatch pattern editor panel (when hatch_editor_open is true).
 pub(super) fn show_hatch_editor(

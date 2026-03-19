@@ -65,23 +65,33 @@ fn render_dots(
 
     let dot_radius = (1.0_f32).max(viewport.zoom * 0.5).min(2.0);
 
-    // Dots at isometric diamond lattice points (staggered grid).
-    for gy in start_y..=end_y {
-        let row_even = gy.rem_euclid(2) == 0;
-        let gx_start = if row_even {
-            start_x - start_x.rem_euclid(4)
-        } else {
-            let k = (start_x - 2).div_euclid(4);
-            k * 4 + 2
-        };
-        let mut gx = gx_start;
-        while gx <= end_x {
-            let world = Vec2::new(gx as f32 * gs, gy as f32 * gs);
-            let screen = viewport.world_to_screen(world, canvas_center);
+    // Dots at true isometric diamond lattice points (30° angles).
+    // Lattice basis: u = (√3·gs, gs), v = (√3·gs, -gs).
+    // Each (s, t) integer pair maps to world point (√3·gs·(s+t), gs·(s-t)).
+    let sqrt3 = 3.0_f32.sqrt();
+    let ux = sqrt3 * gs;
+    let world_min_x = start_x as f32 * gs;
+    let world_max_x = end_x as f32 * gs;
+    let world_min_y = start_y as f32 * gs;
+    let world_max_y = end_y as f32 * gs;
+
+    // Estimate lattice coordinate range
+    let s_min = ((world_min_x / ux + world_min_y / gs) * 0.5).floor() as i32 - 1;
+    let s_max = ((world_max_x / ux + world_max_y / gs) * 0.5).ceil() as i32 + 1;
+    let t_min = ((world_min_x / ux - world_max_y / gs) * 0.5).floor() as i32 - 1;
+    let t_max = ((world_max_x / ux - world_min_y / gs) * 0.5).ceil() as i32 + 1;
+
+    for s in s_min..=s_max {
+        for t in t_min..=t_max {
+            let wx = ux * (s + t) as f32;
+            let wy = gs * (s - t) as f32;
+            if wx < world_min_x || wx > world_max_x || wy < world_min_y || wy > world_max_y {
+                continue;
+            }
+            let screen = viewport.world_to_screen(Vec2::new(wx, wy), canvas_center);
             if canvas_rect.contains(screen) {
                 painter.circle_filled(screen, dot_radius, dot_color);
             }
-            gx += 4;
         }
     }
 }
@@ -142,38 +152,43 @@ fn render_lines(
             }
         }
         GridMode::Isometric => {
-            let step = 4i32;
+            // True isometric: slope = tan(30°) = 1/√3
+            let slope = 1.0_f32 / 3.0_f32.sqrt(); // ≈ 0.5774
 
-            // Slope +0.5 lines
-            let k_min_pos = 2 * start_y - end_x;
-            let k_max_pos = 2 * end_y - start_x;
-            let k_start = k_min_pos - k_min_pos.rem_euclid(step);
-            let mut k = k_start;
-            while k <= k_max_pos {
-                let x1 = start_x as f32 * gs;
-                let x2 = end_x as f32 * gs;
-                let y1 = 0.5 * x1 + k as f32 * gs / 2.0;
-                let y2 = 0.5 * x2 + k as f32 * gs / 2.0;
-                let s1 = viewport.world_to_screen(Vec2::new(x1, y1), canvas_center);
-                let s2 = viewport.world_to_screen(Vec2::new(x2, y2), canvas_center);
+            // Perpendicular spacing between iso lines = gs * cos(30°)
+            let line_spacing = gs * 3.0_f32.sqrt() / 2.0;
+            let x1 = start_x as f32 * gs;
+            let x2 = end_x as f32 * gs;
+            let y_min = start_y as f32 * gs;
+            let y_max = end_y as f32 * gs;
+
+            // Slope +tan(30°) lines: y = slope * x + c
+            // Space lines by line_spacing along the y-intercept
+            let c_min = y_min - slope * x2;
+            let c_max = y_max - slope * x1;
+            let k_start = (c_min / line_spacing).floor() as i32;
+            let k_end = (c_max / line_spacing).ceil() as i32;
+            for k in k_start..=k_end {
+                let c = k as f32 * line_spacing;
+                let ya = slope * x1 + c;
+                let yb = slope * x2 + c;
+                let s1 = viewport.world_to_screen(Vec2::new(x1, ya), canvas_center);
+                let s2 = viewport.world_to_screen(Vec2::new(x2, yb), canvas_center);
                 draw_dashed_line(painter, s1, s2, stroke, dash, gap);
-                k += step;
             }
 
-            // Slope -0.5 lines
-            let k_min_neg = 2 * start_y + start_x;
-            let k_max_neg = 2 * end_y + end_x;
-            let k_start = k_min_neg - k_min_neg.rem_euclid(step);
-            let mut k = k_start;
-            while k <= k_max_neg {
-                let x1 = start_x as f32 * gs;
-                let x2 = end_x as f32 * gs;
-                let y1 = -0.5 * x1 + k as f32 * gs / 2.0;
-                let y2 = -0.5 * x2 + k as f32 * gs / 2.0;
-                let s1 = viewport.world_to_screen(Vec2::new(x1, y1), canvas_center);
-                let s2 = viewport.world_to_screen(Vec2::new(x2, y2), canvas_center);
+            // Slope -tan(30°) lines: y = -slope * x + c
+            let c_min = y_min + slope * x1;
+            let c_max = y_max + slope * x2;
+            let k_start = (c_min / line_spacing).floor() as i32;
+            let k_end = (c_max / line_spacing).ceil() as i32;
+            for k in k_start..=k_end {
+                let c = k as f32 * line_spacing;
+                let ya = -slope * x1 + c;
+                let yb = -slope * x2 + c;
+                let s1 = viewport.world_to_screen(Vec2::new(x1, ya), canvas_center);
+                let s2 = viewport.world_to_screen(Vec2::new(x2, yb), canvas_center);
                 draw_dashed_line(painter, s1, s2, stroke, dash, gap);
-                k += step;
             }
         }
     }

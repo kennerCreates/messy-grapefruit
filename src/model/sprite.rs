@@ -19,9 +19,8 @@ pub enum GradientType {
 /// For iso-aligned gradients, the direction is perpendicular to the iso edges
 /// so that color bands run parallel to the edges (shading a face).
 ///
-/// The isometric grid uses a 2:1 diamond lattice with edge directions (2,1) and (2,-1).
-/// Perpendicular to (2,1) is (1,-2), angle = -atan(2) ≈ -63.43° = 296.57° (or equivalently -63.43°).
-/// Perpendicular to (2,-1) is (1,2), angle = atan(2) ≈ 63.43°.
+/// True isometric (30° edges): perpendicular to the 30° descending edge is -60°,
+/// perpendicular to the 30° ascending edge is 60°.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GradientAlignment {
@@ -36,12 +35,12 @@ impl GradientAlignment {
         match self {
             Self::Horizontal => 0.0,
             Self::Vertical => std::f32::consts::FRAC_PI_2,
-            // Perpendicular to descending iso edge (2,1): direction (1,-2), angle = -atan(2)
+            // True isometric: perpendicular to 30° descending edge = -60°
             // Color bands run parallel to the descending iso edge
-            Self::IsoDescending => -(2.0_f32.atan()),                        // ~-63.43°
-            // Perpendicular to ascending iso edge (2,-1): direction (1,2), angle = atan(2)
+            Self::IsoDescending => -std::f32::consts::FRAC_PI_3,             // -60°
+            // True isometric: perpendicular to 30° ascending edge = 60°
             // Color bands run parallel to the ascending iso edge
-            Self::IsoAscending => 2.0_f32.atan(),                           // ~63.43°
+            Self::IsoAscending => std::f32::consts::FRAC_PI_3,              // 60°
         }
     }
 }
@@ -570,7 +569,7 @@ mod tests {
                 GradientStop { position: 0.0, color_index: 3 },
                 GradientStop { position: 1.0, color_index: 7 },
             ],
-            -(2.0_f32.atan()), // IsoDescending angle
+            GradientAlignment::IsoDescending.to_radians(), // -60° (true iso)
         ));
 
         let json = serde_json::to_string(&elem).unwrap();
@@ -580,7 +579,7 @@ mod tests {
         assert_eq!(grad.stops.len(), 2);
         assert_eq!(grad.stops[0].color_index, 3);
         assert_eq!(grad.stops[1].color_index, 7);
-        assert!((grad.angle_rad - (-(2.0_f32.atan()))).abs() < 0.001);
+        assert!((grad.angle_rad - GradientAlignment::IsoDescending.to_radians()).abs() < 0.001);
     }
 
     #[test]
@@ -621,19 +620,18 @@ mod tests {
 
     #[test]
     fn test_gradient_alignment_angles() {
+        use std::f32::consts::{FRAC_PI_2, FRAC_PI_3};
         assert!((GradientAlignment::Horizontal.to_radians() - 0.0).abs() < 1e-6);
-        assert!((GradientAlignment::Vertical.to_radians() - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
-        // IsoDescending: -atan(2) ≈ -1.1071 rad ≈ -63.43°
-        assert!((GradientAlignment::IsoDescending.to_radians() + 2.0_f32.atan()).abs() < 0.001);
-        // IsoDescending: perpendicular to (2,1) edge = -atan(2) ≈ -63.43°
-        assert!((GradientAlignment::IsoDescending.to_radians() + 2.0_f32.atan()).abs() < 0.001);
-        // IsoAscending: perpendicular to (2,-1) edge = atan(2) ≈ 63.43°
-        assert!((GradientAlignment::IsoAscending.to_radians() - 2.0_f32.atan()).abs() < 0.001);
+        assert!((GradientAlignment::Vertical.to_radians() - FRAC_PI_2).abs() < 1e-6);
+        // IsoDescending: -π/3 = -60° (true isometric)
+        assert!((GradientAlignment::IsoDescending.to_radians() + FRAC_PI_3).abs() < 0.001);
+        // IsoAscending: π/3 = 60° (true isometric)
+        assert!((GradientAlignment::IsoAscending.to_radians() - FRAC_PI_3).abs() < 0.001);
         // Verify they're symmetric around horizontal (sum to ~0)
         let sum = GradientAlignment::IsoDescending.to_radians() + GradientAlignment::IsoAscending.to_radians();
         assert!(sum.abs() < 0.001);
-        // Verify 126.87° apart (2 * atan(2))
+        // Verify 120° apart (2 * π/3)
         let diff = (GradientAlignment::IsoAscending.to_radians() - GradientAlignment::IsoDescending.to_radians()).abs();
-        assert!((diff - 2.0 * 2.0_f32.atan()).abs() < 0.001);
+        assert!((diff - 2.0 * FRAC_PI_3).abs() < 0.001);
     }
 }
