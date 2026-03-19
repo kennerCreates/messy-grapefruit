@@ -273,6 +273,7 @@ fn handle_select_drag_update(
                 raw_delta,
                 project.editor_preferences.grid_size,
                 project.editor_preferences.grid_mode,
+                (0.0, 0.0),
             );
 
             if (snapped_delta.x - last_snapped_delta.x).abs() > SNAP_EPSILON
@@ -352,6 +353,7 @@ fn handle_select_drag_update(
                     target_world,
                     project.editor_preferences.grid_size,
                     project.editor_preferences.grid_mode,
+                    project.editor_preferences.grid_offset,
                 );
                 let origin = element.origin;
                 let position = element.position;

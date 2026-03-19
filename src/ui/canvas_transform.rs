@@ -33,21 +33,22 @@ pub(super) fn collect_selected_field<T>(
 pub(super) fn bake_and_snap_selected(sprite: &mut Sprite, selected_ids: &[String], project: &Project) {
     let grid_size = project.editor_preferences.grid_size;
     let grid_mode = project.editor_preferences.grid_mode;
+    let grid_offset = project.editor_preferences.grid_offset;
 
     for layer in sprite.layers.iter_mut() {
         for element in layer.elements.iter_mut() {
             if selected_ids.iter().any(|id| id == &element.id) {
-                bake_element_transform(element, grid_size, grid_mode, project.min_corner_radius);
+                bake_element_transform(element, grid_size, grid_mode, grid_offset, project.min_corner_radius);
             }
         }
     }
 }
 
 /// Bake an element's transform into its vertices, snap to grid, reset transform to identity.
-fn bake_element_transform(element: &mut StrokeElement, grid_size: u32, grid_mode: GridMode, corner_radius: f32) {
+fn bake_element_transform(element: &mut StrokeElement, grid_size: u32, grid_mode: GridMode, grid_offset: (f32, f32), corner_radius: f32) {
     for v in &mut element.vertices {
         v.pos = transform::transform_point(v.pos, element.origin, element.position, element.rotation, element.scale);
-        v.pos = snap::snap_to_grid(v.pos, grid_size, grid_mode);
+        v.pos = snap::snap_to_grid(v.pos, grid_size, grid_mode, grid_offset);
     }
     // Reset transform to identity
     element.position = Vec2::ZERO;

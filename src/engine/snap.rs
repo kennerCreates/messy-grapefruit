@@ -46,11 +46,15 @@ pub fn snap_to_vertex(
 
 /// Snap a world-space position to the nearest grid point.
 /// Always snaps to the isometric diamond lattice regardless of grid_mode.
-pub fn snap_to_grid(pos: Vec2, grid_size: u32, grid_mode: GridMode) -> Vec2 {
+/// `grid_offset` shifts the lattice origin.
+pub fn snap_to_grid(pos: Vec2, grid_size: u32, grid_mode: GridMode, grid_offset: (f32, f32)) -> Vec2 {
     let gs = grid_size as f32;
     if gs < 1.0 {
         return pos;
     }
+
+    // Shift into offset-relative space, snap, then shift back.
+    let shifted = Vec2::new(pos.x - grid_offset.0, pos.y - grid_offset.1);
 
     // True isometric diamond lattice (30° angles).
     // Lattice basis: u = (√3·gs, gs), v = (√3·gs, -gs).
@@ -62,13 +66,13 @@ pub fn snap_to_grid(pos: Vec2, grid_size: u32, grid_mode: GridMode) -> Vec2 {
     let sqrt3 = 3.0_f32.sqrt();
     let ux = sqrt3 * gs;
     let denom = 2.0 * ux; // = 2·√3·gs
-    let s = (pos.x + sqrt3 * pos.y) / denom;
-    let t = (pos.x - sqrt3 * pos.y) / denom;
+    let s = (shifted.x + sqrt3 * shifted.y) / denom;
+    let t = (shifted.x - sqrt3 * shifted.y) / denom;
     let sr = s.round();
     let tr = t.round();
     Vec2::new(
-        ux * (sr + tr),
-        gs * (sr - tr),
+        ux * (sr + tr) + grid_offset.0,
+        gs * (sr - tr) + grid_offset.1,
     )
 }
 
@@ -79,7 +83,7 @@ mod tests {
     #[test]
     fn test_snap_origin() {
         // Near origin should snap to (0, 0)
-        let snapped = snap_to_grid(Vec2::new(1.0, 1.0), 8, GridMode::Straight);
+        let snapped = snap_to_grid(Vec2::new(1.0, 1.0), 8, GridMode::Straight, (0.0, 0.0));
         assert!(snapped.x.abs() < 0.01);
         assert!(snapped.y.abs() < 0.01);
     }
@@ -90,7 +94,7 @@ mod tests {
         let gs = 8.0_f32;
         let ux = 3.0_f32.sqrt() * gs;
         let point = Vec2::new(ux, gs);
-        let snapped = snap_to_grid(point, 8, GridMode::Isometric);
+        let snapped = snap_to_grid(point, 8, GridMode::Isometric, (0.0, 0.0));
         assert!((snapped.x - ux).abs() < 0.01);
         assert!((snapped.y - gs).abs() < 0.01);
     }
@@ -98,7 +102,7 @@ mod tests {
     #[test]
     fn test_snap_near_lattice_point() {
         // Slightly off from origin should snap back to origin
-        let snapped = snap_to_grid(Vec2::new(2.0, 1.5), 8, GridMode::Isometric);
+        let snapped = snap_to_grid(Vec2::new(2.0, 1.5), 8, GridMode::Isometric, (0.0, 0.0));
         assert!(snapped.x.abs() < 0.01);
         assert!(snapped.y.abs() < 0.01);
     }
@@ -108,8 +112,8 @@ mod tests {
         // Points (s=1,t=0) and (s=0,t=1) should be symmetric about x-axis
         let gs = 8.0_f32;
         let ux = 3.0_f32.sqrt() * gs;
-        let p1 = snap_to_grid(Vec2::new(ux + 0.5, gs + 0.5), 8, GridMode::Off);
-        let p2 = snap_to_grid(Vec2::new(ux + 0.5, -gs + 0.5), 8, GridMode::Off);
+        let p1 = snap_to_grid(Vec2::new(ux + 0.5, gs + 0.5), 8, GridMode::Off, (0.0, 0.0));
+        let p2 = snap_to_grid(Vec2::new(ux + 0.5, -gs + 0.5), 8, GridMode::Off, (0.0, 0.0));
         assert!((p1.x - p2.x).abs() < 0.01);
         assert!((p1.y + p2.y).abs() < 0.01);
     }

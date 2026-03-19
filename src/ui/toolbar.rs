@@ -298,6 +298,26 @@ pub fn show_toolbar(
             };
         }
 
+        // Grid offset nudge (steps of 2)
+        let offset = &mut project.editor_preferences.grid_offset;
+        if ui.small_button("\u{2190}").on_hover_text("Shift grid left").clicked() {
+            offset.0 -= 2.0;
+        }
+        if ui.small_button("\u{2192}").on_hover_text("Shift grid right").clicked() {
+            offset.0 += 2.0;
+        }
+        if ui.small_button("\u{2191}").on_hover_text("Shift grid up").clicked() {
+            offset.1 -= 2.0;
+        }
+        if ui.small_button("\u{2193}").on_hover_text("Shift grid down").clicked() {
+            offset.1 += 2.0;
+        }
+        if (offset.0.abs() > 0.01 || offset.1.abs() > 0.01)
+            && ui.small_button("\u{00d7}").on_hover_text("Reset grid offset").clicked()
+        {
+            *offset = (0.0, 0.0);
+        }
+
         ui.separator();
 
         // View: Flip + Zoom to Fit

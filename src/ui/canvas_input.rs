@@ -349,6 +349,7 @@ pub fn get_snap_pos(
         cursor_world,
         project.editor_preferences.grid_size,
         project.editor_preferences.grid_mode,
+        project.editor_preferences.grid_offset,
     )
 }
 

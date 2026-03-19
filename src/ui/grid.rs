@@ -19,12 +19,13 @@ pub fn render_grid(
     if gs < 1.0 {
         return;
     }
+    let offset = Vec2::new(prefs.grid_offset.0, prefs.grid_offset.1);
 
-    // Calculate world-space bounds of visible area
+    // Calculate world-space bounds of visible area (shifted into offset-relative space)
     let top_left = viewport.screen_to_world(canvas_rect.left_top(), canvas_center);
     let bottom_right = viewport.screen_to_world(canvas_rect.right_bottom(), canvas_center);
-    let world_min = top_left.min(bottom_right);
-    let world_max = top_left.max(bottom_right);
+    let world_min = top_left.min(bottom_right) - offset;
+    let world_max = top_left.max(bottom_right) - offset;
 
     // Grid range with one extra cell of padding
     let start_x = ((world_min.x / gs).floor() as i32 - 1).max(-1000);
@@ -35,12 +36,12 @@ pub fn render_grid(
     match prefs.grid_mode {
         GridMode::Off => {}
         GridMode::Straight | GridMode::Isometric => {
-            render_lines(painter, viewport, prefs, canvas_center, theme, gs, start_x, end_x, start_y, end_y);
+            render_lines(painter, viewport, prefs, canvas_center, theme, gs, offset, start_x, end_x, start_y, end_y);
         }
     }
 
     if prefs.show_dots {
-        render_dots(painter, viewport, canvas_rect, canvas_center, theme, gs, start_x, end_x, start_y, end_y);
+        render_dots(painter, viewport, canvas_rect, canvas_center, theme, gs, offset, start_x, end_x, start_y, end_y);
     }
 }
 
@@ -52,6 +53,7 @@ fn render_dots(
     canvas_center: Pos2,
     theme: Theme,
     gs: f32,
+    offset: Vec2,
     start_x: i32, end_x: i32,
     start_y: i32, end_y: i32,
 ) {
@@ -83,9 +85,11 @@ fn render_dots(
 
     for s in s_min..=s_max {
         for t in t_min..=t_max {
-            let wx = ux * (s + t) as f32;
-            let wy = gs * (s - t) as f32;
-            if wx < world_min_x || wx > world_max_x || wy < world_min_y || wy > world_max_y {
+            let wx = ux * (s + t) as f32 + offset.x;
+            let wy = gs * (s - t) as f32 + offset.y;
+            let wx_rel = wx - offset.x;
+            let wy_rel = wy - offset.y;
+            if wx_rel < world_min_x || wx_rel > world_max_x || wy_rel < world_min_y || wy_rel > world_max_y {
                 continue;
             }
             let screen = viewport.world_to_screen(Vec2::new(wx, wy), canvas_center);
@@ -125,6 +129,7 @@ fn render_lines(
     canvas_center: Pos2,
     theme: Theme,
     gs: f32,
+    offset: Vec2,
     start_x: i32, end_x: i32,
     start_y: i32, end_y: i32,
 ) {
@@ -138,16 +143,16 @@ fn render_lines(
         GridMode::Straight => {
             // Vertical lines
             for gx in start_x..=end_x {
-                let x = gx as f32 * gs;
-                let top = viewport.world_to_screen(Vec2::new(x, start_y as f32 * gs), canvas_center);
-                let bot = viewport.world_to_screen(Vec2::new(x, end_y as f32 * gs), canvas_center);
+                let x = gx as f32 * gs + offset.x;
+                let top = viewport.world_to_screen(Vec2::new(x, start_y as f32 * gs + offset.y), canvas_center);
+                let bot = viewport.world_to_screen(Vec2::new(x, end_y as f32 * gs + offset.y), canvas_center);
                 draw_dashed_line(painter, top, bot, stroke, dash, gap);
             }
             // Horizontal lines
             for gy in start_y..=end_y {
-                let y = gy as f32 * gs;
-                let left = viewport.world_to_screen(Vec2::new(start_x as f32 * gs, y), canvas_center);
-                let right = viewport.world_to_screen(Vec2::new(end_x as f32 * gs, y), canvas_center);
+                let y = gy as f32 * gs + offset.y;
+                let left = viewport.world_to_screen(Vec2::new(start_x as f32 * gs + offset.x, y), canvas_center);
+                let right = viewport.world_to_screen(Vec2::new(end_x as f32 * gs + offset.x, y), canvas_center);
                 draw_dashed_line(painter, left, right, stroke, dash, gap);
             }
         }
@@ -157,10 +162,10 @@ fn render_lines(
 
             // Perpendicular spacing between iso lines = gs * cos(30°)
             let line_spacing = gs * 3.0_f32.sqrt() / 2.0;
-            let x1 = start_x as f32 * gs;
-            let x2 = end_x as f32 * gs;
-            let y_min = start_y as f32 * gs;
-            let y_max = end_y as f32 * gs;
+            let x1 = start_x as f32 * gs + offset.x;
+            let x2 = end_x as f32 * gs + offset.x;
+            let y_min = start_y as f32 * gs + offset.y;
+            let y_max = end_y as f32 * gs + offset.y;
 
             // Slope +tan(30°) lines: y = slope * x + c
             // Space lines by line_spacing along the y-intercept

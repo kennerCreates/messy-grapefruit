@@ -208,6 +208,9 @@ pub struct EditorPreferences {
     pub grid_size: u32,
     pub grid_mode: GridMode,
     pub show_dots: bool,
+    /// Grid offset in world units (x, y). Shifts the grid/snap lattice.
+    #[serde(default)]
+    pub grid_offset: (f32, f32),
     #[serde(default = "ThemeColorIndices::default_dark")]
     pub dark_theme_colors: ThemeColorIndices,
     #[serde(default = "ThemeColorIndices::default_light")]
@@ -221,6 +224,7 @@ impl Default for EditorPreferences {
             grid_size: 8,
             grid_mode: GridMode::Off,
             show_dots: true,
+            grid_offset: (0.0, 0.0),
             dark_theme_colors: ThemeColorIndices::default_dark(),
             light_theme_colors: ThemeColorIndices::default_light(),
         }
