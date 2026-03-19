@@ -746,6 +746,15 @@ fn handle_select_keyboard(
         }
     }
 
+    // Ctrl+ArrowUp / Ctrl+ArrowDown: move selected elements to layer above/below
+    if !editor.selection.is_empty() {
+        let move_up = response.ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowUp));
+        let move_down = response.ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowDown));
+        if move_up || move_down {
+            move_selection_to_adjacent_layer(editor, sprite, history, move_up);
+        }
+    }
+
     if !text_has_focus && response.ctx.input(|i| i.key_pressed(egui::Key::C) && !i.modifiers.ctrl) && !editor.selection.is_empty() {
         let before = sprite.clone();
         let selected = editor.selection.selected_ids.clone();
@@ -769,6 +778,52 @@ fn handle_select_keyboard(
         }
         history.push("Toggle curve mode".into(), before, sprite.clone());
     }
+}
+
+/// Move selected elements to the adjacent layer (up or down).
+fn move_selection_to_adjacent_layer(
+    editor: &mut EditorState,
+    sprite: &mut Sprite,
+    history: &mut History,
+    up: bool,
+) {
+    let active_idx = editor.layer.resolve_active_idx(sprite);
+    let target_idx = if up {
+        if active_idx + 1 >= sprite.layers.len() {
+            return;
+        }
+        active_idx + 1
+    } else {
+        if active_idx == 0 {
+            return;
+        }
+        active_idx - 1
+    };
+
+    // Collect selected elements from all layers
+    let selected = &editor.selection.selected_ids;
+    let mut moved: Vec<StrokeElement> = Vec::new();
+    let before = sprite.clone();
+    for layer in sprite.layers.iter_mut() {
+        let mut taken = Vec::new();
+        layer.elements.retain(|e| {
+            if selected.iter().any(|id| id == &e.id) {
+                taken.push(e.clone());
+                false
+            } else {
+                true
+            }
+        });
+        moved.extend(taken);
+    }
+
+    if moved.is_empty() {
+        return;
+    }
+
+    sprite.layers[target_idx].elements.extend(moved);
+    editor.layer.set_active_by_idx(target_idx, sprite);
+    history.push("Move to layer".into(), before, sprite.clone());
 }
 
 /// Render selection highlights, handles, hover highlight, and marquee.

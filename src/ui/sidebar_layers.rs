@@ -399,6 +399,34 @@ pub(super) fn show_layer_list(
                                 editor.layer.renaming_layer_id = Some(layer_id.clone());
                                 ui.close_menu();
                             }
+
+                            // "Move Selection Here" — only when elements are selected on a different layer
+                            if !editor.selection.is_empty() && !is_active {
+                                if ui.button("Move Selection Here").clicked() {
+                                    let before = sprite.clone();
+                                    let selected = editor.selection.selected_ids.clone();
+                                    let mut moved: Vec<StrokeElement> = Vec::new();
+                                    for layer in sprite.layers.iter_mut() {
+                                        let mut taken = Vec::new();
+                                        layer.elements.retain(|e| {
+                                            if selected.iter().any(|id| id == &e.id) {
+                                                taken.push(e.clone());
+                                                false
+                                            } else {
+                                                true
+                                            }
+                                        });
+                                        moved.extend(taken);
+                                    }
+                                    if !moved.is_empty() {
+                                        sprite.layers[*layer_idx].elements.extend(moved);
+                                        editor.layer.set_active_by_idx(*layer_idx, sprite);
+                                        history.push("Move to layer".into(), before, sprite.clone());
+                                    }
+                                    ui.close_menu();
+                                }
+                            }
+
                             ui.separator();
                             if !groups.is_empty() {
                                 ui.menu_button("Move to Group", |ui| {
