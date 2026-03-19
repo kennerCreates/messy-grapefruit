@@ -102,14 +102,6 @@ fn show_collapsed(
 
         ui.add_space(4.0);
 
-        // Corner radius: icon + read-only value
-        ui.horizontal(|ui| {
-            ui.add(icons::small_icon(icons::prop_radius(), ui));
-            ui.label(format!("{}", project.min_corner_radius as u32));
-        });
-
-        ui.add_space(4.0);
-
         // Active color swatch only (no palette)
         let color = project.palette.get_color(editor.brush.color_index);
         render_color_swatch(ui, color, 40.0, project.editor_preferences.theme);

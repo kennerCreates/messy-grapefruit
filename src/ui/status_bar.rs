@@ -5,7 +5,9 @@ use crate::state::editor::EditorState;
 
 use super::icons;
 
-pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &Sprite, project: &Project) {
+const CANVAS_SIZES: &[u32] = &[16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
+
+pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Sprite, project: &Project) {
     ui.horizontal(|ui| {
         // Canvas animation state dot (colored circle)
         let anim_state = canvas_state(
@@ -62,10 +64,24 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &Sprite,
 
         // Canvas size right-aligned
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(format!(
-                "{}x{} px",
-                sprite.canvas_width, sprite.canvas_height
-            ));
+            ui.label("px");
+            egui::ComboBox::from_id_salt("canvas_h")
+                .width(50.0)
+                .selected_text(format!("{}", sprite.canvas_height))
+                .show_ui(ui, |ui| {
+                    for &s in CANVAS_SIZES {
+                        ui.selectable_value(&mut sprite.canvas_height, s, format!("{s}"));
+                    }
+                });
+            ui.label("\u{00d7}");
+            egui::ComboBox::from_id_salt("canvas_w")
+                .width(50.0)
+                .selected_text(format!("{}", sprite.canvas_width))
+                .show_ui(ui, |ui| {
+                    for &s in CANVAS_SIZES {
+                        ui.selectable_value(&mut sprite.canvas_width, s, format!("{s}"));
+                    }
+                });
         });
     });
 }

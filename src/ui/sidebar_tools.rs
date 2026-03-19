@@ -38,14 +38,14 @@ pub(super) fn show_eyedropper_tool_options(
 pub(super) fn show_line_tool_options(
     ui: &mut egui::Ui,
     editor: &mut EditorState,
-    sprite: &mut Sprite,
+    _sprite: &mut Sprite,
     project: &mut Project,
 ) {
-    // Stroke width: 3 toggle buttons
+    // Stroke width toggle buttons
     ui.horizontal(|ui| {
         ui.add(icons::small_icon(icons::prop_width(), ui));
         ui.label("Width");
-        for &w in &[2.0_f32, 4.0, 8.0] {
+        for &w in &[1.0_f32, 2.0, 4.0, 8.0] {
             let selected = (editor.brush.stroke_width - w).abs() < 0.01;
             if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
                 editor.brush.stroke_width = w;
@@ -68,22 +68,6 @@ pub(super) fn show_line_tool_options(
     }
 
     ui.add_space(4.0);
-
-    let radius_changed = theme::with_input_style(ui, project.editor_preferences.theme, |ui| {
-        ui.horizontal(|ui| {
-            ui.add(icons::small_icon(icons::prop_radius(), ui));
-            ui.label("Radius");
-            ui.add(
-                egui::Slider::new(&mut project.min_corner_radius, 0.0..=32.0).fixed_decimals(1),
-            )
-            .changed()
-        })
-        .inner
-    });
-
-    if radius_changed {
-        crate::engine::transform::recompute_all_curves(sprite, project.min_corner_radius);
-    }
 
     ui.add_space(4.0);
 
@@ -191,7 +175,7 @@ pub(super) fn show_select_tool_options(
     ui.horizontal(|ui| {
         ui.add(icons::small_icon(icons::prop_width(), ui));
         ui.label("Width");
-        for &w in &[2.0_f32, 4.0, 8.0] {
+        for &w in &[1.0_f32, 2.0, 4.0, 8.0] {
             let selected = (stroke_w - w).abs() < 0.01;
             if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
                 stroke_w = w;

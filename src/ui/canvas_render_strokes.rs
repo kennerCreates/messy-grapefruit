@@ -13,9 +13,9 @@ const FLATTEN_TOLERANCE_PX: f32 = 0.5;
 /// Minimum world-space flattening tolerance (prevents infinite subdivision).
 const FLATTEN_MIN_TOLERANCE: f32 = 0.01;
 /// Extra stroke width added for hover highlight (world units).
-const HOVER_HIGHLIGHT_EXTRA: f32 = 4.0;
+const HOVER_HIGHLIGHT_EXTRA: f32 = 2.0;
 /// Extra stroke width added for selection highlight (world units).
-const SELECTION_HIGHLIGHT_EXTRA: f32 = 6.0;
+const SELECTION_HIGHLIGHT_EXTRA: f32 = 2.0;
 
 /// Fill rendering info passed through the render pipeline.
 #[derive(Clone)]

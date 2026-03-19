@@ -298,9 +298,10 @@ impl eframe::App for App {
             .movable(false)
             .collapsible(false)
             .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -8.0])
+            .min_width(560.0)
             .frame(floating_frame)
             .show(ctx, |ui| {
-                ui::status_bar::show_status_bar(ui, &self.editor, &self.sprite, &self.project);
+                ui::status_bar::show_status_bar(ui, &self.editor, &mut self.sprite, &self.project);
             });
 
         // Floating timeline (bottom center, above status bar)

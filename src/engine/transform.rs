@@ -161,6 +161,7 @@ pub fn find_element_vertex_mut<'a>(
 }
 
 /// Recompute auto-curves for all elements in the sprite.
+#[allow(dead_code)]
 pub fn recompute_all_curves(sprite: &mut Sprite, min_corner_radius: f32) {
     for layer in &mut sprite.layers {
         for element in &mut layer.elements {

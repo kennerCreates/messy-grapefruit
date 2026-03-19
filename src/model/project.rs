@@ -337,7 +337,7 @@ impl Project {
             name: name.into(),
             format_version: 1,
             palette: Palette::default_palette(),
-            min_corner_radius: 4.0,
+            min_corner_radius: 2.0,
             editor_preferences: EditorPreferences::default(),
             hatch_patterns: Vec::new(),
         }
