@@ -45,6 +45,7 @@ pub fn snap_to_vertex(
 }
 
 /// Snap a world-space position to the nearest grid point.
+/// Always snaps to the isometric diamond lattice regardless of grid_mode.
 pub fn snap_to_grid(pos: Vec2, grid_size: u32, grid_mode: GridMode) -> Vec2 {
     let gs = grid_size as f32;
     if gs < 1.0 {
@@ -53,15 +54,16 @@ pub fn snap_to_grid(pos: Vec2, grid_size: u32, grid_mode: GridMode) -> Vec2 {
 
     // True isometric diamond lattice (30° angles).
     // Lattice basis: u = (√3·gs, gs), v = (√3·gs, -gs).
-    // Transform to lattice coordinates, round, transform back.
+    // Lattice point P = s·u + t·v = (√3·gs·(s+t), gs·(s-t)).
+    // Inverse of basis matrix to solve for (s, t):
+    //   s = (pos.x + √3·pos.y) / (2·√3·gs)
+    //   t = (pos.x - √3·pos.y) / (2·√3·gs)
     let _ = grid_mode;
     let sqrt3 = 3.0_f32.sqrt();
     let ux = sqrt3 * gs;
-    // s = dot(pos, u) / dot(u, u), t = dot(pos, v) / dot(v, v)
-    // u = (ux, gs), v = (ux, -gs), dot(u,u) = dot(v,v) = 3gs² + gs² = 4gs²
-    let denom = 2.0 * (ux * ux + gs * gs); // = 2 * 4gs² = 8gs²
-    let s = (ux * pos.x + gs * pos.y) / denom;
-    let t = (ux * pos.x - gs * pos.y) / denom;
+    let denom = 2.0 * ux; // = 2·√3·gs
+    let s = (pos.x + sqrt3 * pos.y) / denom;
+    let t = (pos.x - sqrt3 * pos.y) / denom;
     let sr = s.round();
     let tr = t.round();
     Vec2::new(
