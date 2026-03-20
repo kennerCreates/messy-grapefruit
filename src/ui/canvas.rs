@@ -51,15 +51,7 @@ pub fn show_canvas(
         zoom_to_fit(editor, sprite, canvas_rect);
     }
 
-    // --- Shared: render grid, boundary, reference images, elements ---
-    grid::render_grid(
-        &painter,
-        &editor.viewport,
-        &project.editor_preferences,
-        canvas_rect,
-        theme_mode,
-    );
-
+    // --- Shared: render boundary, reference images, elements ---
     canvas_render::render_canvas_boundary(
         &painter,
         &editor.viewport,
@@ -137,6 +129,15 @@ pub fn show_canvas(
         canvas_rect,
         editor.layer.solo_layer_id.as_deref(),
         &project.hatch_patterns,
+    );
+
+    // Grid dots on top of all artwork
+    grid::render_grid(
+        &painter,
+        &editor.viewport,
+        &project.editor_preferences,
+        canvas_rect,
+        theme_mode,
     );
 
     // Canvas state indicator (colored border)

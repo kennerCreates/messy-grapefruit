@@ -16,6 +16,8 @@ pub(super) fn show_fill_tool_options(
     actions: &mut Vec<AppAction>,
 ) {
     // ── Fill section (collapsible) ──
+    let prev_indent = ui.spacing().indent;
+    ui.spacing_mut().indent = 0.0;
     egui::CollapsingHeader::new("Fill")
         .default_open(true)
         .show(ui, |ui| {
@@ -70,6 +72,7 @@ pub(super) fn show_fill_tool_options(
         .show(ui, |ui| {
             render_hatch_picker(ui, editor, project, actions);
         });
+    ui.spacing_mut().indent = prev_indent;
 
     ui.add_space(4.0);
     ui.label("Click closed shape to apply");

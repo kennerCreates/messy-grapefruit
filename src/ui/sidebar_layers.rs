@@ -1,5 +1,5 @@
 use crate::model::project::Project;
-use crate::model::sprite::{Layer, LayerGroup, Sprite, StrokeElement};
+use crate::model::sprite::{Layer, LayerGroup, Sprite};
 use crate::model::vec2::Vec2;
 use crate::state::editor::EditorState;
 use crate::state::history::History;
@@ -90,22 +90,6 @@ pub(super) fn show_layer_list(
             let before = sprite.clone();
             mirror_layer_horizontal(&mut sprite.layers[active_idx]);
             history.push("Mirror layer".into(), before, sprite.clone());
-        }
-
-        // Combine (merge active layer into the one below)
-        let can_combine = sprite.layers.len() > 1 && active_idx > 0;
-        if ui
-            .add_enabled(can_combine, icons::small_icon_button(icons::layer_combine(), ui))
-            .on_hover_text("Merge Down")
-            .clicked()
-        {
-            let before = sprite.clone();
-            let elements: Vec<StrokeElement> = sprite.layers[active_idx].elements.clone();
-            sprite.layers[active_idx - 1].elements.extend(elements);
-            sprite.layers.remove(active_idx);
-            let new_idx = active_idx - 1;
-            editor.layer.set_active_by_idx(new_idx, sprite);
-            history.push("Merge layers".into(), before, sprite.clone());
         }
 
         // Create group
@@ -398,33 +382,6 @@ pub(super) fn show_layer_list(
                             if ui.button("Rename").clicked() {
                                 editor.layer.renaming_layer_id = Some(layer_id.clone());
                                 ui.close_menu();
-                            }
-
-                            // "Move Selection Here" — only when elements are selected on a different layer
-                            if !editor.selection.is_empty() && !is_active {
-                                if ui.button("Move Selection Here").clicked() {
-                                    let before = sprite.clone();
-                                    let selected = editor.selection.selected_ids.clone();
-                                    let mut moved: Vec<StrokeElement> = Vec::new();
-                                    for layer in sprite.layers.iter_mut() {
-                                        let mut taken = Vec::new();
-                                        layer.elements.retain(|e| {
-                                            if selected.iter().any(|id| id == &e.id) {
-                                                taken.push(e.clone());
-                                                false
-                                            } else {
-                                                true
-                                            }
-                                        });
-                                        moved.extend(taken);
-                                    }
-                                    if !moved.is_empty() {
-                                        sprite.layers[*layer_idx].elements.extend(moved);
-                                        editor.layer.set_active_by_idx(*layer_idx, sprite);
-                                        history.push("Move to layer".into(), before, sprite.clone());
-                                    }
-                                    ui.close_menu();
-                                }
                             }
 
                             ui.separator();

@@ -143,7 +143,8 @@ pub fn canvas_bg_color(theme: Theme) -> Color32 {
 
 // --- Grid colors ---
 
-/// Grid dots = 2nd darkest (canvas_bg)
+/// Grid dots — no longer used (dots now use semi-transparent white overlay)
+#[allow(dead_code)]
 pub fn grid_dot_color(theme: Theme) -> Color32 {
     theme_colors(theme).canvas_bg
 }

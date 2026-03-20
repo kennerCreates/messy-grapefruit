@@ -135,6 +135,7 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Spr
                         elem.origin = elem.origin + d;
                     }
                 }
+                crate::io::save_app_defaults(project);
             }
 
             ui.separator();
@@ -177,6 +178,7 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Spr
                         elem.origin = elem.origin + d;
                     }
                 }
+                crate::io::save_app_defaults(project);
             }
         });
     });

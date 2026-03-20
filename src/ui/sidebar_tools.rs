@@ -242,6 +242,8 @@ pub(super) fn show_select_tool_options(
         ui.add_space(4.0);
         ui.separator();
         ui.add_space(4.0);
+        let prev_indent = ui.spacing().indent;
+        ui.spacing_mut().indent = 0.0;
         egui::CollapsingHeader::new("Fill")
             .default_open(false)
             .show(ui, |ui| {
@@ -252,5 +254,6 @@ pub(super) fn show_select_tool_options(
             .show(ui, |ui| {
                 super::sidebar_fill::show_select_hatch_section(ui, editor, sprite, project, history, actions, &selected);
             });
+        ui.spacing_mut().indent = prev_indent;
     }
 }

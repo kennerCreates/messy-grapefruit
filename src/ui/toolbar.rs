@@ -249,6 +249,7 @@ pub fn show_toolbar(
         ui.separator();
 
         // Grid controls
+        let old_grid_size = project.editor_preferences.grid_size;
         let grid_sizes: &[u32] = &[1, 2, 4, 8, 16, 32, 64];
         egui::ComboBox::from_id_salt("grid_size")
             .selected_text(format!("{}px", project.editor_preferences.grid_size))
@@ -262,6 +263,9 @@ pub fn show_toolbar(
                     );
                 }
             });
+        if project.editor_preferences.grid_size != old_grid_size {
+            crate::io::save_app_defaults(project);
+        }
 
         if ui
             .add(icons::icon_button(icons::grid_dots(), ui).selected(project.editor_preferences.show_dots))
@@ -269,6 +273,7 @@ pub fn show_toolbar(
             .clicked()
         {
             project.editor_preferences.show_dots = !project.editor_preferences.show_dots;
+            crate::io::save_app_defaults(project);
         }
 
         // Three-way grid line mode: Off / Straight / Isometric (mutually exclusive)
@@ -283,6 +288,7 @@ pub fn show_toolbar(
             } else {
                 GridMode::Straight
             };
+            crate::io::save_app_defaults(project);
         }
 
         let is_iso = project.editor_preferences.grid_mode == GridMode::Isometric;
@@ -296,6 +302,7 @@ pub fn show_toolbar(
             } else {
                 GridMode::Isometric
             };
+            crate::io::save_app_defaults(project);
         }
 
         ui.separator();

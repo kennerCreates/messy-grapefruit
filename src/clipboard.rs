@@ -1,4 +1,4 @@
-use crate::model::sprite::{Sprite, StrokeElement};
+use crate::model::sprite::{Layer, Sprite, StrokeElement};
 use crate::model::vec2::Vec2;
 use crate::state::editor::EditorState;
 use crate::state::history::History;
@@ -47,6 +47,7 @@ pub fn copy_selected(
 }
 
 /// Paste elements from system clipboard (or internal fallback) into the sprite.
+/// Each pasted element gets its own layer.
 pub fn paste(
     editor: &mut EditorState,
     sprite: &mut Sprite,
@@ -68,16 +69,27 @@ pub fn paste(
 
     let before = sprite.clone();
     let layer_idx = editor.layer.resolve_active_idx(sprite);
+    let group_id = sprite.layers.get(layer_idx).and_then(|l| l.group_id.clone());
     let mut new_ids = Vec::new();
+    let mut last_layer_id = None;
 
-    for mut element in elements {
+    for (i, mut element) in elements.into_iter().enumerate() {
         element.id = uuid::Uuid::new_v4().to_string();
         for v in &mut element.vertices {
             v.id = uuid::Uuid::new_v4().to_string();
         }
         element.position += Vec2::new(10.0, 10.0);
         new_ids.push(element.id.clone());
-        sprite.layers[layer_idx].elements.push(element);
+
+        let mut new_layer = Layer::new_with_element(element);
+        new_layer.group_id = group_id.clone();
+        last_layer_id = Some(new_layer.id.clone());
+        let insert_idx = (layer_idx + 1 + i).min(sprite.layers.len());
+        sprite.layers.insert(insert_idx, new_layer);
+    }
+
+    if let Some(id) = last_layer_id {
+        editor.layer.active_layer_id = Some(id);
     }
 
     history.push("Paste elements".into(), before, sprite.clone());
@@ -101,6 +113,8 @@ pub fn cut(
         for layer in sprite.layers.iter_mut() {
             layer.elements.retain(|e| !selected.iter().any(|id| id == &e.id));
         }
+        sprite.cleanup_empty_layers();
+        editor.layer.validate(sprite);
         history.push("Cut elements".into(), before, sprite.clone());
         editor.selection.clear();
     }

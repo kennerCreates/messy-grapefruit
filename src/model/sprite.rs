@@ -300,6 +300,20 @@ impl Layer {
         }
     }
 
+    /// Create a layer wrapping a single element (1:1 layer-element model).
+    pub fn new_with_element(element: StrokeElement) -> Self {
+        let name = element.name.clone()
+            .unwrap_or_else(|| format!("Stroke {}", &element.id[..6]));
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            visible: true,
+            locked: false,
+            elements: vec![element],
+            group_id: None,
+        }
+    }
+
     pub fn element_count(&self) -> usize {
         self.elements.len()
     }
@@ -410,6 +424,11 @@ impl Sprite {
 
     pub fn animation_count(&self) -> usize {
         self.animations.len()
+    }
+
+    /// Remove all layers that have zero elements (cleanup after delete/cut).
+    pub fn cleanup_empty_layers(&mut self) {
+        self.layers.retain(|l| !l.elements.is_empty());
     }
 }
 

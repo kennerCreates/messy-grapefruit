@@ -51,13 +51,14 @@ fn render_dots(
     viewport: &ViewportState,
     canvas_rect: egui::Rect,
     canvas_center: Pos2,
-    theme: Theme,
+    _theme: Theme,
     gs: f32,
     offset: Vec2,
     start_x: i32, end_x: i32,
     start_y: i32, end_y: i32,
 ) {
-    let dot_color = theme::grid_dot_color(theme);
+    // Semi-transparent white so dots subtly lighten whatever is underneath
+    let dot_color = egui::Color32::from_white_alpha(25);
     let screen_gs = gs * viewport.zoom;
 
     // Skip dots at extreme zoom-out where they'd overlap

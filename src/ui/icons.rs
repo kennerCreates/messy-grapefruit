@@ -60,6 +60,7 @@ pub fn layer_add() -> ImageSource<'static> { egui::include_image!("../../assets/
 pub fn layer_remove() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_remove.svg") }
 pub fn layer_duplicate() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_duplicate.svg") }
 pub fn layer_mirror() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_mirror.svg") }
+#[allow(dead_code)]
 pub fn layer_combine() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_combine.svg") }
 pub fn layer_solo() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_solo.svg") }
 pub fn layer_group_collapse() -> ImageSource<'static> { egui::include_image!("../../assets/icons/layer_group_collapse.svg") }

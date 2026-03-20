@@ -1,6 +1,6 @@
 use crate::action::AppAction;
 use crate::model::project::PaletteColor;
-use crate::model::sprite::Sprite;
+use crate::model::sprite::{Layer, Sprite};
 use crate::App;
 
 /// Dispatch an action, mutating sprite/project/history as needed.
@@ -11,7 +11,13 @@ pub fn dispatch(app: &mut App, action: AppAction) {
     match action {
         AppAction::CommitStroke(element) => {
             let eid = element.id.clone();
-            app.sprite.layers[layer_idx].elements.push(element);
+            let group_id = app.sprite.layers.get(layer_idx).and_then(|l| l.group_id.clone());
+            let mut new_layer = Layer::new_with_element(element);
+            new_layer.group_id = group_id;
+            let insert_idx = layer_idx + 1;
+            app.sprite.layers.insert(insert_idx.min(app.sprite.layers.len()), new_layer.clone());
+            app.editor.layer.active_layer_id = Some(new_layer.id);
+            app.sprite.cleanup_empty_layers();
             crate::engine::animation::auto_key_capture(
                 &mut app.editor.timeline, &mut app.sprite, &[eid],
             );
@@ -19,9 +25,19 @@ pub fn dispatch(app: &mut App, action: AppAction) {
         }
         AppAction::CommitSymmetricStrokes(elements) => {
             let eids: Vec<String> = elements.iter().map(|e| e.id.clone()).collect();
-            for elem in elements {
-                app.sprite.layers[layer_idx].elements.push(elem);
+            let group_id = app.sprite.layers.get(layer_idx).and_then(|l| l.group_id.clone());
+            let mut last_layer_id = None;
+            for (i, elem) in elements.into_iter().enumerate() {
+                let mut new_layer = Layer::new_with_element(elem);
+                new_layer.group_id = group_id.clone();
+                let insert_idx = (layer_idx + 1 + i).min(app.sprite.layers.len());
+                last_layer_id = Some(new_layer.id.clone());
+                app.sprite.layers.insert(insert_idx, new_layer);
             }
+            if let Some(id) = last_layer_id {
+                app.editor.layer.active_layer_id = Some(id);
+            }
+            app.sprite.cleanup_empty_layers();
             crate::engine::animation::auto_key_capture(
                 &mut app.editor.timeline, &mut app.sprite, &eids,
             );
@@ -49,26 +65,45 @@ pub fn dispatch(app: &mut App, action: AppAction) {
         AppAction::EraseVertex { element_id, vertex_id } => {
             if let Some((li, ei)) = find_element_location(&app.sprite, &element_id) {
                 let element = &app.sprite.layers[li].elements[ei];
+                let group_id = app.sprite.layers[li].group_id.clone();
                 let result = crate::engine::eraser::erase_vertex(
                     element, &vertex_id, app.project.min_corner_radius,
                 );
                 app.sprite.layers[li].elements.remove(ei);
+                // First result element stays in existing layer; extras get new layers
                 for (i, new_elem) in result.new_elements.into_iter().enumerate() {
-                    app.sprite.layers[li].elements.insert(ei + i, new_elem);
+                    if i == 0 {
+                        app.sprite.layers[li].elements.push(new_elem);
+                    } else {
+                        let mut new_layer = Layer::new_with_element(new_elem);
+                        new_layer.group_id = group_id.clone();
+                        app.sprite.layers.insert(li + i, new_layer);
+                    }
                 }
+                app.sprite.cleanup_empty_layers();
+                app.editor.layer.validate(&app.sprite);
                 app.history.push("Erase vertex".into(), before, app.sprite.clone());
             }
         }
         AppAction::EraseSegment { element_id, segment_index } => {
             if let Some((li, ei)) = find_element_location(&app.sprite, &element_id) {
                 let element = &app.sprite.layers[li].elements[ei];
+                let group_id = app.sprite.layers[li].group_id.clone();
                 let result = crate::engine::eraser::erase_segment(
                     element, segment_index, app.project.min_corner_radius,
                 );
                 app.sprite.layers[li].elements.remove(ei);
                 for (i, new_elem) in result.new_elements.into_iter().enumerate() {
-                    app.sprite.layers[li].elements.insert(ei + i, new_elem);
+                    if i == 0 {
+                        app.sprite.layers[li].elements.push(new_elem);
+                    } else {
+                        let mut new_layer = Layer::new_with_element(new_elem);
+                        new_layer.group_id = group_id.clone();
+                        app.sprite.layers.insert(li + i, new_layer);
+                    }
                 }
+                app.sprite.cleanup_empty_layers();
+                app.editor.layer.validate(&app.sprite);
                 app.history.push("Erase segment".into(), before, app.sprite.clone());
             }
         }
