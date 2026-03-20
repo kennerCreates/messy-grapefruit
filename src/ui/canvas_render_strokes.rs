@@ -17,6 +17,82 @@ const HOVER_HIGHLIGHT_EXTRA: f32 = 2.0;
 /// Extra stroke width added for selection highlight (world units).
 const SELECTION_HIGHLIGHT_EXTRA: f32 = 2.0;
 
+/// Compute the signed area (×2) of a polygon in screen coordinates.
+/// Positive means clockwise winding in screen space (Y-down).
+fn signed_area_2x(points: &[Pos2]) -> f32 {
+    let n = points.len();
+    let mut area = 0.0f32;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        area += (points[j].x - points[i].x) * (points[j].y + points[i].y);
+    }
+    area
+}
+
+/// Inset a closed polygon by `offset` pixels toward its interior.
+/// Returns a new polygon where each vertex is moved inward along the miter bisector.
+fn inset_polygon(points: &[Pos2], offset: f32) -> Vec<Pos2> {
+    let n = points.len();
+    if n < 3 || offset <= 0.0 {
+        return points.to_vec();
+    }
+
+    // Positive signed area = CW in screen coords (Y-down) → interior is to the right
+    let area = signed_area_2x(points);
+    let sign = if area > 0.0 { 1.0f32 } else { -1.0f32 };
+
+    let mut result = Vec::with_capacity(n);
+    for i in 0..n {
+        let prev = points[(i + n - 1) % n];
+        let curr = points[i];
+        let next = points[(i + 1) % n];
+
+        let d1 = egui::Vec2::new(curr.x - prev.x, curr.y - prev.y);
+        let d2 = egui::Vec2::new(next.x - curr.x, next.y - curr.y);
+
+        let len1 = d1.length();
+        let len2 = d2.length();
+
+        if len1 < 1e-6 || len2 < 1e-6 {
+            result.push(curr);
+            continue;
+        }
+
+        let d1 = d1 / len1;
+        let d2 = d2 / len2;
+
+        // Inward normals (perpendicular, pointing toward interior based on winding)
+        let n1 = egui::Vec2::new(-d1.y * sign, d1.x * sign);
+        let n2 = egui::Vec2::new(-d2.y * sign, d2.x * sign);
+
+        // Bisector of the two inward normals
+        let bisector = n1 + n2;
+        let bisector_len = bisector.length();
+
+        if bisector_len < 1e-6 {
+            // Nearly parallel edges in opposite directions — use single normal
+            result.push(Pos2::new(curr.x + n1.x * offset, curr.y + n1.y * offset));
+            continue;
+        }
+
+        let bisector = bisector / bisector_len;
+        let cos_half = n1.x * bisector.x + n1.y * bisector.y;
+
+        // Clamp miter length to prevent spikes at very sharp angles
+        let miter_length = if cos_half.abs() < 0.15 {
+            offset
+        } else {
+            (offset / cos_half).min(offset * 3.0)
+        };
+
+        result.push(Pos2::new(
+            curr.x + bisector.x * miter_length,
+            curr.y + bisector.y * miter_length,
+        ));
+    }
+    result
+}
+
 /// Fill rendering info passed through the render pipeline.
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -515,6 +591,8 @@ fn render_filled_path(
     let has_fill = closed && screen_points.len() >= 3
         && !matches!(fill_info, FillInfo::Flat(c) if *c == Color32::TRANSPARENT);
 
+    // For filled closed paths, render fill first, then stroke on an inset path
+    // so the stroke sits entirely inside the shape boundary.
     if has_fill {
         let mut deduped: Vec<Pos2> = Vec::with_capacity(screen_points.len());
         for &pt in screen_points {
@@ -563,14 +641,26 @@ fn render_filled_path(
                 painter.add(egui::Shape::mesh(mesh));
             }
         }
+
+        // Render stroke on an inset path so it appears inside the shape
+        let inset_points = inset_polygon(screen_points, stroke.width / 2.0);
+        painter.add(egui::Shape::Path(egui::epaint::PathShape {
+            points: inset_points,
+            closed,
+            fill: Color32::TRANSPARENT,
+            stroke: stroke.into(),
+        }));
     }
 
-    painter.add(egui::Shape::Path(egui::epaint::PathShape {
-        points: screen_points.to_vec(),
-        closed,
-        fill: Color32::TRANSPARENT,
-        stroke: stroke.into(),
-    }));
+    // For non-filled paths (open or unfilled closed), render stroke centered on outline.
+    if !has_fill {
+        painter.add(egui::Shape::Path(egui::epaint::PathShape {
+            points: screen_points.to_vec(),
+            closed,
+            fill: Color32::TRANSPARENT,
+            stroke: stroke.into(),
+        }));
+    }
 
     if !closed && screen_points.len() >= 2 {
         let cap_radius = stroke.width * 0.5;

@@ -20,7 +20,8 @@
       "Bash(cargo test:*)",
       "Bash(powershell -Command \"Get-ItemProperty ''HKCU:\\\\Control Panel\\\\Desktop'' -Name LogPixels -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LogPixels; \\(Get-CimInstance -ClassName Win32_VideoController\\).CurrentHorizontalResolution; \\(Get-CimInstance -ClassName Win32_VideoController\\).CurrentVerticalResolution\")",
       "Bash(powershell -Command \"\\(Get-ItemProperty ''HKCU:\\\\Control Panel\\\\Desktop\\\\WindowMetrics'' -Name AppliedDPI -ErrorAction SilentlyContinue\\).AppliedDPI\")",
-      "Bash(grep -n \"struct Layer\\\\|struct StrokeElement\" /c/code/2026Q1/messy-grapefruit/src/model/*.rs)"
+      "Bash(grep -n \"struct Layer\\\\|struct StrokeElement\" /c/code/2026Q1/messy-grapefruit/src/model/*.rs)",
+      "Bash(grep -r \"stroke_width\\\\|stroke_color\" /c/code/2026Q1/messy-grapefruit/src/ui/*.rs --include=\"*.rs\")"
     ]
   }
 }
