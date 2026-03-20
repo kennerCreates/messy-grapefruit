@@ -614,7 +614,7 @@ impl Default for EditorState {
             viewport: ViewportState::default(),
             line_tool: LineToolState {
                 vertices: Vec::new(),
-                curve_mode: true,
+                curve_mode: false,
                 is_drawing: false,
             },
             selection: SelectionState::default(),
