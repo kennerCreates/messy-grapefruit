@@ -93,6 +93,44 @@ fn inset_polygon(points: &[Pos2], offset: f32) -> Vec<Pos2> {
     result
 }
 
+/// Offset an open path to one side (left of path direction) by `offset` pixels.
+/// Each point is shifted perpendicular to the local path tangent.
+fn offset_open_path(points: &[Pos2], offset: f32) -> Vec<Pos2> {
+    let n = points.len();
+    if n < 2 || offset <= 0.0 {
+        return points.to_vec();
+    }
+
+    let mut result = Vec::with_capacity(n);
+    for i in 0..n {
+        // Compute tangent at this point from adjacent segments
+        let tangent = if i == 0 {
+            egui::Vec2::new(points[1].x - points[0].x, points[1].y - points[0].y)
+        } else if i == n - 1 {
+            egui::Vec2::new(points[n-1].x - points[n-2].x, points[n-1].y - points[n-2].y)
+        } else {
+            // Average of incoming and outgoing tangents
+            egui::Vec2::new(points[i+1].x - points[i-1].x, points[i+1].y - points[i-1].y)
+        };
+
+        let len = tangent.length();
+        if len < 1e-6 {
+            result.push(points[i]);
+            continue;
+        }
+
+        let tangent = tangent / len;
+        // Left-side normal (perpendicular, rotated 90° CCW in screen coords)
+        let normal = egui::Vec2::new(-tangent.y, tangent.x);
+
+        result.push(Pos2::new(
+            points[i].x + normal.x * offset,
+            points[i].y + normal.y * offset,
+        ));
+    }
+    result
+}
+
 /// Fill rendering info passed through the render pipeline.
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -652,20 +690,34 @@ fn render_filled_path(
         }));
     }
 
-    // For non-filled paths (open or unfilled closed), render stroke centered on outline.
-    if !has_fill {
+    // For non-filled closed paths, still inset the stroke inside the shape boundary.
+    if !has_fill && closed && screen_points.len() >= 3 {
+        let inset_points = inset_polygon(screen_points, stroke.width / 2.0);
         painter.add(egui::Shape::Path(egui::epaint::PathShape {
-            points: screen_points.to_vec(),
+            points: inset_points,
             closed,
             fill: Color32::TRANSPARENT,
             stroke: stroke.into(),
         }));
     }
 
-    if !closed && screen_points.len() >= 2 {
+    // Open paths: offset the stroke to one side (left of path direction).
+    if !has_fill && !closed && screen_points.len() >= 2 {
+        let offset_points = offset_open_path(screen_points, stroke.width / 2.0);
+        painter.add(egui::Shape::Path(egui::epaint::PathShape {
+            points: offset_points.clone(),
+            closed: false,
+            fill: Color32::TRANSPARENT,
+            stroke: stroke.into(),
+        }));
+
         let cap_radius = stroke.width * 0.5;
-        painter.circle_filled(screen_points[0], cap_radius, stroke.color);
-        painter.circle_filled(*screen_points.last().unwrap(), cap_radius, stroke.color);
+        if let Some(&p) = offset_points.first() {
+            painter.circle_filled(p, cap_radius, stroke.color);
+        }
+        if let Some(&p) = offset_points.last() {
+            painter.circle_filled(p, cap_radius, stroke.color);
+        }
     }
 }
 
