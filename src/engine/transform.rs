@@ -53,6 +53,8 @@ pub fn transformed_vertices(element: &StrokeElement) -> Vec<PathVertex> {
         cp1: cp_world_pos(v.cp1, element),
         cp2: cp_world_pos(v.cp2, element),
         manual_handles: v.manual_handles,
+        sharp: v.sharp,
+        invert_curve: v.invert_curve,
     }).collect()
 }
 

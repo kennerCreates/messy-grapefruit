@@ -750,6 +750,44 @@ fn handle_select_keyboard(
         }
     }
 
+    // X key: toggle sharp (straight outgoing edge) on selected vertex
+    if !text_has_focus && response.ctx.input(|i| i.key_pressed(egui::Key::X) && !i.modifiers.ctrl)
+        && let Some(ref vid) = editor.selected_vertex_id.clone()
+        && is_vertex_edit_mode(editor)
+    {
+        let element_id = editor.selection.selected_ids[0].clone();
+        let before = sprite.clone();
+        if let Some((elem, idx)) = transform::find_element_vertex_mut(sprite, &element_id, vid) {
+            elem.vertices[idx].sharp = !elem.vertices[idx].sharp;
+            let closed = elem.closed;
+            let curve_mode = elem.curve_mode;
+            math::recompute_auto_curves(
+                &mut elem.vertices, closed, curve_mode,
+                project.min_corner_radius,
+            );
+            history.push("Toggle sharp vertex".into(), before, sprite.clone());
+        }
+    }
+
+    // T key: toggle invert_curve (flip convex/concave) on selected vertex
+    if !text_has_focus && response.ctx.input(|i| i.key_pressed(egui::Key::T) && !i.modifiers.ctrl)
+        && let Some(ref vid) = editor.selected_vertex_id.clone()
+        && is_vertex_edit_mode(editor)
+    {
+        let element_id = editor.selection.selected_ids[0].clone();
+        let before = sprite.clone();
+        if let Some((elem, idx)) = transform::find_element_vertex_mut(sprite, &element_id, vid) {
+            elem.vertices[idx].invert_curve = !elem.vertices[idx].invert_curve;
+            let closed = elem.closed;
+            let curve_mode = elem.curve_mode;
+            math::recompute_auto_curves(
+                &mut elem.vertices, closed, curve_mode,
+                project.min_corner_radius,
+            );
+            history.push("Flip curve".into(), before, sprite.clone());
+        }
+    }
+
     // Ctrl+ArrowUp / Ctrl+ArrowDown: reorder selected layers up/down
     if !editor.selection.is_empty() {
         let move_up = response.ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowUp));

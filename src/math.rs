@@ -90,9 +90,19 @@ pub fn recompute_auto_curves(
             }
 
             let tangent_length = (dir_len / 6.0).max(min_corner_radius);
-            let tangent = direction * (tangent_length / dir_len);
+            let mut tangent = direction * (tangent_length / dir_len);
+            // Invert tangent to flip curve from convex to concave
+            if vertices[i].invert_curve {
+                tangent = tangent * -1.0;
+            }
             vertices[i].cp1 = Some(positions[i] - tangent);
-            vertices[i].cp2 = Some(positions[i] + tangent);
+            // Sharp vertex: keep cp1 (incoming handle) but clear cp2
+            // so the outgoing segment renders as a straight line
+            if vertices[i].sharp {
+                vertices[i].cp2 = None;
+            } else {
+                vertices[i].cp2 = Some(positions[i] + tangent);
+            }
         } else {
             // Figma-style corner rounding.
             // cp1 = tangent point on incoming edge, cp2 = tangent point on outgoing edge.

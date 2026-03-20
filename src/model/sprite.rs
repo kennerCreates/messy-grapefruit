@@ -192,6 +192,14 @@ pub struct PathVertex {
     pub cp2: Option<Vec2>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub manual_handles: bool,
+    /// When true, the outgoing segment from this vertex is a straight line
+    /// (even when the element is in curve mode).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sharp: bool,
+    /// When true, the auto-computed tangent is negated, flipping the curve
+    /// from convex to concave (or vice versa).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub invert_curve: bool,
 }
 
 impl PathVertex {
@@ -202,6 +210,8 @@ impl PathVertex {
             cp1: None,
             cp2: None,
             manual_handles: false,
+            sharp: false,
+            invert_curve: false,
         }
     }
 }

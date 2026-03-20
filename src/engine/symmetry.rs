@@ -56,6 +56,8 @@ pub fn mirror_vertex(v: &PathVertex, axis: SymmetryAxis, axis_pos: &Vec2) -> Pat
     mirrored.cp1 = mirror_cp(&v.cp2, axis, axis_pos);
     mirrored.cp2 = mirror_cp(&v.cp1, axis, axis_pos);
     mirrored.manual_handles = v.manual_handles;
+    mirrored.sharp = v.sharp;
+    mirrored.invert_curve = v.invert_curve;
     mirrored
 }
 

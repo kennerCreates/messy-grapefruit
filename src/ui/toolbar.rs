@@ -25,7 +25,7 @@ pub fn show_toolbar(
             .on_hover_text("New")
             .clicked()
         {
-            *sprite = Sprite::new("Untitled", 256, 256);
+            *sprite = Sprite::new("Untitled", 147, 168);
             *history = History::new(200);
             *sprite_path = None;
             editor.layer.set_active_by_idx(0, sprite);

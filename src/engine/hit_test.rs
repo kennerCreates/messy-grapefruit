@@ -107,17 +107,17 @@ fn hit_test_curve_path(
 ) -> f32 {
     let mut min_dist = f32::MAX;
 
-    for i in 0..verts.len().saturating_sub(1) {
-        let (p0, cp1, cp2, p3) = math::segment_bezier_points(&verts[i], &verts[i + 1]);
-        let dist = point_to_bezier_distance(point, p0, cp1, cp2, p3, polyline);
-        if dist < min_dist {
-            min_dist = dist;
-        }
-    }
-    if closed && verts.len() >= 2 {
-        let last = verts.len() - 1;
-        let (p0, cp1, cp2, p3) = math::segment_bezier_points(&verts[last], &verts[0]);
-        let dist = point_to_bezier_distance(point, p0, cp1, cp2, p3, polyline);
+    let seg_count = if closed { verts.len() } else { verts.len().saturating_sub(1) };
+    for i in 0..seg_count {
+        let v0 = &verts[i];
+        let v1 = &verts[(i + 1) % verts.len()];
+        let dist = if v0.sharp {
+            // Sharp: straight line segment
+            point_to_segment_distance(point, v0.pos, v1.pos)
+        } else {
+            let (p0, cp1, cp2, p3) = math::segment_bezier_points(v0, v1);
+            point_to_bezier_distance(point, p0, cp1, cp2, p3, polyline)
+        };
         if dist < min_dist {
             min_dist = dist;
         }
@@ -237,8 +237,15 @@ fn build_element_polygon(element: &StrokeElement) -> Vec<Vec2> {
         for i in 0..seg_count {
             let v0 = &verts[i];
             let v1 = &verts[(i + 1) % verts.len()];
-            let (p0, cp1, cp2, p3) = math::segment_bezier_points(v0, v1);
-            math::flatten_cubic_bezier(p0, cp1, cp2, p3, tolerance, &mut polygon);
+            if v0.sharp {
+                polygon.push(v0.pos);
+            } else {
+                let (p0, cp1, cp2, p3) = math::segment_bezier_points(v0, v1);
+                math::flatten_cubic_bezier(p0, cp1, cp2, p3, tolerance, &mut polygon);
+            }
+        }
+        if !element.closed && !verts.is_empty() {
+            polygon.push(verts[verts.len() - 1].pos);
         }
     } else {
         for v in &verts {

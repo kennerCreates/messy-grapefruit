@@ -79,7 +79,7 @@ impl App {
             project.hatch_patterns = defaults.hatch_patterns;
         }
         theme::apply_theme(&cc.egui_ctx, &project);
-        let sprite = Sprite::new("Untitled", 256, 256);
+        let sprite = Sprite::new("Untitled", 147, 168);
         let mut editor = EditorState::default();
         editor.layer.set_active_by_idx(0, &sprite);
         Self {

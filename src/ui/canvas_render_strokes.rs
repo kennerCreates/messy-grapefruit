@@ -385,8 +385,17 @@ fn render_curve_path(
     for i in 0..seg_count {
         let v0 = &verts[i];
         let v1 = &verts[(i + 1) % verts.len()];
-        let (p0, cp1, cp2, p3) = math::segment_bezier_points(v0, v1);
-        math::flatten_cubic_bezier(p0, cp1, cp2, p3, tolerance, &mut world_points);
+        if v0.sharp {
+            // Sharp vertex: straight line segment
+            world_points.push(v0.pos);
+        } else {
+            let (p0, cp1, cp2, p3) = math::segment_bezier_points(v0, v1);
+            math::flatten_cubic_bezier(p0, cp1, cp2, p3, tolerance, &mut world_points);
+        }
+    }
+    // Add the final vertex for open paths
+    if !closed {
+        world_points.push(verts[verts.len() - 1].pos);
     }
 
     if world_points.len() < 2 {
