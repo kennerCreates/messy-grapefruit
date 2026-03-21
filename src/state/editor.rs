@@ -391,7 +391,7 @@ impl LayerState {
 
 /// Transient UI panel / popup state (sidebar toggles, color pickers, popups).
 /// Grouped separately so animation can add its own UI toggles in `TimelineState`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UIState {
     pub sidebar_expanded: bool,
     /// Lospec palette import: slug text input.
@@ -408,19 +408,6 @@ pub struct UIState {
     pub hatch_editor_open: bool,
 }
 
-impl Default for UIState {
-    fn default() -> Self {
-        Self {
-            sidebar_expanded: false,
-            lospec_slug: String::new(),
-            lospec_error: None,
-            lospec_popup_open: false,
-            theme_settings_open: false,
-            theme_role_picker: None,
-            hatch_editor_open: false,
-        }
-    }
-}
 
 /// Onion skin display mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

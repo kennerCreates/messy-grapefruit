@@ -140,21 +140,20 @@ impl eframe::App for App {
                 let delta = (now - last) as f32 * self.editor.playback.speed;
                 self.editor.timeline.playhead_time += delta;
                 // Handle end of animation
-                if let Some(seq_id) = self.editor.timeline.selected_sequence_id.clone() {
-                    if let Some(seq) = self.sprite.animations.iter().find(|s| s.id == seq_id) {
-                        if self.editor.timeline.playhead_time >= seq.duration_secs {
-                            if self.editor.playback.loop_mode && seq.looping {
-                                if seq.duration_secs > 0.0 {
-                                    self.editor.timeline.playhead_time %= seq.duration_secs;
-                                } else {
-                                    self.editor.timeline.playhead_time = 0.0;
-                                }
-                            } else {
-                                self.editor.timeline.playhead_time = seq.duration_secs;
-                                self.editor.playback.playing = false;
-                                self.editor.playback.last_frame_time = None;
-                            }
+                if let Some(seq_id) = self.editor.timeline.selected_sequence_id.clone()
+                    && let Some(seq) = self.sprite.animations.iter().find(|s| s.id == seq_id)
+                    && self.editor.timeline.playhead_time >= seq.duration_secs
+                {
+                    if self.editor.playback.loop_mode && seq.looping {
+                        if seq.duration_secs > 0.0 {
+                            self.editor.timeline.playhead_time %= seq.duration_secs;
+                        } else {
+                            self.editor.timeline.playhead_time = 0.0;
                         }
+                    } else {
+                        self.editor.timeline.playhead_time = seq.duration_secs;
+                        self.editor.playback.playing = false;
+                        self.editor.playback.last_frame_time = None;
                     }
                 }
             }

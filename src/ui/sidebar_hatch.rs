@@ -77,31 +77,28 @@ pub(super) fn show_hatch_editor(
 
     // Import/export
     ui.horizontal(|ui| {
-        if ui.button("Import").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
+        if ui.button("Import").clicked()
+            && let Some(path) = rfd::FileDialog::new()
                 .add_filter("Hatch Patterns", &["hatchpatterns"])
                 .pick_file()
-            {
-                match crate::io::load_hatch_patterns(&path) {
-                    Ok(patterns) => {
-                        actions.push(AppAction::ImportHatchPatterns(patterns));
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to import hatch patterns: {e}");
-                    }
+        {
+            match crate::io::load_hatch_patterns(&path) {
+                Ok(patterns) => {
+                    actions.push(AppAction::ImportHatchPatterns(patterns));
+                }
+                Err(e) => {
+                    eprintln!("Failed to import hatch patterns: {e}");
                 }
             }
         }
-        if ui.button("Export").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
+        if ui.button("Export").clicked()
+            && let Some(path) = rfd::FileDialog::new()
                 .add_filter("Hatch Patterns", &["hatchpatterns"])
                 .set_file_name("patterns.hatchpatterns")
                 .save_file()
-            {
-                if let Err(e) = crate::io::save_hatch_patterns(&project.hatch_patterns, &path) {
-                    eprintln!("Failed to export hatch patterns: {e}");
-                }
-            }
+            && let Err(e) = crate::io::save_hatch_patterns(&project.hatch_patterns, &path)
+        {
+            eprintln!("Failed to export hatch patterns: {e}");
         }
     });
 

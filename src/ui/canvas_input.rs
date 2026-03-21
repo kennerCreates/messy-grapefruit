@@ -263,7 +263,7 @@ fn create_symmetric_elements(
     match symmetry.axis {
         SymmetryAxis::Vertical | SymmetryAxis::Horizontal => {
             match symmetry::try_join_symmetric(&element, symmetry.axis, &symmetry.axis_position, threshold, mcr) {
-                SymmetryResult::Joined(joined) => vec![joined],
+                SymmetryResult::Joined(joined) => vec![*joined],
                 SymmetryResult::Separate(mirrors) => {
                     let mut all = vec![element];
                     all.extend(mirrors);
@@ -281,9 +281,9 @@ fn create_symmetric_elements(
                     // Now try joining that across the horizontal axis.
                     let h_result = symmetry::try_join_symmetric(&v_joined, SymmetryAxis::Horizontal, &symmetry.axis_position, threshold, mcr);
                     match h_result {
-                        SymmetryResult::Joined(full_joined) => vec![full_joined],
+                        SymmetryResult::Joined(full_joined) => vec![*full_joined],
                         SymmetryResult::Separate(h_mirrors) => {
-                            let mut all = vec![v_joined];
+                            let mut all = vec![*v_joined];
                             all.extend(h_mirrors);
                             all
                         }
@@ -297,9 +297,9 @@ fn create_symmetric_elements(
                             // H-joined primary, plus V-mirror of that joined element
                             let v_mirror_result = symmetry::try_join_symmetric(&h_joined, SymmetryAxis::Vertical, &symmetry.axis_position, threshold, mcr);
                             match v_mirror_result {
-                                SymmetryResult::Joined(full) => vec![full],
+                                SymmetryResult::Joined(full) => vec![*full],
                                 SymmetryResult::Separate(v_mirs) => {
-                                    let mut all = vec![h_joined];
+                                    let mut all = vec![*h_joined];
                                     all.extend(v_mirs);
                                     all
                                 }

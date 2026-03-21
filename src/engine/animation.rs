@@ -153,7 +153,7 @@ pub fn evaluate_pose(sprite: &Sprite, sequence: &AnimationSequence, time_secs: f
         let prev = keyframes.iter()
             .filter(|kf| kf.time_secs <= time_secs)
             .filter_map(|kf| kf.element_poses.iter().find(|ep| &ep.element_id == element_id).map(|ep| (kf, ep)))
-            .last();
+            .next_back();
 
         // Find next keyframe (earliest after time) that contains this element
         let next = keyframes.iter()
@@ -433,6 +433,7 @@ pub struct OnionGhost {
 }
 
 /// Compute onion skin ghost frames for rendering.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_onion_skin_ghosts(
     sprite: &Sprite,
     sequence: &AnimationSequence,

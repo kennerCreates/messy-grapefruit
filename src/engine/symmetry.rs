@@ -109,7 +109,7 @@ fn snap_to_axis(pos: Vec2, axis: SymmetryAxis, axis_pos: &Vec2) -> Vec2 {
 /// Result of attempting to join a stroke with its mirror.
 pub enum SymmetryResult {
     /// Endpoints touched the axis — joined into a single element.
-    Joined(StrokeElement),
+    Joined(Box<StrokeElement>),
     /// Endpoints did not touch — return separate primary + mirrored elements.
     Separate(Vec<StrokeElement>),
 }
@@ -219,7 +219,7 @@ pub fn try_join_symmetric(
     result.gradient_fill = element.gradient_fill.clone();
     result.hatch_fill_id = element.hatch_fill_id.clone();
     crate::math::recompute_auto_curves(&mut result.vertices, result.closed, result.curve_mode, min_corner_radius);
-    SymmetryResult::Joined(result)
+    SymmetryResult::Joined(Box::new(result))
 }
 
 #[cfg(test)]

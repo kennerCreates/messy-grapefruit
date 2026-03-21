@@ -190,14 +190,14 @@ fn show_collapsed(
             }
 
             // Hatch thumbnail (if element has a hatch)
-            if let Some(hatch_id) = &elem.hatch_fill_id {
-                if let Some(pattern) = project.hatch_patterns.iter().find(|p| &p.id == hatch_id) {
-                    sidebar_fill::paint_hatch_thumbnail(
-                        ui, pattern, false, true,
-                        project.editor_preferences.theme,
-                        egui::vec2(40.0, 40.0),
-                    );
-                }
+            if let Some(hatch_id) = &elem.hatch_fill_id
+                && let Some(pattern) = project.hatch_patterns.iter().find(|p| &p.id == hatch_id)
+            {
+                sidebar_fill::paint_hatch_thumbnail(
+                    ui, pattern, false, true,
+                    project.editor_preferences.theme,
+                    egui::vec2(40.0, 40.0),
+                );
             }
 
             ui.add_space(4.0);

@@ -128,11 +128,11 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Spr
                 for layer in &mut sprite.layers {
                     for elem in &mut layer.elements {
                         for v in &mut elem.vertices {
-                            v.pos = v.pos + d;
-                            if let Some(ref mut cp) = v.cp1 { *cp = *cp + d; }
-                            if let Some(ref mut cp) = v.cp2 { *cp = *cp + d; }
+                            v.pos += d;
+                            if let Some(ref mut cp) = v.cp1 { *cp += d; }
+                            if let Some(ref mut cp) = v.cp2 { *cp += d; }
                         }
-                        elem.origin = elem.origin + d;
+                        elem.origin += d;
                     }
                 }
                 crate::io::save_app_defaults(project);
@@ -167,15 +167,15 @@ pub fn show_status_bar(ui: &mut egui::Ui, editor: &EditorState, sprite: &mut Spr
                 for layer in &mut sprite.layers {
                     for elem in &mut layer.elements {
                         for v in &mut elem.vertices {
-                            v.pos = v.pos + d;
+                            v.pos += d;
                             if let Some(ref mut cp) = v.cp1 {
-                                *cp = *cp + d;
+                                *cp += d;
                             }
                             if let Some(ref mut cp) = v.cp2 {
-                                *cp = *cp + d;
+                                *cp += d;
                             }
                         }
-                        elem.origin = elem.origin + d;
+                        elem.origin += d;
                     }
                 }
                 crate::io::save_app_defaults(project);

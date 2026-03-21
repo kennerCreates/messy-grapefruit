@@ -39,7 +39,7 @@ fn inset_polygon(points: &[Pos2], offset: f32) -> Vec<Pos2> {
 
     // Positive signed area = CW in screen coords (Y-down) → interior is to the right
     let area = signed_area_2x(points);
-    let sign = if area > 0.0 { 1.0f32 } else { -1.0f32 };
+    let sign = if area > 0.0 { -1.0f32 } else { 1.0f32 };
 
     let mut result = Vec::with_capacity(n);
     for i in 0..n {
@@ -409,13 +409,13 @@ pub fn render_elements(
             let fill_info = resolve_fill_info(element, palette, viewport, canvas_center, dim_alpha);
             render_uniform_stroke(painter, element, color, &fill_info, viewport, canvas_center);
 
-            if let Some(ref hatch_id) = element.hatch_fill_id {
-                if let Some(pattern) = hatch_patterns.iter().find(|p| p.id == *hatch_id) {
-                    render_hatch_fill(
-                        painter, element, pattern, palette, viewport,
-                        canvas_center, dim_alpha,
-                    );
-                }
+            if let Some(ref hatch_id) = element.hatch_fill_id
+                && let Some(pattern) = hatch_patterns.iter().find(|p| p.id == *hatch_id)
+            {
+                render_hatch_fill(
+                    painter, element, pattern, palette, viewport,
+                    canvas_center, dim_alpha,
+                );
             }
         }
     }
@@ -440,7 +440,7 @@ pub fn render_onion_ghost(
         for element in &layer.elements {
             let stroke = Stroke::new(element.stroke_width * viewport.zoom, tint);
             let fill_info = FillInfo::Flat(Color32::TRANSPARENT);
-            render_element_path(painter, element, stroke, &fill_info, viewport, canvas_center);
+            render_element_path(painter, element, stroke, &fill_info, viewport, canvas_center, false);
         }
     }
 }
@@ -454,7 +454,7 @@ fn render_uniform_stroke(
     canvas_center: Pos2,
 ) {
     let stroke = Stroke::new(element.stroke_width * viewport.zoom, color);
-    render_element_path(painter, element, stroke, fill_info, viewport, canvas_center);
+    render_element_path(painter, element, stroke, fill_info, viewport, canvas_center, true);
 }
 
 fn render_element_path(
@@ -464,21 +464,23 @@ fn render_element_path(
     fill_info: &FillInfo,
     viewport: &ViewportState,
     canvas_center: Pos2,
+    inset_stroke: bool,
 ) {
     if transform::has_transform(element) {
         let verts = transform::transformed_vertices(element);
         if element.curve_mode {
-            render_curve_path(painter, &verts, element.closed, stroke, fill_info, viewport, canvas_center);
+            render_curve_path(painter, &verts, element.closed, stroke, fill_info, viewport, canvas_center, inset_stroke);
         } else {
-            render_rounded_path(painter, &verts, element.closed, stroke, fill_info, viewport, canvas_center);
+            render_rounded_path(painter, &verts, element.closed, stroke, fill_info, viewport, canvas_center, inset_stroke);
         }
     } else if element.curve_mode {
-        render_curve_path(painter, &element.vertices, element.closed, stroke, fill_info, viewport, canvas_center);
+        render_curve_path(painter, &element.vertices, element.closed, stroke, fill_info, viewport, canvas_center, inset_stroke);
     } else {
-        render_rounded_path(painter, &element.vertices, element.closed, stroke, fill_info, viewport, canvas_center);
+        render_rounded_path(painter, &element.vertices, element.closed, stroke, fill_info, viewport, canvas_center, inset_stroke);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_curve_path(
     painter: &Painter,
     verts: &[PathVertex],
@@ -487,6 +489,7 @@ fn render_curve_path(
     fill_info: &FillInfo,
     viewport: &ViewportState,
     canvas_center: Pos2,
+    inset_stroke: bool,
 ) {
     if verts.len() < 2 {
         return;
@@ -521,9 +524,10 @@ fn render_curve_path(
         .map(|p| viewport.world_to_screen(*p, canvas_center))
         .collect();
 
-    render_filled_path(painter, &screen_points, closed, stroke, fill_info);
+    render_filled_path(painter, &screen_points, closed, stroke, fill_info, inset_stroke);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_rounded_path(
     painter: &Painter,
     verts: &[PathVertex],
@@ -532,6 +536,7 @@ fn render_rounded_path(
     fill_info: &FillInfo,
     viewport: &ViewportState,
     canvas_center: Pos2,
+    inset_stroke: bool,
 ) {
     let n = verts.len();
     if n < 2 {
@@ -561,7 +566,7 @@ fn render_rounded_path(
         .map(|p| viewport.world_to_screen(*p, canvas_center))
         .collect();
 
-    render_filled_path(painter, &screen_points, closed, stroke, fill_info);
+    render_filled_path(painter, &screen_points, closed, stroke, fill_info, inset_stroke);
 }
 
 /// Subdivide a triangle into a grid and add to the mesh with per-vertex gradient colors.
@@ -625,6 +630,7 @@ fn render_filled_path(
     closed: bool,
     stroke: Stroke,
     fill_info: &FillInfo,
+    inset_stroke: bool,
 ) {
     let has_fill = closed && screen_points.len() >= 3
         && !matches!(fill_info, FillInfo::Flat(c) if *c == Color32::TRANSPARENT);
@@ -681,41 +687,58 @@ fn render_filled_path(
         }
 
         // Render stroke on an inset path so it appears inside the shape
-        let inset_points = inset_polygon(screen_points, stroke.width / 2.0);
-        painter.add(egui::Shape::Path(egui::epaint::PathShape {
-            points: inset_points,
-            closed,
-            fill: Color32::TRANSPARENT,
-            stroke: stroke.into(),
-        }));
+        if inset_stroke {
+            let inset_points = inset_polygon(screen_points, stroke.width / 2.0);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape {
+                points: inset_points,
+                closed,
+                fill: Color32::TRANSPARENT,
+                stroke: stroke.into(),
+            }));
+        } else {
+            painter.add(egui::Shape::Path(egui::epaint::PathShape {
+                points: screen_points.to_vec(),
+                closed,
+                fill: Color32::TRANSPARENT,
+                stroke: stroke.into(),
+            }));
+        }
     }
 
-    // For non-filled closed paths, still inset the stroke inside the shape boundary.
+    // For non-filled closed paths, inset or centered based on flag.
     if !has_fill && closed && screen_points.len() >= 3 {
-        let inset_points = inset_polygon(screen_points, stroke.width / 2.0);
+        let points = if inset_stroke {
+            inset_polygon(screen_points, stroke.width / 2.0)
+        } else {
+            screen_points.to_vec()
+        };
         painter.add(egui::Shape::Path(egui::epaint::PathShape {
-            points: inset_points,
+            points,
             closed,
             fill: Color32::TRANSPARENT,
             stroke: stroke.into(),
         }));
     }
 
-    // Open paths: offset the stroke to one side (left of path direction).
+    // Open paths: offset or centered based on flag.
     if !has_fill && !closed && screen_points.len() >= 2 {
-        let offset_points = offset_open_path(screen_points, stroke.width / 2.0);
+        let points = if inset_stroke {
+            offset_open_path(screen_points, stroke.width / 2.0)
+        } else {
+            screen_points.to_vec()
+        };
         painter.add(egui::Shape::Path(egui::epaint::PathShape {
-            points: offset_points.clone(),
+            points: points.clone(),
             closed: false,
             fill: Color32::TRANSPARENT,
             stroke: stroke.into(),
         }));
 
         let cap_radius = stroke.width * 0.5;
-        if let Some(&p) = offset_points.first() {
+        if let Some(&p) = points.first() {
             painter.circle_filled(p, cap_radius, stroke.color);
         }
-        if let Some(&p) = offset_points.last() {
+        if let Some(&p) = points.last() {
             painter.circle_filled(p, cap_radius, stroke.color);
         }
     }
@@ -779,7 +802,7 @@ pub fn render_hover_highlight(
                 );
                 render_element_path(
                     painter, element, stroke,
-                    &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center,
+                    &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center, false,
                 );
                 return;
             }
@@ -811,7 +834,7 @@ pub fn render_selection_highlights(
                 );
                 render_element_path(
                     painter, element, stroke,
-                    &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center,
+                    &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center, false,
                 );
             }
         }
@@ -837,9 +860,9 @@ pub fn render_line_tool_preview(
     let stroke = Stroke::new(stroke_width * viewport.zoom, color);
 
     if curve_mode {
-        render_curve_path(painter, vertices, false, stroke, &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center);
+        render_curve_path(painter, vertices, false, stroke, &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center, true);
     } else {
-        render_rounded_path(painter, vertices, false, stroke, &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center);
+        render_rounded_path(painter, vertices, false, stroke, &FillInfo::Flat(Color32::TRANSPARENT), viewport, canvas_center, true);
     }
 
     if let Some(last) = vertices.last() {
