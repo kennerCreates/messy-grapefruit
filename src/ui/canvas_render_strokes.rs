@@ -79,10 +79,10 @@ fn inset_polygon(points: &[Pos2], offset: f32) -> Vec<Pos2> {
         let cos_half = n1.x * bisector.x + n1.y * bisector.y;
 
         // Clamp miter length to prevent spikes at very sharp angles
-        let miter_length = if cos_half.abs() < 0.15 {
+        let miter_length = if cos_half.abs() < 0.25 {
             offset
         } else {
-            (offset / cos_half).min(offset * 3.0)
+            (offset / cos_half).min(offset * 2.0)
         };
 
         result.push(Pos2::new(

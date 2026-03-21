@@ -45,9 +45,10 @@ pub(super) fn show_line_tool_options(
     ui.horizontal(|ui| {
         ui.add(icons::small_icon(icons::prop_width(), ui));
         ui.label("Width");
-        for &w in &[1.0_f32, 2.0, 4.0, 8.0] {
+        for &w in &[0.25_f32, 0.5, 1.0, 2.0] {
             let selected = (editor.brush.stroke_width - w).abs() < 0.01;
-            if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
+            let label = if w.fract() == 0.0 { format!("{}", w as u32) } else { format!("{w}") };
+            if ui.selectable_label(selected, label).clicked() {
                 editor.brush.stroke_width = w;
             }
         }
@@ -175,9 +176,10 @@ pub(super) fn show_select_tool_options(
     ui.horizontal(|ui| {
         ui.add(icons::small_icon(icons::prop_width(), ui));
         ui.label("Width");
-        for &w in &[1.0_f32, 2.0, 4.0, 8.0] {
+        for &w in &[0.25_f32, 0.5, 1.0, 2.0] {
             let selected = (stroke_w - w).abs() < 0.01;
-            if ui.selectable_label(selected, format!("{}", w as u32)).clicked() {
+            let label = if w.fract() == 0.0 { format!("{}", w as u32) } else { format!("{w}") };
+            if ui.selectable_label(selected, label).clicked() {
                 stroke_w = w;
                 change_desc = Some("Edit stroke width");
             }

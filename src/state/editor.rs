@@ -301,7 +301,7 @@ pub struct BrushState {
 impl Default for BrushState {
     fn default() -> Self {
         Self {
-            stroke_width: 2.0,
+            stroke_width: 1.0,
             color_index: 1, // black
             fill_color_index: 1, // default to first real color
             fill_mode: FillMode::Flat,
